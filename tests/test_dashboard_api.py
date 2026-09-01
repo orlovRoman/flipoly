@@ -1,7 +1,53 @@
 import pytest
+from types import SimpleNamespace
 from datetime import datetime, timezone
 from polyflip.db.models import TradeHistory
-from polyflip.api.dashboard import get_trade_logs
+from polyflip.api.dashboard import get_trade_logs, _mrf_audit_payload
+
+
+def test_mrf_audit_payload_prefers_json_and_preserves_policy():
+    funnel = SimpleNamespace(
+        mrf_audit_json='{"global_phase":"MIXED","policy":{"allow":true,"multiplier":0.5}}',
+        mrf_mode="ACTIVE",
+        mrf_evaluated=True,
+        mrf_phase="SIDEWAYS",
+        mrf_asset_phase="WEAK_UP",
+        mrf_strength=0.1,
+        mrf_confidence=0.9,
+        mrf_multiplier=0.5,
+        mrf_applied=True,
+        mrf_failure_reason=None,
+        mrf_final_action="BUY_YES",
+    )
+
+    payload = _mrf_audit_payload(funnel)
+
+    assert payload["global_phase"] == "MIXED"
+    assert payload["asset_phase"] == "WEAK_UP"
+    assert payload["policy"] == {"allow": True, "multiplier": 0.5}
+
+
+def test_mrf_audit_payload_falls_back_to_scalar_telemetry():
+    funnel = SimpleNamespace(
+        mrf_audit_json=None,
+        mrf_mode="ACTIVE",
+        mrf_evaluated=False,
+        mrf_phase="UNKNOWN",
+        mrf_asset_phase="UNKNOWN",
+        mrf_strength=None,
+        mrf_confidence=None,
+        mrf_multiplier=None,
+        mrf_applied=False,
+        mrf_failure_reason="not_ready",
+        mrf_final_action="SKIP",
+    )
+
+    payload = _mrf_audit_payload(funnel)
+
+    assert payload["mode"] == "ACTIVE"
+    assert payload["global_phase"] == "UNKNOWN"
+    assert payload["failure_reason"] == "not_ready"
+    assert payload["policy"]["allow"] is False
 
 @pytest.mark.asyncio
 async def test_trade_logs_pagination(db_session):

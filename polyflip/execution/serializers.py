@@ -30,13 +30,16 @@ def _parse_error(error_reason: str | None) -> dict:
         "minimum order",
         "below minimum",
         "order size too small",
+        "order_size_below_minimum",
+        "minimum_shares=",
+        "lower than the minimum",
     )
     if any(marker in normalized for marker in below_minimum_markers):
         return {
             "error_code": "ORDER_BELOW_MINIMUM",
             "error_message_ru": (
-                "Сумма ордера ниже допустимого минимума. "
-                "Для LIVE используется безопасный минимум 1.10 USDC"
+                "Polymarket отклонил заявку из-за минимального или "
+                "некорректного размера для конкретного рынка."
             ),
         }
     if "max_slippage" in normalized or "slippage" in normalized:

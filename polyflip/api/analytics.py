@@ -332,7 +332,11 @@ async def delete_model(asset: str, version: int, db: AsyncSession = Depends(get_
     await db.commit()
     invalidate_models_cache()
     await invalidate_analytics_cache()
-    return {"status": "success", "message": f"Model {asset} v{version} deleted"}
+    return {
+        "status": "success",
+        "message": f"Model {asset} v{version} deleted",
+        "deleted_version": version,
+    }
 
 
 def get_model_subtype_info(asset: str) -> tuple[str, str, str]:
@@ -441,23 +445,6 @@ async def get_active_models_summary(
 
 
 
-
-@router.delete("/analytics/models/{asset}/{version}", dependencies=[Depends(verify_api_key)])
-async def delete_model(asset: str, version: int, db: AsyncSession = Depends(get_db_session)):
-    """Удаление архивной модели"""
-    stmt = select(ModelRegistry).where(ModelRegistry.asset == asset, ModelRegistry.version == version)
-    model = (await db.execute(stmt)).scalar_one_or_none()
-    
-    if not model:
-        raise HTTPException(status_code=404, detail="Model not found")
-        
-    if model.is_active:
-        raise HTTPException(status_code=400, detail="Cannot delete active model")
-        
-    await db.execute(delete(ModelRegistry).where(ModelRegistry.asset == asset, ModelRegistry.version == version))
-    await db.commit()
-    await invalidate_analytics_cache()
-    return {"status": "success", "deleted_version": version}
 
 async def set_training_status(session: AsyncSession, asset: str, status: str, message: str, last_run: str = None):
     """Сохраняет статус обучения для конкретного актива в RuntimeSettings в виде JSON-строки."""

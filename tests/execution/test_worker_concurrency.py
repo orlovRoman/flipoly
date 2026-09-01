@@ -10,7 +10,9 @@ from polyflip.db.execution_models import ExecutionRequest, ExecutionAttempt
 from polyflip.db.models import LiveMarket
 
 @pytest.mark.asyncio
-async def test_worker_concurrency_skip_locked(db_session):
+async def test_worker_concurrency_skip_locked(db_session, monkeypatch):
+    monkeypatch.setenv("EXECUTION_MODE", "PAPER")
+    monkeypatch.setenv("PAPER_EXECUTION_PROFILE", "INSTANT")
     if db_session.bind.dialect.name == "sqlite":
         pytest.skip("SQLite does not support row-level locks with FOR UPDATE SKIP LOCKED")
     import polyflip.db.connection

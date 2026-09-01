@@ -179,6 +179,117 @@ def _result_metric(
     return None
 
 
+
+def _comparison_metrics(metrics: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Extract optional baseline/coverage/role telemetry without changing gate math."""
+    baseline: dict[str, Any] = {}
+    for key in ("baseline", "active", "reference"):
+        value = metrics.get(key)
+        if isinstance(value, Mapping):
+            baseline.update(value)
+    for key in (
+        "baseline_net_pnl",
+        "baseline_pnl",
+        "baseline_drawdown",
+        "baseline_max_drawdown",
+        "baseline_trade_count",
+        "baseline_trades",
+        "coverage",
+        "coverage_pct",
+    ):
+        if key in metrics:
+            baseline[key] = metrics[key]
+    aliases = {
+        "baseline_net_pnl": "median_pnl",
+        "baseline_pnl": "median_pnl",
+        "baseline_drawdown": "median_drawdown",
+        "baseline_max_drawdown": "median_drawdown",
+        "baseline_trade_count": "median_trades",
+        "baseline_trades": "median_trades",
+    }
+    for source, target in aliases.items():
+        if target not in baseline and source in baseline:
+            baseline[target] = baseline[source]
+    roles: dict[str, Any] = {}
+    raw_roles = metrics.get("roles") or metrics.get("by_role")
+    if isinstance(raw_roles, Mapping):
+        for name, value in raw_roles.items():
+            if isinstance(value, Mapping):
+                roles[str(name).upper()] = dict(value)
+    for name in ("FAVORITE", "OUTSIDER", "COMBINED"):
+        value = metrics.get(name) or metrics.get(name.lower())
+        if isinstance(value, Mapping):
+            roles[name] = dict(value)
+    return baseline, roles
+
+
+
+def _telemetry_metric(source: Mapping[str, Any], names: Sequence[str]) -> float | None:
+    value = _mapping_value(source, names)
+    return _finite(value)
+
+
+def _telemetry_coverage(source: Mapping[str, Any]) -> float | None:
+    for name in ("coverage", "coverage_ratio", "coverage_pct"):
+        value = _finite(source.get(name))
+        if value is None:
+            continue
+        # Store coverage as a ratio so the dashboard can compare rows
+        # consistently even when a provider reports percentages.
+        return value / 100.0 if value > 1.0 else value
+    return None
+
+
+def _record_comparison_telemetry(
+    metrics: Mapping[str, Any],
+    *,
+    coverage_values: list[float],
+    baseline_values: dict[str, list[float]],
+    role_values: dict[str, dict[str, list[float]]],
+) -> None:
+    baseline, roles = _comparison_metrics(metrics)
+    coverage = _telemetry_coverage(metrics)
+    if coverage is None:
+        coverage = _telemetry_coverage(baseline)
+    if coverage is not None:
+        coverage_values.append(coverage)
+    sources = (baseline,)
+    metric_aliases = {
+        "median_pnl": ("median_pnl", "net_pnl", "pnl"),
+        "median_drawdown": (
+            "median_drawdown",
+            "max_drawdown",
+            "drawdown",
+        ),
+        "median_trades": ("median_trades", "trade_count", "trades"),
+    }
+    for target, names in metric_aliases.items():
+        for source in sources:
+            value = _telemetry_metric(source, names)
+            if value is not None:
+                baseline_values[target].append(value)
+    for role_name, role_metrics in roles.items():
+        for target, names in metric_aliases.items():
+            value = _telemetry_metric(role_metrics, names)
+            if value is not None:
+                role_values[role_name][target].append(value)
+        coverage = _telemetry_coverage(role_metrics)
+        if coverage is not None:
+            role_values[role_name]["coverage"].append(coverage)
+
+
+def _comparison_payload(
+    values: Mapping[str, Sequence[float]],
+) -> dict[str, Any]:
+    median_trades = _median(values.get("median_trades", ()))
+    return {
+        "median_pnl": _median(values.get("median_pnl", ())),
+        "median_drawdown": _median(values.get("median_drawdown", ())),
+        "median_trades": (
+            int(round(median_trades)) if median_trades is not None else None
+        ),
+        "coverage": _median(values.get("coverage", ())),
+    }
 def _oot_window_key(result: Any) -> tuple[str, str] | None:
     return _window_entries(result)[0][0]
 
@@ -315,6 +426,12 @@ def build_experiment_report(
         artifact_ids: set[int] = set()
         unique_windows: set[tuple[str, str]] = set()
         window_details: list[dict[str, Any]] = []
+        coverage_values: list[float] = []
+        baseline_values: dict[str, list[float]] = defaultdict(list)
+        role_values: dict[str, dict[str, list[float]]] = defaultdict(
+            lambda: defaultdict(list)
+        )
+        result_ids: set[int] = set()
 
         for result in successful_results:
             raw_metrics = _value(result, "metrics", {}) or {}
@@ -331,6 +448,41 @@ def build_experiment_report(
         for result in polymarket_results:
             raw_metrics = _value(result, "metrics", {}) or {}
             metrics = raw_metrics if isinstance(raw_metrics, Mapping) else {}
+            comparison_source = dict(metrics)
+            for field in (
+                "baseline",
+                "active",
+                "reference",
+                "baseline_net_pnl",
+                "baseline_pnl",
+                "baseline_drawdown",
+                "baseline_max_drawdown",
+                "baseline_trade_count",
+                "baseline_trades",
+                "coverage",
+                "coverage_ratio",
+                "coverage_pct",
+                "roles",
+                "by_role",
+                "FAVORITE",
+                "OUTSIDER",
+                "COMBINED",
+            ):
+                value = _value(result, field)
+                if value is not None and field not in comparison_source:
+                    comparison_source[field] = value
+            result_id = _value(result, "id")
+            if result_id is not None:
+                try:
+                    result_ids.add(int(result_id))
+                except (TypeError, ValueError):
+                    pass
+            _record_comparison_telemetry(
+                comparison_source,
+                coverage_values=coverage_values,
+                baseline_values=baseline_values,
+                role_values=role_values,
+            )
             entries = _window_entries(result)
             if not entries or all(window_key is None for window_key, _ in entries):
                 invalid_result_count += 1
@@ -426,6 +578,29 @@ def build_experiment_report(
             "brier": _median(metric_values["brier"]),
             "log_loss": _median(metric_values["log_loss"]),
             "win_rate": _median(metric_values["win_rate"]),
+            "result_ids": sorted(result_ids),
+            "coverage": _median(coverage_values),
+            "baseline": _comparison_payload(baseline_values),
+            "roles": {
+                role: _comparison_payload(values)
+                for role, values in sorted(role_values.items())
+            },
+        }
+
+        baseline_payload = row["baseline"]
+        row["comparison"] = {
+            "median_pnl_delta": (
+                row["median_oot_pnl"] - baseline_payload["median_pnl"]
+                if row["median_oot_pnl"] is not None
+                and baseline_payload["median_pnl"] is not None
+                else None
+            ),
+            "drawdown_delta": (
+                row["median_oot_drawdown"] - baseline_payload["median_drawdown"]
+                if row["median_oot_drawdown"] is not None
+                and baseline_payload["median_drawdown"] is not None
+                else None
+            ),
         }
 
         if str(mode).upper() == "RESEARCH":
@@ -546,6 +721,8 @@ def build_experiment_report(
         "rejection_reasons": rejection_reasons,
         "evaluated_config_count": len(rows),
         "eligible_candidate_count": len(eligible),
+        "gate_requirements": {"min_trades": min_trades, "min_windows": min_windows},
+        "gate_flow": ["OOT", "VALID", "SHADOW", "PAPER_OBSERVATIONS", "DEPLOYMENT_OR_OVERLAY"],
         "rows": rows,
     }
     if winner:
@@ -558,6 +735,7 @@ def build_experiment_report(
                 # promotion status distinct from the winner's evidence label.
                 "winner_recommendation_status": winner["recommendation_status"],
                 "deployment_status": winner["deployment_status"],
+                "winner_result_ids": winner.get("result_ids", []),
             }
         )
     elif rows:
@@ -641,9 +819,14 @@ async def plan_run(
         session.add(step)
         created_steps.append(step)
 
-    await transition_run(
-        session, run, "PLANNING", reason="planned experiment steps generated"
-    )
+    if run.status in {"DRAFT", "QUEUED"}:
+        await transition_run(
+            session, run, "PLANNING", reason="planned experiment steps generated"
+        )
+    elif run.status in {"PLANNING", "RUNNING"}:
+        pass
+    else:
+        raise AILabError(f"cannot plan run in {run.status}")
     await session.flush()
     return created_steps
 

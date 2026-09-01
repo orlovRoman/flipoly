@@ -20,7 +20,7 @@ from datetime import datetime, timezone, timedelta
 from urllib.parse import urlparse
 from pathlib import Path
 
-from polyflip.db.models import RuntimeSettings, TradeHistory, MarketSnapshot, CollectorStatus
+from polyflip.db.models import AIOptimizationRun, AIRunStep, CollectorStatus, MarketSnapshot, RuntimeSettings, TradeHistory
 from polyflip.execution.trade_lifecycle import mark_trade_resolved
 from polyflip.models.trainer import ModelTrainer
 from polyflip.crypto.candle_collector import collect_new_candles, refresh_funding_rates
@@ -31,6 +31,7 @@ from polyflip.crypto.historical_loader import load_history_all
 from polyflip.crypto.predictor import CryptoPredictor
 from polyflip.constants import COMBINED_BINANCE_SYMBOLS
 from polyflip.ai_lab.schedule import create_scheduled_research_run
+from polyflip.ai_lab.scheduler import run_lgbm_scheduler
 
 
 logger = structlog.get_logger(__name__)
@@ -71,6 +72,71 @@ async def ai_lab_research_schedule_job():
             )
     except Exception as exc:
         logger.exception("ai_lab_research_schedule_failed", error=str(exc))
+
+async def ai_lab_execution_job() -> None:
+    """Drain bounded offline AI Lab steps from the shared scheduler."""
+    try:
+        async with async_session() as session:
+            run_ids = (
+                await session.execute(
+                    select(AIOptimizationRun.id)
+                    .join(AIRunStep, AIRunStep.run_id == AIOptimizationRun.id)
+                    .where(
+                        AIOptimizationRun.status.in_(("PLANNING", "RUNNING")),
+                        AIRunStep.status == "PENDING",
+                        AIRunStep.step_type.in_(
+                            (
+                                "TRAIN_MODEL",
+                                "RUN_OOT_BACKTEST",
+                                "RUN_POLYMARKET_OOT",
+                            )
+                        ),
+                    )
+                    .group_by(AIOptimizationRun.id, AIOptimizationRun.created_at)
+                    .order_by(AIOptimizationRun.created_at, AIOptimizationRun.id)
+                    .limit(5)
+                )
+            ).scalars().all()
+    except Exception as exc:
+        logger.exception("ai_lab_execution_queue_scan_failed", error=str(exc))
+        return
+
+    for raw_run_id in run_ids:
+        run_id = int(raw_run_id)
+        try:
+            async with async_session() as session:
+                lease_ttl = max(
+                    30.0,
+                    float(
+                        getattr(
+                            settings,
+                            "AI_LAB_AGENT_LEASE_TTL_SECONDS",
+                            120,
+                        )
+                        or 120
+                    ),
+                )
+                result = await run_lgbm_scheduler(
+                    session,
+                    run_id,
+                    max_iterations=1,
+                    max_steps=5,
+                    lease_ttl_seconds=lease_ttl,
+                    manage_run_lease=False,
+                )
+            logger.info(
+                "ai_lab_execution_batch_finished",
+                run_id=run_id,
+                status=result.status,
+                steps=len(result.outcomes),
+                stop_reason=result.stop_reason,
+            )
+        except Exception as exc:
+            logger.exception(
+                "ai_lab_execution_batch_failed",
+                run_id=run_id,
+                error=str(exc),
+            )
 
 
 async def refresh_predictor_params_job():
@@ -625,6 +691,22 @@ async def main():
         max_instances=1,
     )
     
+    # The external agent only plans steps; this bounded job executes them.
+    # It remains enabled even when scheduled research creation is disabled so
+    # manually queued runs can still make progress.
+    execution_interval = max(
+        5.0, float(os.getenv("AI_LAB_EXECUTION_INTERVAL_SECONDS", "5"))
+    )
+    scheduler.add_job(
+        ai_lab_execution_job,
+        trigger=IntervalTrigger(seconds=execution_interval),
+        id="ai_lab_execution_worker",
+        next_run_time=now,
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+        misfire_grace_time=60,
+    )
     # Ежедневно переобучаем модели (раз в 24 часа) - ОТКЛЮЧЕНО в пользу ручного обучения
     # Optional bounded AI Lab research scheduler. Disabled by default and
     # never registered without an explicit positive interval.

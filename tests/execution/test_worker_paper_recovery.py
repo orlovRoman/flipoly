@@ -53,6 +53,7 @@ async def test_process_ready_request_finishes_paper_trade(
     import polyflip.execution.worker as worker
 
     monkeypatch.setenv("EXECUTION_MODE", "PAPER")
+    monkeypatch.setenv("PAPER_EXECUTION_PROFILE", "INSTANT")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     monkeypatch.setattr(worker, "async_session", session_factory)
 
@@ -93,6 +94,7 @@ async def test_submit_error_requeues_paper_instead_of_leaving_submitting(
     import polyflip.execution.worker as worker
 
     monkeypatch.setenv("EXECUTION_MODE", "PAPER")
+    monkeypatch.setenv("PAPER_EXECUTION_PROFILE", "INSTANT")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     monkeypatch.setattr(worker, "async_session", session_factory)
 
@@ -150,6 +152,7 @@ async def test_reconcile_requeues_stale_paper_without_provider_id(
     import polyflip.execution.worker as worker
 
     monkeypatch.setenv("EXECUTION_MODE", "PAPER")
+    monkeypatch.setenv("PAPER_EXECUTION_PROFILE", "INSTANT")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     monkeypatch.setattr(worker, "async_session", session_factory)
 

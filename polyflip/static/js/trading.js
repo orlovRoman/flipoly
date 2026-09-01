@@ -481,19 +481,28 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!res.ok) return;
       const data = await res.json();
 
+      const globalPhaseKnown =
+        data.phase_available === true ||
+        (data.phase_available === undefined &&
+          data.latest_regime &&
+          data.latest_regime !== 'UNKNOWN');
       if (settingsElements.mrfCurrentRegime) {
-        const regime = data.latest_regime || 'UNKNOWN';
-        settingsElements.mrfCurrentRegime.textContent = regime;
+        const regime = globalPhaseKnown ? data.latest_regime : 'UNKNOWN';
+        settingsElements.mrfCurrentRegime.textContent = globalPhaseKnown ? regime : 'НЕТ ДАННЫХ';
         settingsElements.mrfCurrentRegime.className = 'mrf-regime-badge mrf-regime-' + regime;
       }
       if (settingsElements.mrfStatusDetails) {
-        const parts = [];
-        if (data.latest_asset) parts.push(data.latest_asset);
-        if (data.latest_strength > 0) parts.push('сила: ' + (data.latest_strength * 100).toFixed(0) + '%');
-        if (data.latest_confidence > 0) parts.push('увер: ' + (data.latest_confidence * 100).toFixed(0) + '%');
-        settingsElements.mrfStatusDetails.textContent = parts.length
-          ? parts.join(' · ') + ' (' + data.hours + 'ч окно)'
-          : 'Нет данных за выбранный период';
+        if (!globalPhaseKnown) {
+          settingsElements.mrfStatusDetails.textContent =
+            'Нет актуальной MRF-оценки за выбранный период (' + data.hours + 'ч окно)';
+        } else {
+          const parts = [];
+          if (data.latest_asset) parts.push(data.latest_asset);
+          if (data.latest_strength != null) parts.push('сила: ' + (data.latest_strength * 100).toFixed(0) + '%');
+          if (data.latest_confidence != null) parts.push('увер: ' + (data.latest_confidence * 100).toFixed(0) + '%');
+          settingsElements.mrfStatusDetails.textContent =
+            parts.join(' · ') + ' (' + data.hours + 'ч окно)';
+        }
       }
       if (settingsElements.mrfStatEvaluated) {
         settingsElements.mrfStatEvaluated.textContent = data.total_evaluated != null ? data.total_evaluated : '—';
@@ -506,7 +515,9 @@ document.addEventListener("DOMContentLoaded", () => {
         settingsElements.mrfStatMultiplier.textContent = '×' + m.toFixed(2);
       }
       if (settingsElements.mrfStatStrength) {
-        const s = data.latest_strength != null ? (data.latest_strength * 100).toFixed(0) + '%' : '—';
+        const s = globalPhaseKnown && data.latest_strength != null
+          ? (data.latest_strength * 100).toFixed(0) + '%'
+          : '—';
         settingsElements.mrfStatStrength.textContent = s;
       }
       if (settingsElements.mrfPerAssetCards && data.per_asset) {
@@ -517,11 +528,31 @@ document.addEventListener("DOMContentLoaded", () => {
           const info = data.per_asset[asset];
           const card = document.createElement('div');
           card.className = 'mrf-asset-card';
-          const phase = info ? (Object.keys(info.phases || {}).sort((a,b) => (info.phases[b]||0) - (info.phases[a]||0))[0] || 'UNKNOWN') : 'UNKNOWN';
+          const phaseKnown = !!info && (
+            info.phase_available === true ||
+            (info.phase_available === undefined && info.phase && info.phase !== 'UNKNOWN')
+          );
+          const phase = phaseKnown ? info.phase : 'UNKNOWN';
+          const phaseLabel = phaseKnown ? phase : 'НЕТ ДАННЫХ';
           const strength = info ? (info.blocked > 0 ? ' (забл.)' : '') : ' (нет данных)';
-          card.innerHTML = '<span class="asset-name">' + asset + '</span>' +
-            '<span class="asset-phase mrf-regime-badge mrf-regime-' + phase + '">' + phase + '</span>' +
-            '<span class="asset-strength">' + (info ? info.evaluated + ' оценок' : '—') + strength + '</span>';
+          const strengthVal = phaseKnown && info.strength != null ? (info.strength * 100).toFixed(0) + '%' : '—';
+          const confVal = phaseKnown && info.confidence != null ? (info.confidence * 100).toFixed(0) + '%' : '—';
+          const pnl = info && info.pnl != null ? (info.pnl >= 0 ? '+' : '') + info.pnl.toFixed(2) : '—';
+          const winRate = info ? info.win_rate_pct.toFixed(0) + '%' : '—';
+          const mult = phaseKnown && info.avg_multiplier != null ? '\u00d7' + info.avg_multiplier.toFixed(2) : '—';
+          card.innerHTML =
+            '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+              '<span class="asset-name">' + asset + '</span>' +
+              '<span class="asset-phase mrf-regime-badge mrf-regime-' + phase + '">' + phaseLabel + '</span>' +
+            '</div>' +
+            '<div style="font-size:0.75rem;color:var(--text-muted);margin-top:4px;display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;">' +
+              '<span>\u0441\u0438\u043b\u0430: ' + strengthVal + '</span>' +
+              '<span>\u0443\u0432\u0435\u0440: ' + confVal + '</span>' +
+              '<span>\u0431\u043b\u043e\u043a: ' + (info ? info.blocked : 0) + strength + '</span>' +
+              '<span>mult: ' + mult + '</span>' +
+              '<span>PnL: <span style="color:' + (info && info.pnl >= 0 ? '#4ade80' : '#f87171') + '">' + pnl + '</span></span>' +
+              '<span>win: ' + winRate + '</span>' +
+            '</div>';
           container.appendChild(card);
         }
       }
@@ -1039,7 +1070,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (!data.items || data.items.length === 0) {
         tbody.innerHTML =
-          '<tr><td colspan="14" style="text-align:center; padding: 1rem;">Нет событий</td></tr>';
+          '<tr><td colspan="15" style="text-align:center; padding: 1rem;">Нет событий</td></tr>';
         renderPagination(currentPage, totalPages, data.total || 0);
         return;
       }
@@ -1242,6 +1273,20 @@ document.addEventListener("DOMContentLoaded", () => {
                                   : "#ff3366"
                               }; font-weight: bold;">${(parseFloat(log.edge) * 100).toFixed(1)}%</span>`
                             : "-"
+                        }</td>
+                        <td style="padding: 8px;">${
+                          (() => {
+                            const fl = log.funnel_log;
+                            const a = fl && (fl.mrf_audit || fl.mrf);
+                            if (!a) return '<span style="color:var(--text-muted);">—</span>';
+                            const p = a.global_phase || a.global_regime || 'UNKNOWN';
+                            const pol = a.policy || {};
+                            const multiplier = pol.multiplier ?? a.multiplier;
+                            const dotColor = pol.allow === false ? '#ff3366' : pol.allow === true ? '#00ff88' : '#ffb020';
+                            const title = a.failure_reason ? ` title="${escapeHtml(a.failure_reason)}"` : '';
+                            return `<span class="mrf-regime-badge mrf-regime-${p}" style="font-size:0.78rem;"${title}>${escapeHtml(p)}</span>` +
+                              (multiplier != null && Number(multiplier) !== 1.0 ? `<br><span style="font-size:0.75rem;color:${dotColor};">x${Number(multiplier).toFixed(2)}</span>` : '');
+                          })()
                         }</td>
                         <td style="padding: 8px;">${reasonHtml}</td>
                         <td style="padding: 8px; text-align: center;">${log.funnel_log ? `<span style="cursor: pointer; font-size: 1.2em;" title="Детали инференса" onclick="showFunnelDiagnostic(${log.id})">🔍</span>` : ""}</td>
@@ -1711,6 +1756,45 @@ window.showFunnelDiagnostic = function(logId) {
                 ${gatesHtml}
             </ul>
         </div>
+        ${(() => {
+            const mrf = funnel.mrf_audit;
+            if (!mrf) return '';
+            const phase = mrf.global_phase || mrf.global_regime || 'UNKNOWN';
+            const pol = mrf.policy || {};
+            const polStatus = pol.allow ? '<span style="color:#00ff88;">PASS</span>' : '<span style="color:#ff3366;">BLOCK</span>';
+            let assetsHtml = '';
+            const assets = mrf.assets || {};
+            for (const [sym, a] of Object.entries(assets)) {
+                const c = a.confidence != null ? (a.confidence * 100).toFixed(0) + '%' : '—';
+                const s = a.strength != null ? (a.strength * 100).toFixed(0) + '%' : '—';
+                assetsHtml += `<div style="display:flex;gap:8px;align-items:center;font-size:0.82rem;">
+                    <span style="color:#e2e8f0;min-width:40px;">${sym}</span>
+                    <span class="mrf-regime-badge mrf-regime-${a.phase}" style="font-size:0.75rem;">${a.phase}</span>
+                    <span>str:${s}</span><span>conf:${c}</span>
+                </div>`;
+            }
+            const basket = mrf.basket || {};
+            const basketInfo = basket.ready_count != null ? `${basket.ready_count}/${basket.total_count}` : '—';
+            const reasonCodes = (mrf.reason_codes && mrf.reason_codes.length > 0)
+                ? `<div style="margin-top:6px;font-size:0.78rem;color:#ffb020;">reasons: ${mrf.reason_codes.join(', ')}</div>` : '';
+            return `
+        <hr style="border-color:rgba(255,255,255,0.1); margin:0;">
+        <div>
+            <div style="font-weight:600; color:#fff; margin-bottom:4px;">Market Regime Filter (${mrf.mode})</div>
+            <div>Phase: <span class="mrf-regime-badge mrf-regime-${phase}">${phase}</span>
+                 &nbsp;confidence: <b>${mrf.global_confidence != null ? (mrf.global_confidence * 100).toFixed(1) + '%' : '—'}</b>
+                 &nbsp;strength: <b>${mrf.global_strength != null ? (mrf.global_strength * 100).toFixed(1) + '%' : '—'}</b></div>
+            <div>Policy: ${polStatus} &nbsp; multiplier: <b>${pol.multiplier != null ? 'x' + Number(pol.multiplier).toFixed(2) : '—'}</b>
+                 &nbsp;reason: <span style="color:#e2e8f0;">${pol.reason || '—'}</span></div>
+            <div>Basket: ${basketInfo} ready
+                 ${basket.median_ret_24h != null ? ` &nbsp;ret24h: ${basket.median_ret_24h >= 0 ? '+' : ''}${(basket.median_ret_24h * 100).toFixed(2)}%` : ''}
+                 ${basket.efficiency != null ? ` &nbsp;eff: ${Number(basket.efficiency).toFixed(2)}` : ''}
+                 ${basket.breadth_up_24h != null ? ` &nbsp;breadth: ${(basket.breadth_up_24h * 100).toFixed(0)}%` : ''}
+            </div>
+            ${assetsHtml ? `<div style="margin-top:6px;font-size:0.85rem;"><div style="color:var(--text-muted);margin-bottom:2px;">Assets:</div>${assetsHtml}</div>` : ''}
+            ${reasonCodes}
+        </div>`;
+        })()}
         ${funnel.fallback_reason ? `<div style="padding:10px; background:rgba(255,51,102,0.12); color:#ff3366; border-radius:6px; font-size:0.85rem;"><b>Fallback reason:</b> ${funnel.fallback_reason}</div>` : ""}
     </div>`;
 

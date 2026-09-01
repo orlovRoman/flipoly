@@ -2,7 +2,7 @@
 MRF T13: Final threshold calibration + comparison backtest.
 Tests relaxed thresholds suitable for 15-minute crypto data.
 """
-import sys, os, json, time
+import sys, os, json, hashlib, time
 from datetime import datetime, timezone
 from pathlib import Path
 import numpy as np
@@ -160,12 +160,12 @@ def main():
                 # Classify with custom config
                 cl = classify_asset_regime(snap.assets[asset], config=regime_cfg)
 
-                mock_price = 0.3 + (hash(f"{asset}_{i}") % 100) / 100.0 * 0.4
+                mock_price = 0.3 + (int(hashlib.sha256(f"{asset}_{i}".encode()).hexdigest(), 16) % 100) / 100.0 * 0.4
                 is_fav = mock_price > 0.5
                 action = "BUY_YES" if is_fav else "BUY_NO"
 
                 # Deterministic win (same for all configs)
-                won = hash(f"win_{asset}_{i}") % 100 < 55
+                won = int(hashlib.sha256(f"win_{asset}_{i}".encode()).hexdigest(), 16) % 100 < 55
                 trade_pnl = (0.5 if won else -1.0)
 
                 # Baseline

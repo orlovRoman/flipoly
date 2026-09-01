@@ -37,7 +37,7 @@ docker rm -f $(docker ps -aq --filter "name=^/polyflip_execution_worker$") 2>/de
 docker compose build
 docker compose run --rm api alembic upgrade head
 
-docker compose up -d --remove-orphans api scheduler execution_worker_paper
+docker compose up -d --remove-orphans api scheduler execution_worker_paper ai_research_agent
 sleep 10
 curl --fail http://localhost:8001/dashboard
 '@

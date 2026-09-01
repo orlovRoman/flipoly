@@ -7,8 +7,8 @@ activate models or mutate live execution settings.
 from __future__ import annotations
 
 from polyflip.ai_lab.agent import AILabAgent
+from polyflip.ai_lab.paper_overlay import get_paper_overlay_runtime_summary
 from polyflip.ai_lab.agent_tools import expire_overlays, rollback_overlay
-from polyflip.db.models import AIConfigOverlay
 
 from datetime import datetime, timezone
 import re
@@ -17,10 +17,15 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException
 import structlog
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polyflip.ai_lab.executor import ExecutionBatchError
+from polyflip.ai_lab.llm_catalog import (
+    check_model_availability,
+    persist_model_check_result,
+    refresh_model_catalog,
+)
 from polyflip.ai_lab.manifests import compute_manifest_hash
 from polyflip.ai_lab.lgbm_worker import MAX_LGBM_WORKER_STEPS, execute_lgbm_steps
 from polyflip.ai_lab.scheduler import (
@@ -63,12 +68,17 @@ from polyflip.api.auth import verify_api_key
 from polyflip.db.connection import get_db_session
 from polyflip.db.models import (
     AIApprovalRequest,
+    AIConfigOverlay,
     AIExperimentConfig,
     AIOptimizationRun,
     AIPermission,
     AIRunStep,
+    AIShadowAssignment,
+    AIShadowObservation,
+    AIWorkerLease,
     DeploymentEvent,
     DeploymentRevision,
+    ExperimentResult,
     AIStepAuditLog,
 )
 
@@ -121,6 +131,9 @@ class RunCreateRequest(BaseModel):
     budget_experiments: int = Field(default=1, ge=1, le=10000)
     budget_seconds: int = Field(default=0, ge=0, le=7 * 24 * 3600)
     created_by: str = Field(default="api", max_length=128)
+    llm_provider: str | None = Field(default=None, max_length=32)
+    research_model: str | None = Field(default=None, max_length=128)
+    summary_model: str | None = Field(default=None, max_length=128)
     permission_id: int | None = Field(
         default=None,
         description="Concrete AIPermission.id version captured as the run snapshot.",
@@ -158,8 +171,6 @@ class ConfigCreateRequest(BaseModel):
     description: str | None = None
     created_by: str = Field(default="api", max_length=128)
     parent_id: int | None = None
-
-
 
 
 class PermissionCreateRequest(BaseModel):
@@ -245,6 +256,10 @@ def _run_payload(run: AIOptimizationRun) -> dict[str, Any]:
         "autonomy_level": run.autonomy_level,
         "status": run.status,
         "agent_type": run.agent_type,
+        "llm_provider": run.llm_provider,
+        "llm_research_model": run.llm_research_model,
+        "llm_summary_model": run.llm_summary_model,
+        "llm_snapshot": getattr(run, "llm_snapshot", None),
         "budget_experiments": run.budget_experiments,
         "budget_seconds": run.budget_seconds,
         "created_by": run.created_by,
@@ -294,7 +309,10 @@ def _audit_payload(audit: Any) -> dict[str, Any]:
 # Audit responses deliberately contain a small, stable projection rather than
 # the executor payload.  In particular, executor error messages can contain a
 # traceback or an accidentally logged credential.
-_SECRET_KEY = re.compile(r"(?:secret|password|passwd|token|api[_-]?key|private[_-]?key|authorization|cookie)", re.I)
+_SECRET_KEY = re.compile(
+    r"(?:secret|password|passwd|token|api[_-]?key|private[_-]?key|authorization|cookie)",
+    re.I,
+)
 
 
 def _safe_text(value: Any, limit: int = 1000) -> str | None:
@@ -342,19 +360,24 @@ def verify_deployment_event_chain(events: list[Any]) -> dict[str, Any]:
     """Verify one revision's chain without changing database state."""
     previous = "0" * 64
     broken: list[dict[str, Any]] = []
-    for event in sorted(events, key=lambda row: (getattr(row, "created_at", None), getattr(row, "id", 0))):
+    for event in sorted(
+        events,
+        key=lambda row: (getattr(row, "created_at", None), getattr(row, "id", 0)),
+    ):
         if event.previous_hash != previous:
             broken.append({"event_id": event.id, "reason": "previous_hash_mismatch"})
         payload = event.payload if isinstance(event.payload, dict) else {}
-        expected = compute_manifest_hash({
-            "revision_id": event.revision_id,
-            "event_type": event.event_type,
-            "actor": event.actor,
-            "reason": event.reason,
-            "payload": payload,
-            "previous_hash": event.previous_hash,
-            "timestamp": event.created_at.isoformat() if event.created_at else None,
-        })
+        expected = compute_manifest_hash(
+            {
+                "revision_id": event.revision_id,
+                "event_type": event.event_type,
+                "actor": event.actor,
+                "reason": event.reason,
+                "payload": payload,
+                "previous_hash": event.previous_hash,
+                "timestamp": event.created_at.isoformat() if event.created_at else None,
+            }
+        )
         if event.event_hash != expected:
             broken.append({"event_id": event.id, "reason": "event_hash_mismatch"})
         previous = event.event_hash
@@ -393,6 +416,51 @@ def _assignment_payload(assignment: Any) -> dict[str, Any]:
     }
 
 
+
+def _observation_payload(observation: Any) -> dict[str, Any]:
+    return {
+        "id": observation.id,
+        "assignment_id": observation.assignment_id,
+        "run_id": observation.run_id,
+        "market_id": observation.market_id,
+        "snapshot_at": observation.snapshot_at,
+        "active_model_key": observation.active_model_key,
+        "candidate_model_key": observation.candidate_model_key,
+        "active_action": observation.active_action,
+        "candidate_action": observation.candidate_action,
+        "active_probability": observation.active_probability,
+        "candidate_probability": observation.candidate_probability,
+        "active_ask": observation.active_ask,
+        "candidate_ask": observation.candidate_ask,
+        "active_net_edge": observation.active_net_edge,
+        "candidate_net_edge": observation.candidate_net_edge,
+        "active_pnl": observation.active_pnl,
+        "candidate_pnl": observation.candidate_pnl,
+        "market_outcome": observation.market_outcome,
+        "lr_direction_vote": observation.lr_direction_vote,
+        "lgbm_direction_vote": observation.lgbm_direction_vote,
+        "consensus_type": observation.consensus_type,
+        "shadow_logreg_action": observation.shadow_logreg_action,
+        "actual_combined_action": observation.actual_combined_action,
+        "shadow_logreg_net_edge": observation.shadow_logreg_net_edge,
+        "actual_net_edge": observation.actual_net_edge,
+        "status": observation.status,
+    }
+
+
+def _overlay_payload(overlay: Any, *, metrics: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {
+        "id": overlay.id,
+        "run_id": overlay.run_id,
+        "parent_overlay_id": overlay.parent_overlay_id,
+        "scope": overlay.scope,
+        "changes": overlay.changes,
+        "status": overlay.status,
+        "created_by": overlay.created_by,
+        "expires_at": overlay.expires_at,
+        "created_at": overlay.created_at,
+        "metrics": metrics or {},
+    }
 def _approval_payload(app: Any) -> dict[str, Any]:
     return {
         "id": app.id,
@@ -444,11 +512,16 @@ async def create_ai_permission(
 @router.get("/permissions")
 async def list_ai_permissions(db: AsyncSession = Depends(get_db_session)):
     rows = (
-        await db.execute(
-            select(AIPermission)
-            .order_by(AIPermission.profile_name, AIPermission.version.desc())
+        (
+            await db.execute(
+                select(AIPermission).order_by(
+                    AIPermission.profile_name, AIPermission.version.desc()
+                )
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return {
         "permissions": [
             {
@@ -479,8 +552,62 @@ async def check_ai_action(
     return {"run_id": run.id, "action": payload.action.upper(), "allowed": True}
 
 
+@router.get("/llm/models")
+async def list_llm_models(
+    provider: str | None = None,
+    refresh: bool = False,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Return the provider/model catalog without exposing credentials.
+
+    For ``opencode`` this reflects the dynamic discovery cache; pass
+    ``refresh=true`` to force a live fetch (falls back to the last cached
+    catalog with ``stale=true`` when the endpoint is unreachable).
+    """
+    try:
+        catalog = await refresh_model_catalog(db, provider=provider, refresh=refresh)
+        await db.commit()
+        return catalog
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/llm/models/{provider}/{model_id:path}/check")
+async def check_llm_model(
+    provider: str,
+    model_id: str,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Probe one model with a tiny structured request and persist the result.
+
+    The dashboard must not allow a research run with a model that has not
+    passed this check; the persisted ``is_available`` flag is the gate input.
+    """
+    try:
+        report = await check_model_availability(provider, model_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    row = await persist_model_check_result(
+        db, provider=provider.strip().lower(), model_id=model_id.strip(), report=report
+    )
+    await db.commit()
+    return {
+        "provider": provider.strip().lower(),
+        "model_id": model_id.strip(),
+        "available": bool(report.get("available")),
+        "protocol": report.get("protocol"),
+        "latency_ms": report.get("latency_ms"),
+        "checked_at": report.get("checked_at"),
+        "error": report.get("error"),
+        "is_available": bool(row.is_available),
+    }
+
+
 @router.post("/runs", status_code=201)
-async def create_ai_run(payload: RunCreateRequest, db: AsyncSession = Depends(get_db_session)):
+async def create_ai_run(
+    payload: RunCreateRequest, db: AsyncSession = Depends(get_db_session)
+):
     permission = None
     if payload.permission_id is not None:
         # Lock the concrete permission version while the run captures its
@@ -510,6 +637,9 @@ async def create_ai_run(payload: RunCreateRequest, db: AsyncSession = Depends(ge
             budget_seconds=payload.budget_seconds,
             created_by=payload.created_by,
             permission=permission,
+            llm_provider=payload.llm_provider,
+            llm_research_model=payload.research_model,
+            llm_summary_model=payload.summary_model,
         )
         await db.commit()
         await db.refresh(run)
@@ -519,6 +649,181 @@ async def create_ai_run(payload: RunCreateRequest, db: AsyncSession = Depends(ge
     return _run_payload(run)
 
 
+
+@router.get("/agent/status")
+async def get_ai_agent_status(db: AsyncSession = Depends(get_db_session)):
+    """Return a compact health/queue/telemetry snapshot for the dashboard."""
+    now = utc_now()
+    lease = (
+        await db.execute(
+            select(AIWorkerLease)
+            .where(AIWorkerLease.expires_at > now)
+            .order_by(AIWorkerLease.heartbeat_at.desc(), AIWorkerLease.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    queue_count = int(
+        (
+            await db.execute(
+                select(func.count(AIOptimizationRun.id)).where(
+                    AIOptimizationRun.status == "QUEUED"
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+    current_run = await db.get(AIOptimizationRun, lease.run_id) if lease else None
+    latest_failed = (
+        await db.execute(
+            select(AIOptimizationRun)
+            .where(AIOptimizationRun.status == "FAILED")
+            .order_by(AIOptimizationRun.updated_at.desc(), AIOptimizationRun.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    latest_step = None
+    if current_run is not None:
+        latest_step = (
+            await db.execute(
+                select(AIRunStep)
+                .where(AIRunStep.run_id == current_run.id)
+                .order_by(AIRunStep.step_index.desc(), AIRunStep.id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+    if latest_step is None:
+        latest_step = (
+            await db.execute(
+                select(AIRunStep)
+                .order_by(AIRunStep.created_at.desc(), AIRunStep.id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+    telemetry: dict[str, Any] = {}
+    if latest_step is not None:
+        for payload in (latest_step.input_payload, latest_step.output_payload):
+            if isinstance(payload, dict) and isinstance(payload.get("telemetry"), dict):
+                telemetry.update(payload["telemetry"])
+    proposal_query = select(AIRunStep).where(AIRunStep.step_type == "PROPOSAL")
+    if current_run is not None:
+        proposal_query = proposal_query.where(AIRunStep.run_id == current_run.id)
+    latest_proposal = (
+        await db.execute(
+            proposal_query.order_by(AIRunStep.created_at.desc(), AIRunStep.id.desc()).limit(1)
+        )
+    ).scalar_one_or_none()
+    proposal_payload = (
+        latest_proposal.input_payload
+        if latest_proposal is not None and isinstance(latest_proposal.input_payload, dict)
+        else {}
+    )
+    current_hypothesis = proposal_payload.get("proposal") if proposal_payload else None
+    decision_query = select(AIRunStep).where(AIRunStep.step_type == "DECISION")
+    if current_run is not None:
+        decision_query = decision_query.where(AIRunStep.run_id == current_run.id)
+    decision_rows = (
+        await db.execute(
+            decision_query.order_by(AIRunStep.created_at.desc(), AIRunStep.id.desc()).limit(10)
+        )
+    ).scalars().all()
+    decision_history = []
+    telemetry_query = select(AIRunStep)
+    if current_run is not None:
+        telemetry_query = telemetry_query.where(AIRunStep.run_id == current_run.id)
+    telemetry_rows = (
+        await db.execute(
+            telemetry_query.order_by(
+                AIRunStep.created_at.desc(), AIRunStep.id.desc()
+            ).limit(20)
+        )
+    ).scalars().all()
+    for telemetry_step in reversed(telemetry_rows):
+        for payload in (
+            telemetry_step.input_payload,
+            telemetry_step.output_payload,
+        ):
+            if isinstance(payload, dict) and isinstance(
+                payload.get("telemetry"), dict
+            ):
+                telemetry.update(payload["telemetry"])
+    for step in decision_rows:
+        input_payload = step.input_payload if isinstance(step.input_payload, dict) else {}
+        output_payload = step.output_payload if isinstance(step.output_payload, dict) else {}
+        decision_payload = input_payload.get("decision") if isinstance(input_payload.get("decision"), dict) else {}
+        decision_history.append(
+            {
+                "step_id": step.id,
+                "run_id": step.run_id,
+                "action": step.action or decision_payload.get("action"),
+                "rationale": decision_payload.get("rationale") or step.summary,
+                "result_id": output_payload.get("result_id") or input_payload.get("result_id"),
+                "effects": output_payload.get("effects", {}),
+                "created_at": step.created_at,
+            }
+        )
+    oot_query = select(ExperimentResult).where(
+        ExperimentResult.evaluation_kind == "POLYMARKET_OOT"
+    )
+    if current_run is not None:
+        oot_query = oot_query.where(ExperimentResult.run_id == current_run.id)
+    latest_oot = (
+        await db.execute(
+            oot_query.order_by(ExperimentResult.created_at.desc(), ExperimentResult.id.desc()).limit(1)
+        )
+    ).scalar_one_or_none()
+    latest_oot_result = (
+        {
+            "result_id": latest_oot.id,
+            "run_id": latest_oot.run_id,
+            "config_id": latest_oot.config_id,
+            "status": latest_oot.status,
+            "net_pnl": latest_oot.net_pnl,
+            "trade_count": latest_oot.trade_count,
+            "max_drawdown": latest_oot.max_drawdown,
+            "metrics": latest_oot.metrics or {},
+        }
+        if latest_oot is not None
+        else None
+    )
+    state = "working" if current_run is not None else ("error" if latest_failed else "idle")
+    current = None
+    if current_run is not None:
+        current = {
+            "id": current_run.id,
+            "status": current_run.status,
+            "iteration": current_run.experiments_completed,
+            "budget_experiments": current_run.budget_experiments,
+            "phase": latest_step.step_type if latest_step else None,
+            "research_model": current_run.llm_research_model,
+            "summary_model": current_run.llm_summary_model,
+            "heartbeat_at": lease.heartbeat_at if lease else None,
+            "expires_at": lease.expires_at if lease else None,
+        }
+    runtime_overlays = await get_paper_overlay_runtime_summary(db)
+    active_overlays = [
+        item for item in runtime_overlays
+        if str(item.get("status") or "").upper() == "APPLIED"
+    ]
+    # Runtime summary expires overlays as part of the read; persist that
+    # lifecycle transition so the dashboard and workers see the same state.
+    await db.commit()
+    return {
+        "state": state,
+        "health": "healthy" if state != "error" else "degraded",
+        "queue_count": queue_count,
+        "current_run": current,
+        "latest_telemetry": telemetry,
+        "current_hypothesis": current_hypothesis,
+        "decision_history": decision_history,
+        "latest_oot_result": latest_oot_result,
+        "active_overlays": active_overlays,
+        "latest_error": (
+            {"run_id": latest_failed.id, "message": latest_failed.error}
+            if latest_failed is not None
+            else None
+        ),
+        "checked_at": now,
+    }
 @router.get("/runs")
 async def list_ai_runs(
     status: str | None = None,
@@ -529,9 +834,7 @@ async def list_ai_runs(
 ):
     # Cursor pagination is stable even when multiple runs share a timestamp.
     limit = min(max(limit, 1), 100)
-    query = select(AIOptimizationRun).order_by(
-        AIOptimizationRun.id.desc()
-    ).limit(limit)
+    query = select(AIOptimizationRun).order_by(AIOptimizationRun.id.desc()).limit(limit)
     if status:
         query = query.where(AIOptimizationRun.status == status.strip().upper())
     if created_by:
@@ -551,6 +854,11 @@ async def get_ai_run(run_id: int, db: AsyncSession = Depends(get_db_session)):
     detail = await get_run_detail(db, run_id)
     if detail is None:
         raise HTTPException(status_code=404, detail="AI Lab run not found")
+    runtime_overlays = await get_paper_overlay_runtime_summary(db, run_id=run_id)
+    await db.commit()
+    overlay_metrics = {
+        int(item["id"]): item.get("metrics", {}) for item in runtime_overlays
+    }
     return {
         "run": _run_payload(detail["run"]),
         "steps": [_step_payload(step) for step in detail["steps"]],
@@ -578,6 +886,16 @@ async def get_ai_run(run_id: int, db: AsyncSession = Depends(get_db_session)):
         ],
         "audits": [_audit_payload(audit) for audit in detail.get("audits", [])],
         "approvals": [_approval_payload(app) for app in detail.get("approvals", [])],
+        "shadow_assignments": [
+            _assignment_payload(item) for item in detail.get("shadow_assignments", [])
+        ],
+        "shadow_observations": [
+            _observation_payload(item) for item in detail.get("shadow_observations", [])
+        ],
+        "overlays": [
+            _overlay_payload(item, metrics=overlay_metrics.get(int(item.id)))
+            for item in detail.get("overlays", [])
+        ],
     }
 
 
@@ -1113,12 +1431,16 @@ async def list_ai_deployment_revisions(
     db: AsyncSession = Depends(get_db_session),
 ):
     revisions = (
-        await db.execute(
-            select(DeploymentRevision)
-            .order_by(DeploymentRevision.id.desc())
-            .limit(min(max(1, limit), 200))
+        (
+            await db.execute(
+                select(DeploymentRevision)
+                .order_by(DeploymentRevision.id.desc())
+                .limit(min(max(1, limit), 200))
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [
         {
             "id": rev.id,
@@ -1140,12 +1462,22 @@ async def get_ai_run_audit(run_id: int, db: AsyncSession = Depends(get_db_sessio
     """Return the safe, normalized audit projection for one run."""
     if await db.get(AIOptimizationRun, run_id) is None:
         raise HTTPException(status_code=404, detail="AI Lab run not found")
-    rows = (await db.execute(
-        select(AIStepAuditLog)
-        .where(AIStepAuditLog.run_id == run_id)
-        .order_by(AIStepAuditLog.created_at, AIStepAuditLog.id)
-    )).scalars().all()
-    return {"run_id": run_id, "audit": [_step_audit_payload(row) for row in rows], "count": len(rows)}
+    rows = (
+        (
+            await db.execute(
+                select(AIStepAuditLog)
+                .where(AIStepAuditLog.run_id == run_id)
+                .order_by(AIStepAuditLog.created_at, AIStepAuditLog.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "run_id": run_id,
+        "audit": [_step_audit_payload(row) for row in rows],
+        "count": len(rows),
+    }
 
 
 @router.get("/runs/{run_id}/timeline")
@@ -1153,18 +1485,28 @@ async def get_ai_run_timeline(run_id: int, db: AsyncSession = Depends(get_db_ses
     """Return a chronological, concise view of step and deployment audit records."""
     if await db.get(AIOptimizationRun, run_id) is None:
         raise HTTPException(status_code=404, detail="AI Lab run not found")
-    step_rows = (await db.execute(
-        select(AIStepAuditLog).where(AIStepAuditLog.run_id == run_id)
-    )).scalars().all()
-    deployment_rows = (await db.execute(
-        select(DeploymentEvent)
-        .where(DeploymentEvent.payload["run_id"].as_string() == str(run_id))
-        .order_by(DeploymentEvent.created_at, DeploymentEvent.id)
-    )).scalars().all()
-    events = [_step_audit_payload(row) for row in step_rows]
-    events.extend(
-        _audit_event_payload(row) for row in deployment_rows
+    step_rows = (
+        (
+            await db.execute(
+                select(AIStepAuditLog).where(AIStepAuditLog.run_id == run_id)
+            )
+        )
+        .scalars()
+        .all()
     )
+    deployment_rows = (
+        (
+            await db.execute(
+                select(DeploymentEvent)
+                .where(DeploymentEvent.payload["run_id"].as_string() == str(run_id))
+                .order_by(DeploymentEvent.created_at, DeploymentEvent.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    events = [_step_audit_payload(row) for row in step_rows]
+    events.extend(_audit_event_payload(row) for row in deployment_rows)
 
     def timeline_time(value: Any) -> datetime:
         if value is None:
@@ -1173,21 +1515,33 @@ async def get_ai_run_timeline(run_id: int, db: AsyncSession = Depends(get_db_ses
             return value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc)
 
-    events.sort(key=lambda row: (row["created_at"] is None, timeline_time(row["created_at"])))
+    events.sort(
+        key=lambda row: (row["created_at"] is None, timeline_time(row["created_at"]))
+    )
     return {"run_id": run_id, "timeline": events, "count": len(events)}
 
 
 @router.get("/audit/verify")
 async def verify_ai_audit(db: AsyncSession = Depends(get_db_session)):
     """Verify every per-revision deployment event chain and return a summary."""
-    revisions = (await db.execute(select(DeploymentRevision).order_by(DeploymentRevision.id))).scalars().all()
+    revisions = (
+        (await db.execute(select(DeploymentRevision).order_by(DeploymentRevision.id)))
+        .scalars()
+        .all()
+    )
     results = []
     for revision in revisions:
-        events = (await db.execute(
-            select(DeploymentEvent)
-            .where(DeploymentEvent.revision_id == revision.id)
-            .order_by(DeploymentEvent.created_at, DeploymentEvent.id)
-        )).scalars().all()
+        events = (
+            (
+                await db.execute(
+                    select(DeploymentEvent)
+                    .where(DeploymentEvent.revision_id == revision.id)
+                    .order_by(DeploymentEvent.created_at, DeploymentEvent.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
         result = verify_deployment_event_chain(events)
         results.append({"revision_id": revision.id, **result})
     broken = [item for item in results if not item["valid"]]
@@ -1209,12 +1563,16 @@ async def get_ai_deployment_revision(
     if rev is None:
         raise HTTPException(status_code=404, detail="Deployment revision not found")
     events = (
-        await db.execute(
-            select(DeploymentEvent)
-            .where(DeploymentEvent.revision_id == revision_id)
-            .order_by(DeploymentEvent.created_at, DeploymentEvent.id)
+        (
+            await db.execute(
+                select(DeploymentEvent)
+                .where(DeploymentEvent.revision_id == revision_id)
+                .order_by(DeploymentEvent.created_at, DeploymentEvent.id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return {
         "id": rev.id,
         "revision_key": rev.revision_key,
@@ -1310,7 +1668,9 @@ async def pause_optimization_run(
         "PENDING_APPROVAL",
         "PAUSED",
     }:
-        raise HTTPException(status_code=409, detail=f"Cannot pause run in status {run.status}")
+        raise HTTPException(
+            status_code=409, detail=f"Cannot pause run in status {run.status}"
+        )
     try:
         await transition_run(db, run, "PAUSED", reason="paused by operator")
         await db.commit()
@@ -1331,7 +1691,9 @@ async def resume_optimization_run(
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     if run.status != "PAUSED":
-        raise HTTPException(status_code=409, detail=f"Run is not paused (current: {run.status})")
+        raise HTTPException(
+            status_code=409, detail=f"Run is not paused (current: {run.status})"
+        )
     try:
         await transition_run(db, run, "RUNNING", reason="resumed by operator")
         await db.commit()
@@ -1360,7 +1722,9 @@ async def cancel_optimization_run(
         "ROLLED_BACK",
         "ACTIVE",
     }:
-        raise HTTPException(status_code=409, detail=f"Cannot cancel run in status {run.status}")
+        raise HTTPException(
+            status_code=409, detail=f"Cannot cancel run in status {run.status}"
+        )
     try:
         await transition_run(db, run, "CANCELLED", reason="cancelled by operator")
         await db.commit()
@@ -1377,29 +1741,35 @@ async def list_run_overlays(
     db: AsyncSession = Depends(get_db_session),
 ):
     """List all runtime setting overlays associated with an optimization run."""
-    await expire_overlays(db)
+    rows = await get_paper_overlay_runtime_summary(db, run_id=run_id)
     await db.commit()
-    stmt = (
-        select(AIConfigOverlay)
-        .where(AIConfigOverlay.run_id == run_id)
-        .order_by(AIConfigOverlay.id.desc())
-    )
-    rows = (await db.execute(stmt)).scalars().all()
-    return [
-        {
-            "id": r.id,
-            "run_id": r.run_id,
-            "parent_overlay_id": r.parent_overlay_id,
-            "scope": r.scope,
-            "changes": r.changes,
-            "status": r.status,
-            "created_by": r.created_by,
-            "expires_at": r.expires_at,
-            "created_at": r.created_at,
-        }
-        for r in rows
-    ]
+    return rows
 
+
+
+@router.get("/overlays")
+async def list_ai_overlays(
+    status: str | None = None,
+    active_only: bool = False,
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """List active/all AI Lab overlays with PAPER runtime impact metrics."""
+    await expire_overlays(db)
+    query = select(AIConfigOverlay).order_by(AIConfigOverlay.id.desc()).limit(
+        min(max(limit, 1), 500)
+    )
+    if status:
+        query = query.where(AIConfigOverlay.status == status.strip().upper())
+    if active_only:
+        query = query.where(AIConfigOverlay.status == "APPLIED")
+    rows = (await db.execute(query)).scalars().all()
+    metrics = {
+        int(item["id"]): item.get("metrics", {})
+        for item in await get_paper_overlay_runtime_summary(db)
+    }
+    await db.commit()
+    return [_overlay_payload(row, metrics=metrics.get(int(row.id))) for row in rows]
 
 @router.post("/overlays/{overlay_id}/rollback")
 async def rollback_config_overlay_endpoint(

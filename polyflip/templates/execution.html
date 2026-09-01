@@ -256,11 +256,15 @@
 
                 <!-- Order Execution Mode Selector & Parameter Settings -->
                 <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border-color);">
-                    <div style="font-size: 0.9rem; font-weight: 600; margin-bottom: 8px;">Режим и параметры исполнения ордера (Polymarket CLOB)</div>
+                    <div style="font-size: 0.9rem; font-weight: 600; margin-bottom: 8px;">Режим и параметры исполнения ордера (Polymarket CLOB: LIVE и PAPER)</div>
                     <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                         <button id="btn-mode-fak" class="btn-action" style="background: #4a5568; padding: 6px 12px; font-size: 0.85rem;" onclick="setOrderMode('FAK')">FAK (Быстрый)</button>
                         <button id="btn-mode-gtc-ttl" class="btn-action" style="background: #4a5568; padding: 6px 12px; font-size: 0.85rem;" onclick="setOrderMode('GTC_TTL')">GTC / GTD (Ожидание) ⚠️</button>
                         <button id="btn-mode-fak-retry" class="btn-action" style="background: #3182ce; padding: 6px 12px; font-size: 0.85rem;" onclick="setOrderMode('FAK_RETRY')">FAK Retry (Повторы) ✓</button>
+                        <button id="btn-mode-smart-maker" class="btn-action" style="background: #4a5568; padding: 6px 12px; font-size: 0.85rem;" onclick="setOrderMode('SMART_MAKER')">SMART (AUTO) ✨</button>
+                    </div>
+                    <div id="smart-maker-hint" style="display:none; font-size:0.75rem; color:#68d391; margin-top:4px;">
+                        ≥ 5 акций → GTC (Maker) &nbsp;|&nbsp; &lt; 5 акций → FAK-Retry (одинаково в LIVE и PAPER)
                     </div>
 
                     <!-- Dynamic parameter inputs for selected mode -->
@@ -269,7 +273,12 @@
                             <label style="font-size: 0.8rem; color: #a0aec0;">Время жизни GTC (сек):</label>
                             <input type="number" id="input-gtc-ttl-sec" value="5.0" step="0.5" min="1" max="60" style="width: 70px; padding: 4px 8px; border-radius: 4px; background: #2d3748; border: 1px solid #4a5568; color: #fff;" onchange="saveOrderModeParams()">
                         </div>
-                        <div id="param-fak-retry-block" style="display: none; align-items: center; gap: 12px;">
+                                                <div id="param-maker-block" style="display: none; align-items: center; gap: 12px;">
+                            <label style="font-size: 0.8rem; color: #a0aec0; display: flex; align-items: center; gap: 5px;"><input type="checkbox" id="input-maker-reprice" checked onchange="saveOrderModeParams()"> Перевыставить maker при пересечении стакана</label>
+                            <label style="font-size: 0.8rem; color: #a0aec0;">Тик: <input type="number" id="input-maker-tick" value="0.01" step="0.001" min="0.0001" max="0.1" style="width: 65px; padding: 4px 8px; border-radius: 4px; background: #2d3748; border: 1px solid #4a5568; color: #fff;" onchange="saveOrderModeParams()"></label>
+                            <span style="font-size: 0.75rem; color: #718096;">Повтор: максимум 1</span>
+                        </div>
+<div id="param-fak-retry-block" style="display: none; align-items: center; gap: 12px;">
                             <div style="display: flex; align-items: center; gap: 6px;">
                                 <label style="font-size: 0.8rem; color: #a0aec0;">Макс. попыток:</label>
                                 <input type="number" id="input-fak-retry-attempts" value="3" step="1" min="1" max="10" style="width: 60px; padding: 4px 8px; border-radius: 4px; background: #2d3748; border: 1px solid #4a5568; color: #fff;" onchange="saveOrderModeParams()">
@@ -285,7 +294,8 @@
                     <div style="font-size: 0.75rem; color: #718096; margin-top: 4px;">
                         • <b>FAK</b>: Мгновенно исполняет или гасит заявку.<br>
                         • <b>GTC/GTD</b>: Ордер висит в стакане N секунд, потенциальный риск токсичного исполнения при скачке цены.<br>
-                        • <b>FAK Retry</b>: До N повторных попыток FAK с обновлением цены стакана и паузой. Рекомендуется.
+                        • <b>FAK Retry</b>: До N повторных попыток FAK с обновлением цены стакана и паузой. Рекомендуется.<br>
+                        • <b>SMART (AUTO)</b>: Если объём ≥ 5 акций → Maker (GTC), иначе → FAK-Retry. Автовыбор.
                     </div>
                 </div>
 
@@ -591,7 +601,7 @@ if (typeof translateError === 'undefined') {
                         err = String(err);
                         if (err.includes("insufficient funds")) return "Недостаточно средств";
                         if (err.includes("invalid amount")) return "Некорректная сумма (invalid amount)";
-                        if (err.includes("min size") || err.includes("minimum order") || err.includes("order size too small") || err.includes("below minimum")) return "Сумма меньше минимальной";
+                        if (err.includes("min size") || err.includes("minimum order") || err.includes("order size too small") || err.includes("below minimum") || err.includes("lower than the minimum")) return "Сумма меньше минимальной";
                         if (err.includes("validation error") || err.includes("invalid price") || err.includes("bad request")) return "Ошибка валидации ордера";
                         if (err.includes("Cannot verify allowance")) return "Ошибка проверки allowance";
                         return escapeHtml(err);
@@ -1235,7 +1245,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         err = String(err);
                         if (err.includes("insufficient funds")) return "Недостаточно средств";
                         if (err.includes("invalid amount")) return "Некорректная сумма (invalid amount)";
-                        if (err.includes("min size") || err.includes("minimum order") || err.includes("order size too small") || err.includes("below minimum")) return "Сумма меньше минимальной";
+                        if (err.includes("min size") || err.includes("minimum order") || err.includes("order size too small") || err.includes("below minimum") || err.includes("lower than the minimum")) return "Сумма меньше минимальной";
                         if (err.includes("validation error") || err.includes("invalid price") || err.includes("bad request")) return "Ошибка валидации ордера";
                         if (err.includes("Cannot verify allowance")) return "Ошибка проверки allowance";
                         return escapeHtml(err);
@@ -1358,16 +1368,23 @@ document.addEventListener('DOMContentLoaded', () => {
             const btnFak = document.getElementById('btn-mode-fak');
             const btnGtc = document.getElementById('btn-mode-gtc-ttl');
             const btnRetry = document.getElementById('btn-mode-fak-retry');
+            const btnSmart = document.getElementById('btn-mode-smart-maker');
+            const smartHint = document.getElementById('smart-maker-hint');
 
             if (btnFak) btnFak.style.background = (currentOrderMode === 'FAK') ? '#3182ce' : '#4a5568';
-            if (btnGtc) btnGtc.style.background = (currentOrderMode === 'GTC_TTL') ? '#d69e2e' : '#4a5568';
+            if (btnGtc) btnGtc.style.background = (currentOrderMode === 'GTC_TTL' || currentOrderMode === 'GTD') ? '#d69e2e' : '#4a5568';
             if (btnRetry) btnRetry.style.background = (currentOrderMode === 'FAK_RETRY') ? '#3182ce' : '#4a5568';
+            if (btnSmart) btnSmart.style.background = (currentOrderMode === 'SMART_MAKER') ? '#38a169' : '#4a5568';
 
             const gtcBlock = document.getElementById('param-gtc-ttl-block');
             const retryBlock = document.getElementById('param-fak-retry-block');
+            const makerBlock = document.getElementById('param-maker-block');
 
-            if (gtcBlock) gtcBlock.style.display = (currentOrderMode === 'GTC_TTL') ? 'flex' : 'none';
+            const _isGtcLike = currentOrderMode === 'GTC_TTL' || currentOrderMode === 'SMART_MAKER';
+            if (gtcBlock) gtcBlock.style.display = _isGtcLike ? 'flex' : 'none';
             if (retryBlock) retryBlock.style.display = (currentOrderMode === 'FAK_RETRY') ? 'flex' : 'none';
+            if (makerBlock) makerBlock.style.display = (_isGtcLike || currentOrderMode === 'GTD') ? 'flex' : 'none';
+            if (smartHint) smartHint.style.display = (currentOrderMode === 'SMART_MAKER') ? 'block' : 'none';
 
             if (cfg.gtc_ttl_seconds) {
                 const el = document.getElementById('input-gtc-ttl-sec');
@@ -1377,6 +1394,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 const el = document.getElementById('input-fak-retry-attempts');
                 if (el && document.activeElement !== el) el.value = cfg.fak_retry_max_attempts;
             }
+            if (cfg.maker_reprice_on_cross !== undefined) {
+                const el = document.getElementById('input-maker-reprice');
+                if (el && document.activeElement !== el) el.checked = !!cfg.maker_reprice_on_cross;
+            }
+            if (cfg.maker_tick_size) {
+                const el = document.getElementById('input-maker-tick');
+                if (el && document.activeElement !== el) el.value = cfg.maker_tick_size;
+            }
+
             if (cfg.fak_retry_delay_sec) {
                 const el = document.getElementById('input-fak-retry-delay');
                 if (el && document.activeElement !== el) el.value = cfg.fak_retry_delay_sec;
@@ -1397,12 +1423,17 @@ document.addEventListener('DOMContentLoaded', () => {
             const gtcTtl = parseFloat(document.getElementById('input-gtc-ttl-sec').value) || 5.0;
             const retryAttempts = parseInt(document.getElementById('input-fak-retry-attempts').value, 10) || 3;
             const retryDelay = parseFloat(document.getElementById('input-fak-retry-delay').value) || 0.75;
+            const makerReprice = document.getElementById('input-maker-reprice').checked;
+            const makerTick = parseFloat(document.getElementById('input-maker-tick').value) || 0.01;
 
             const payload = {
                 mode: currentOrderMode,
                 gtc_ttl_seconds: gtcTtl,
                 fak_retry_max_attempts: retryAttempts,
-                fak_retry_delay_sec: retryDelay
+                fak_retry_delay_sec: retryDelay,
+                maker_reprice_on_cross: makerReprice,
+                maker_reprice_max_retries: 1,
+                maker_tick_size: makerTick
             };
 
             try {
@@ -1558,7 +1589,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         err = String(err);
                         if (err.includes("insufficient funds")) return "Недостаточно средств";
                         if (err.includes("invalid amount")) return "Некорректная сумма (invalid amount)";
-                        if (err.includes("min size") || err.includes("minimum order") || err.includes("order size too small") || err.includes("below minimum")) return "Сумма меньше минимальной";
+                        if (err.includes("min size") || err.includes("minimum order") || err.includes("order size too small") || err.includes("below minimum") || err.includes("lower than the minimum")) return "Сумма меньше минимальной";
                         if (err.includes("validation error") || err.includes("invalid price") || err.includes("bad request")) return "Ошибка валидации ордера";
                         if (err.includes("Cannot verify allowance")) return "Ошибка проверки allowance";
                         return escapeHtml(err);

@@ -312,6 +312,7 @@ def test_live_mode_requires_relayer_credentials(monkeypatch):
     from polyflip.execution.config import ExecutionSettings
 
     monkeypatch.setenv("EXECUTION_MODE", "LIVE")
+    monkeypatch.setenv("LIVE_TRADING_ENABLED", "true")
     monkeypatch.setenv("POLYGON_PRIVATE_KEY", "0xprivate")
     monkeypatch.setenv("POLYGON_ADDRESS", "0xwallet")
     monkeypatch.delenv("POLYMARKET_RELAYER_API_KEY", raising=False)
@@ -971,3 +972,20 @@ async def test_fak_no_liquidity_becomes_rejected_no_fill(mock_build_gateway, moc
     assert reservation.released_at is not None
     assert trade.position_status == "ENTRY_FAILED"
 
+
+
+def test_live_mode_allows_missing_credentials_when_kill_switch_off(monkeypatch):
+    from polyflip.execution.config import ExecutionSettings
+
+    monkeypatch.setenv("EXECUTION_MODE", "LIVE")
+    monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
+    for name in (
+        "POLYGON_PRIVATE_KEY",
+        "POLYGON_ADDRESS",
+        "POLYMARKET_RELAYER_API_KEY",
+        "POLYMARKET_RELAYER_API_KEY_ADDRESS",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    settings = ExecutionSettings()
+    assert settings.live_trading_enabled is False

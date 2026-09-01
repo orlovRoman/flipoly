@@ -330,6 +330,10 @@ def _terminal_code(state: str, error: str | None) -> str | None:
         return "POST_ONLY_REJECTED"
     if error and "MAX_ACCEPTABLE_PRICE_EXCEEDED" in error:
         return "PRICE_MOVED"
+    if error and "PRICE_MOVED" in error:
+        return "PRICE_MOVED"
+    if error and "MAKER_NOT_POSTABLE" in error:
+        return "MAKER_NOT_POSTABLE"
     if error and "TTL" in error.upper():
         return "TTL_EXPIRED"
     if error and any(

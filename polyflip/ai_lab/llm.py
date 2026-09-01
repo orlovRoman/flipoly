@@ -25,6 +25,118 @@ ALLOWED_ASSETS = {
 
 
 # ---------------------------------------------------------------------------
+LLM_PROVIDERS = ("mock", "openai", "opencode")
+DEFAULT_OPENCODE_ENDPOINT = "https://opencode.ai/zen/v1/responses"
+DEFAULT_OPENCODE_CHAT_ENDPOINT = "https://opencode.ai/zen/v1/chat/completions"
+DEFAULT_OPENCODE_RESPONSES_MODELS = ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "muse-spark-1.2-contributor-free")
+DEFAULT_OPENCODE_CHAT_MODELS = ("big-pickle", "nemotron-3-ultra-free")
+DEFAULT_OPENCODE_MODELS = DEFAULT_OPENCODE_RESPONSES_MODELS + DEFAULT_OPENCODE_CHAT_MODELS
+OPENCODE_MODEL_LABELS = {
+    "big-pickle": "Big Pickle",
+    "muse-spark-1.2-contributor-free": "Muse Spark 1.2 Free",
+    "nemotron-3-ultra-free": "Nemotron 3 Ultra Free",
+}
+
+
+def _csv_values(value: Any) -> list[str]:
+    """Return a normalized comma-separated list without exposing secrets."""
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return []
+
+
+def _settings_value(settings_obj: Any, name: str, default: Any = "") -> Any:
+    return getattr(settings_obj, name, default)
+
+
+def llm_provider_configured(provider_name: str, settings_obj: Any | None = None) -> bool:
+    """Report whether a provider has credentials configured, never returning them."""
+    if settings_obj is None:
+        from polyflip.config import settings as settings_obj
+    provider = str(provider_name or "").strip().lower()
+    if provider == "mock":
+        return True
+    return bool(str(_settings_value(
+        settings_obj,
+        "AI_LAB_LLM_API_KEY",
+        _settings_value(settings_obj, "OPENAI_API_KEY", ""),
+    ) or "").strip())
+
+
+def get_llm_model_catalog(provider_name: str | None = None) -> dict[str, Any]:
+    """Return the safe provider/model catalog used by the AI Lab UI."""
+    from polyflip.config import settings
+
+    selected = str(provider_name or "").strip().lower() or None
+    configured_models = _csv_values(_settings_value(settings, "AI_LAB_ALLOWED_MODELS", ""))
+    research_default = str(_settings_value(settings, "AI_LAB_MODEL_RESEARCH", "gpt-5.6"))
+    summary_default = str(_settings_value(settings, "AI_LAB_MODEL_SUMMARY", "gpt-5.6-mini"))
+    available = [p.lower() for p in _csv_values(
+        _settings_value(settings, "AI_LAB_LLM_AVAILABLE_PROVIDERS", ",".join(LLM_PROVIDERS))
+    )]
+    available = [p for p in available if p in LLM_PROVIDERS] or ["mock"]
+
+    def models_for(provider: str) -> list[str]:
+        if provider == "mock":
+            return ["mock-gpt-5"]
+        if provider == "opencode":
+            models = list(DEFAULT_OPENCODE_MODELS)
+            if configured_models:
+                models = [m for m in configured_models if m in models] or configured_models
+            return models
+        models = [research_default, summary_default]
+        if configured_models:
+            models = [m for m in configured_models if m] or models
+        return list(dict.fromkeys(models))
+
+    providers = [{
+        "id": provider,
+        "label": {"mock": "Mock (offline)", "openai": "OpenAI", "opencode": "OpenCode"}[provider],
+        "configured": llm_provider_configured(provider, settings),
+    } for provider in available]
+    if selected and selected not in available:
+        raise ValueError(f"Unsupported or disabled AI Lab provider: {selected}")
+    target = selected or str(_settings_value(settings, "AI_LAB_LLM_PROVIDER", "mock")).lower()
+    if target not in available:
+        target = available[0]
+    models = models_for(target)
+    return {
+        "provider": target,
+        "providers": providers,
+        "models": [{
+            "id": model,
+            "label": OPENCODE_MODEL_LABELS.get(model, model) if target == "opencode" else model,
+            "supports_structured_output": True,
+            "default_research": model == research_default,
+            "default_summary": model == summary_default,
+        } for model in models],
+        "defaults": {
+            "research_model": research_default if target not in {"mock", "opencode"} else models[0],
+            "summary_model": summary_default if target not in {"mock", "opencode"} else models[-1],
+        },
+    }
+
+
+def normalize_llm_selection(
+    provider_name: str | None,
+    model_research: str | None,
+    model_summary: str | None,
+) -> tuple[str, str, str]:
+    """Validate and fill a run's immutable provider/model selection."""
+    catalog = get_llm_model_catalog(provider_name)
+    provider = catalog["provider"]
+    allowed = {str(item["id"]) for item in catalog["models"]}
+    defaults = catalog["defaults"]
+    research = str(model_research or defaults["research_model"])
+    summary = str(model_summary or defaults["summary_model"])
+    if research not in allowed or summary not in allowed:
+        raise ValueError(
+            f"Unknown model for provider {provider}: research={research!r}, summary={summary!r}"
+        )
+    return provider, research, summary
+
 # Structured Output Schemas
 # ---------------------------------------------------------------------------
 class HypothesisProposal(BaseModel):
@@ -311,12 +423,18 @@ class OpenAIResponsesProvider:
         model_summary: str = "gpt-5.6-mini",
         store: bool = False,
         timeout_seconds: float = 60.0,
+        endpoint_url: str = "https://api.openai.com/v1/responses",
+        provider_name: str = "openai",
+        route_opencode_models: bool = False,
     ) -> None:
         self.api_key = api_key
         self.model_research = model_research
         self.model_summary = model_summary
         self.store = store
         self.timeout_seconds = timeout_seconds
+        self.endpoint_url = endpoint_url
+        self.provider_name = provider_name
+        self.route_opencode_models = route_opencode_models
 
     def _compute_cost(self, prompt_tokens: int, completion_tokens: int, model: str) -> float:
         # Approximate pricing per 1M tokens
@@ -412,6 +530,64 @@ class OpenAIResponsesProvider:
                 }
         return result
 
+    def _endpoint_for_model(self, model: str) -> str:
+        """Select the OpenCode transport required by the selected model.
+
+        The default OpenCode catalog contains both Responses and Chat Completions
+        models. A custom endpoint is always respected and is never rewritten.
+        """
+        if (
+            self.route_opencode_models
+            and self.provider_name == "opencode"
+            and model in DEFAULT_OPENCODE_CHAT_MODELS
+            and self.endpoint_url == DEFAULT_OPENCODE_ENDPOINT
+        ):
+            return DEFAULT_OPENCODE_CHAT_ENDPOINT
+        return self.endpoint_url
+
+    @staticmethod
+    def _chat_content_text(content: Any) -> str:
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if isinstance(item, str):
+                    parts.append(item)
+                elif isinstance(item, Mapping):
+                    value = item.get("text") or item.get("content") or item.get("value")
+                    if value:
+                        parts.append(str(value))
+            return "".join(parts)
+        if isinstance(content, Mapping):
+            value = content.get("text") or content.get("content") or content.get("value")
+            return str(value) if value else ""
+        return ""
+
+    @classmethod
+    def _response_text(cls, data: Mapping[str, Any], *, is_chat_completion: bool) -> str:
+        if is_chat_completion:
+            choices = data.get("choices") or []
+            if choices and isinstance(choices[0], Mapping):
+                message = choices[0].get("message") or {}
+                if isinstance(message, Mapping):
+                    return cls._chat_content_text(message.get("content"))
+            return ""
+        raw = data.get("output_text") or ""
+        if raw:
+            return str(raw)
+        for item in data.get("output", []):
+            if not isinstance(item, Mapping):
+                continue
+            for content in item.get("content", []):
+                if not isinstance(content, Mapping):
+                    continue
+                if content.get("type") in {"output_text", "text"}:
+                    raw = content.get("text") or content.get("value")
+                    if raw:
+                        return str(raw)
+        return ""
+
     async def _responses_json(
         self,
         *,
@@ -424,46 +600,57 @@ class OpenAIResponsesProvider:
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         import httpx
 
-        body: dict[str, Any] = {
-            "model": model,
-            "input": [
-                {"role": "system", "content": instructions},
-                {"role": "user", "content": json.dumps(dict(context), indent=2, default=str)},
-            ],
-            "text": {
-                "format": {
+        request_endpoint = self._endpoint_for_model(model)
+        is_chat_completion = request_endpoint.rstrip("/").endswith("/chat/completions")
+        if is_chat_completion:
+            body: dict[str, Any] = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": instructions},
+                    {"role": "user", "content": json.dumps(dict(context), indent=2, default=str)},
+                ],
+                "response_format": {
                     "type": "json_schema",
-                    "name": schema_name,
-                    "strict": True,
-                    "schema": schema,
-                }
-            },
-            "store": False,
-        }
+                    "json_schema": {
+                        "name": schema_name,
+                        "strict": True,
+                        "schema": schema,
+                    },
+                },
+            }
+        else:
+            body = {
+                "model": model,
+                "input": [
+                    {"role": "system", "content": instructions},
+                    {"role": "user", "content": json.dumps(dict(context), indent=2, default=str)},
+                ],
+                "text": {
+                    "format": {
+                        "type": "json_schema",
+                        "name": schema_name,
+                        "strict": True,
+                        "schema": schema,
+                    }
+                },
+                "store": False,
+            }
         if temperature is not None and not model.lower().startswith("gpt-5"):
             body["temperature"] = temperature
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         started = time.time()
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             response = await client.post(
-                "https://api.openai.com/v1/responses",
+                request_endpoint,
                 headers=headers,
                 json=body,
             )
             response.raise_for_status()
             data = response.json()
-        raw = data.get("output_text")
+        raw = self._response_text(data, is_chat_completion=is_chat_completion)
         if not raw:
-            for item in data.get("output", []):
-                for content in item.get("content", []):
-                    if content.get("type") in {"output_text", "text"}:
-                        raw = content.get("text") or content.get("value")
-                        if raw:
-                            break
-                if raw:
-                    break
-        if not raw:
-            raise ValueError("OpenAI Responses API returned no structured output")
+            provider_api = "Chat Completions" if is_chat_completion else "Responses"
+            raise ValueError(f"OpenCode {provider_api} API returned no structured output")
         usage = data.get("usage") or {}
         prompt_tokens = int(usage.get("input_tokens", usage.get("prompt_tokens", 0)) or 0)
         completion_tokens = int(usage.get("output_tokens", usage.get("completion_tokens", 0)) or 0)
@@ -484,7 +671,7 @@ class OpenAIResponsesProvider:
             total_tokens=int(usage.get("total_tokens", prompt_tokens + completion_tokens)),
             estimated_cost_usd=self._compute_cost(prompt_tokens, completion_tokens, model),
             latency_ms=int(usage.get("latency_ms", 0)),
-            provider="openai",
+            provider=self.provider_name,
             model=model,
             prompt_hash=hashlib.sha256(json.dumps(dict(prompt), sort_keys=True, default=str).encode("utf-8")).hexdigest(),
             response_hash=str(usage.get("response_hash", "")),
@@ -529,78 +716,91 @@ class OpenAIResponsesProvider:
     async def summarize_step(self, step_name: str, details: Mapping[str, Any]) -> tuple[str, LLMUsageStats]:
         import httpx
 
-        body = {
-            "model": self.model_summary,
-            "input": [
-                {"role": "system", "content": "Summarize one execution step in 1-2 concise Russian sentences. Do not invent metrics."},
-                {"role": "user", "content": f"Step: {step_name}\nDetails: {json.dumps(dict(details), default=str)}"},
-            ],
-            "store": False,
-        }
+        request_endpoint = self._endpoint_for_model(self.model_summary)
+        is_chat_completion = request_endpoint.rstrip("/").endswith("/chat/completions")
+        system_prompt = "Summarize one execution step in 1-2 concise Russian sentences. Do not invent metrics."
+        user_prompt = f"Step: {step_name}\nDetails: {json.dumps(dict(details), default=str)}"
+        if is_chat_completion:
+            body: dict[str, Any] = {
+                "model": self.model_summary,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            }
+        else:
+            body = {
+                "model": self.model_summary,
+                "input": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "store": False,
+            }
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         started = time.time()
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
                 response = await client.post(
-                    "https://api.openai.com/v1/responses",
+                    request_endpoint,
                     headers=headers,
                     json=body,
                 )
                 response.raise_for_status()
                 data = response.json()
-            text = data.get("output_text") or ""
-            if not text:
-                for item in data.get("output", []):
-                    for content in item.get("content", []):
-                        if content.get("type") in {"output_text", "text"}:
-                            text = content.get("text") or content.get("value") or ""
-                            if text:
-                                break
-                    if text:
-                        break
+            text = self._response_text(data, is_chat_completion=is_chat_completion).strip()
             usage = data.get("usage") or {}
-            return text.strip() or f"Шаг {step_name} завершён.", self._stats(
+            prompt_tokens = usage.get("input_tokens", usage.get("prompt_tokens", 0))
+            completion_tokens = usage.get("output_tokens", usage.get("completion_tokens", 0))
+            return text or f"Шаг {step_name} завершён.", self._stats(
                 model=self.model_summary,
                 prompt={"step": step_name, "details": dict(details)},
                 usage={
-                    "prompt_tokens": usage.get("input_tokens", 0),
-                    "completion_tokens": usage.get("output_tokens", 0),
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
                     "total_tokens": usage.get("total_tokens", 0),
                     "latency_ms": int((time.time() - started) * 1000),
                     "response_hash": hashlib.sha256(text.encode("utf-8")).hexdigest(),
                 },
             )
         except Exception as exc:
-            logger.warning("openai_summary_failed", error=str(exc))
+            logger.warning("llm_summary_failed", provider=self.provider_name, error=str(exc))
             return (
                 f"Шаг {step_name} завершён. Статус: {details.get('status', 'OK')}",
                 LLMUsageStats(provider="fallback", model=self.model_summary),
             )
+
 
 def get_llm_provider(
     provider_name: str | None = None,
     api_key: str | None = None,
     model_research: str | None = None,
     model_summary: str | None = None,
+    endpoint_url: str | None = None,
 ) -> LLMProvider:
-    """Factory to instantiate the configured LLM provider."""
+    """Factory for Mock, OpenAI and OpenCode-compatible Responses providers."""
     from polyflip.config import settings
 
     provider = (provider_name or settings.AI_LAB_LLM_PROVIDER or "mock").lower()
-    key = api_key or getattr(settings, "OPENAI_API_KEY", "")
-
+    key = api_key or getattr(settings, "AI_LAB_LLM_API_KEY", "") or getattr(settings, "OPENAI_API_KEY", "")
     if provider == "mock":
         return MockLLMProvider(model_name=model_research or "mock-gpt-5")
-    if provider == "openai":
+    if provider in {"openai", "opencode"}:
         if not key:
+            key_name = "AI_LAB_LLM_API_KEY" if provider == "opencode" else "OPENAI_API_KEY"
             raise RuntimeError(
-                "AI_LAB_LLM_PROVIDER=openai requires OPENAI_API_KEY; "
+                f"AI_LAB_LLM_PROVIDER={provider} requires {key_name}; "
                 "set AI_LAB_LLM_PROVIDER=mock explicitly for offline tests"
             )
+        default_endpoint = "https://api.openai.com/v1/responses" if provider == "openai" else DEFAULT_OPENCODE_ENDPOINT
+        configured_endpoint = endpoint_url or getattr(settings, "AI_LAB_LLM_ENDPOINT", "") or ""
         return OpenAIResponsesProvider(
             api_key=key,
             model_research=model_research or getattr(settings, "AI_LAB_MODEL_RESEARCH", "gpt-5.6"),
             model_summary=model_summary or getattr(settings, "AI_LAB_MODEL_SUMMARY", "gpt-5.6-mini"),
             store=False,
+            endpoint_url=configured_endpoint or default_endpoint,
+            provider_name=provider,
+            route_opencode_models=(provider == "opencode" and not configured_endpoint),
         )
     raise ValueError(f"Unsupported AI_LAB_LLM_PROVIDER: {provider}")

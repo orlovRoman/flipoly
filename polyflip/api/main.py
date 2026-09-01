@@ -21,6 +21,7 @@ from polyflip.api.crypto_backtest_api import router as crypto_backtest_router
 from polyflip.api.presets import router as presets_router
 from polyflip.api.execution_api import router as execution_router
 from polyflip.api.ai_lab import router as ai_lab_router
+from polyflip.api.ai_lab_agent import router as ai_lab_agent_router
 from polyflip.api.mrf_api import router as mrf_router
 from polyflip.config import settings
 
@@ -73,7 +74,7 @@ class SimpleRateLimitMiddleware(BaseHTTPMiddleware):
         return response
 
 from polyflip.db.connection import async_session
-from polyflip.db.init_runtime_settings import seed_runtime_settings, migrate_auto_dead_zone_width, migrate_stop_loss_pct, migrate_crypto_to_lightgbm
+from polyflip.db.init_runtime_settings import seed_runtime_settings, migrate_auto_dead_zone_width, migrate_stop_loss_pct, migrate_crypto_to_lightgbm, migrate_paper_execution_profile
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -90,6 +91,8 @@ async def lifespan(app: FastAPI):
         await migrate_crypto_to_lightgbm(session)
         # Потом посев дефолтов для новых ключей
         await seed_runtime_settings(session)
+        # Старый system-default INSTANT заменяем на честный LIVE_PARITY.
+        await migrate_paper_execution_profile(session)
         
     async def _async_warmup():
         try:
@@ -140,6 +143,7 @@ app.include_router(crypto_router)
 app.include_router(crypto_backtest_router)
 app.include_router(execution_router)
 app.include_router(ai_lab_router)
+app.include_router(ai_lab_agent_router)
 app.include_router(mrf_router)
 
 # Подключение статических файлов

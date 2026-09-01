@@ -22,8 +22,11 @@ from polyflip.db.execution_models import (
     ExecutionWorkerStatus,
 )
 from polyflip.db.models import LiveMarket, TradeHistory, RuntimeSettings
-from polyflip.execution.order_strategies import execute_gtc_ttl, execute_fak_retry
-from polyflip.execution.config import ExecutionSettings
+from polyflip.execution.order_strategies import execute_gtc_ttl, execute_fak_retry, execute_maker_limit
+from polyflip.execution.config import (
+    POLYMARKET_MIN_ORDER_SHARES,
+    ExecutionSettings,
+)
 from polyflip.execution.gateways.factory import build_execution_gateway
 from polyflip.execution.contracts import GatewayOrder, GatewayUnavailable
 from polyflip.execution.gateways.exceptions import (
@@ -72,6 +75,20 @@ def _resolve_requested_shares(
     if side.upper() == "BUY" and spend > 0 and price > 0:
         return spend / price
     return Decimal("0")
+
+
+def _smart_maker_order_mode(effective_shares: Decimal) -> str:
+    """Choose the venue-safe route for SMART_MAKER.
+
+    Post-only GTC/GTD orders must satisfy Polymarket's minimum token size.
+    Smaller PAPER/LIVE requests use FAK_RETRY instead, which has no maker
+    minimum and therefore follows the same routing contract as LIVE.
+    """
+    return (
+        "GTC_TTL"
+        if effective_shares >= POLYMARKET_MIN_ORDER_SHARES
+        else "FAK_RETRY"
+    )
 
 
 # Через сколько секунд неопределённого состояния переходим в MANUAL_REVIEW_REQUIRED
@@ -339,6 +356,51 @@ async def claim_one(session, worker_mode: str) -> ExecutionRequest | None:
     return None
 
 
+async def _load_paper_execution_config(session, settings: ExecutionSettings) -> dict[str, str]:
+    """Read PAPER parity knobs without changing the request transaction."""
+    keys = (
+        "PAPER_EXECUTION_PROFILE",
+        "PAPER_LIVE_DELAY_SEC",
+        "PAPER_SLIPPAGE_PCT",
+        "PAPER_FEE_RATE",
+        "PAPER_MIN_ORDER_SHARES",
+    )
+    try:
+        result = await session.execute(
+            select(RuntimeSettings.key, RuntimeSettings.value, RuntimeSettings.updated_by).where(
+                RuntimeSettings.key.in_(keys)
+            )
+        )
+        rows = result.all()
+    except Exception as exc:
+        logger.warning("paper_execution_settings_read_failed", error=str(exc))
+        return {}
+    values = {row.key: row.value for row in rows}
+    owner_by_key = {row.key: row.updated_by for row in rows}
+    env_profile = os.getenv("PAPER_EXECUTION_PROFILE")
+    if env_profile is not None and not env_profile.strip():
+        env_profile = None
+    profile = str(
+        env_profile
+        if env_profile is not None
+        else values.get("PAPER_EXECUTION_PROFILE", settings.paper_execution_profile)
+    ).strip().upper()
+    if (
+        env_profile is None
+        and profile == "INSTANT"
+        and str(owner_by_key.get("PAPER_EXECUTION_PROFILE", "")).strip().lower()
+        in {"", "system"}
+    ):
+        profile = "LIVE_PARITY"
+    return {
+        "profile": profile,
+        "delay_sec": str(values.get("PAPER_LIVE_DELAY_SEC", settings.paper_live_delay_sec)),
+        "slippage_pct": str(values.get("PAPER_SLIPPAGE_PCT", settings.paper_slippage_pct)),
+        "fee_rate": str(values.get("PAPER_FEE_RATE", settings.paper_fee_rate)),
+        "min_order_shares": str(values.get("PAPER_MIN_ORDER_SHARES", settings.paper_min_order_shares)),
+    }
+
+
 async def process_ready_requests():
     settings = ExecutionSettings()
     worker_mode = settings.execution_mode.value
@@ -359,7 +421,8 @@ async def process_ready_requests():
         # Kill-switch для LIVE OPEN полностью обрабатывается внутри
         # check_risk_limits() — единая точка проверки без двойного SELECT.
 
-        gateway = build_execution_gateway(settings)
+        paper_config = await _load_paper_execution_config(session, settings) if req.requested_mode == "PAPER" else None
+        gateway = build_execution_gateway(settings, paper_config=paper_config)
 
         if req.requested_mode == "LIVE" and gateway.name == "FAKE":
             await finalize_request(
@@ -490,6 +553,18 @@ async def process_ready_requests():
                     await session.commit()
                     return
 
+            # CLOSE/TAKE_PROFIT requests do not use the OPEN price guard, but
+            # maker reprice still needs the same live quote client after a
+            # post-only cross.
+            if req.requested_mode == "LIVE" and api_client is None:
+                try:
+                    from polyflip.collector.client import PolymarketClient
+                    api_client = PolymarketClient()
+                except Exception as client_err:
+                    logger.warning("worker_maker_quote_client_unavailable", error=str(client_err))
+            req.submit_quote_price = executable_price
+            req.submit_quote_at = datetime.now(timezone.utc)
+
             if req.max_acceptable_price is not None and executable_price > float(
                 req.max_acceptable_price
             ):
@@ -576,7 +651,10 @@ async def process_ready_requests():
             retry_delay = 0.75
             settings_dict = {}
 
-            if req.requested_mode == "LIVE":
+            # The dashboard stores one CLOB policy in LIVE_* settings. PAPER
+            # must replay that same policy so SMART_MAKER chooses GTC_TTL for
+            # >=5 shares and FAK_RETRY below the venue maker minimum.
+            if req.requested_mode in {"LIVE", "PAPER"}:
                 try:
                     settings_res = await session.execute(
                         select(RuntimeSettings.key, RuntimeSettings.value).where(
@@ -586,6 +664,9 @@ async def process_ready_requests():
                                     "LIVE_GTC_TTL_SECONDS",
                                     "LIVE_FAK_RETRY_MAX_ATTEMPTS",
                                     "LIVE_FAK_RETRY_DELAY_SEC",
+                                    "LIVE_MAKER_REPRICE_ON_CROSS",
+                                    "LIVE_MAKER_REPRICE_MAX_RETRIES",
+                                    "LIVE_MAKER_TICK_SIZE",
                                     "TAKE_PROFIT_ORDER_MODE",
                                 ]
                             )
@@ -620,6 +701,43 @@ async def process_ready_requests():
                         "order_mode_settings_read_failed", error=str(setting_err)
                     )
 
+            # SMART_MAKER: auto-select GTC_TTL if shares >= CLOB minimum, else FAK_RETRY.
+            # Keep the threshold in execution.config so PAPER and LIVE use the
+            # same venue contract and there is no second hard-coded value.
+            if order_mode == "SMART_MAKER":
+                _effective_shares = _resolve_requested_shares(
+                    requested_shares=req.requested_shares,
+                    max_spend_usdc=max_spend_usdc,
+                    limit_price=limit_price,
+                    side=side,
+                )
+                selected_mode = _smart_maker_order_mode(_effective_shares)
+                order_mode = selected_mode
+                logger.info(
+                    "smart_maker_route_selected",
+                    requested_mode=req.requested_mode,
+                    selected_mode=selected_mode,
+                    shares=str(_effective_shares),
+                    minimum_shares=str(POLYMARKET_MIN_ORDER_SHARES),
+                )
+
+            if order_mode in {"MAKER_TTL", "LIMIT_TTL"}:
+                order_mode = "GTC_TTL"
+            maker_reprice_enabled = str(settings_dict.get("LIVE_MAKER_REPRICE_ON_CROSS", "true")).strip().lower() in {"1", "true", "yes", "on"}
+            try:
+                maker_reprice_attempts = min(1, max(0, int(settings_dict.get("LIVE_MAKER_REPRICE_MAX_RETRIES", "1"))))
+            except (TypeError, ValueError):
+                maker_reprice_attempts = 1
+            try:
+                maker_tick_size = Decimal(str(settings_dict.get("LIVE_MAKER_TICK_SIZE", "0.01")))
+                if maker_tick_size <= 0:
+                    raise ValueError
+            except (ArithmeticError, TypeError, ValueError):
+                maker_tick_size = Decimal("0.01")
+            req.execution_order_mode = order_mode
+            req.post_only = order_mode in {"GTC_TTL", "GTD"}
+            order = order.model_copy(update={"post_only": req.post_only})
+
             is_gtd_take_profit = (
                 req.intent == "CLOSE"
                 and req.trigger_reason == "TAKE_PROFIT"
@@ -631,11 +749,30 @@ async def process_ready_requests():
             )
             if is_gtd_take_profit:
                 order_mode = "GTD"
+                req.execution_order_mode = order_mode
+                req.post_only = True
+                order = order.model_copy(update={"post_only": True})
 
             if order_mode == "GTC_TTL":
-                sub_res = await execute_gtc_ttl(gateway, order, ttl_seconds=gtc_ttl_sec)
+                sub_res = await execute_gtc_ttl(
+                    gateway,
+                    order,
+                    ttl_seconds=gtc_ttl_sec,
+                    api_client=api_client,
+                    max_acceptable_price=req.max_acceptable_price,
+                    max_reprice_attempts=(maker_reprice_attempts if maker_reprice_enabled else 0),
+                    tick_size=maker_tick_size,
+                )
             elif order_mode == "GTD":
-                sub_res = await gateway.submit(order, order_type="GTD")
+                sub_res = await execute_maker_limit(
+                    gateway,
+                    order,
+                    order_type="GTD",
+                    api_client=api_client,
+                    max_acceptable_price=req.max_acceptable_price,
+                    max_reprice_attempts=(maker_reprice_attempts if maker_reprice_enabled else 0),
+                    tick_size=maker_tick_size,
+                )
             elif order_mode == "FAK_RETRY":
                 api_client_retry = api_client if api_client else None
                 sub_res = await execute_fak_retry(
@@ -654,6 +791,49 @@ async def process_ready_requests():
             attempt.provider_trade_ids = list(sub_res.provider_trade_ids)
             attempt.transaction_hashes = list(sub_res.transaction_hashes)
             attempt.settlement_state = sub_res.settlement_state
+            req.submitted_limit_price = float(sub_res.submitted_limit_price or order.limit_price)
+            if sub_res.submitted_requested_shares:
+                req.requested_shares = sub_res.submitted_requested_shares
+            if sub_res.paper_quote_price is not None:
+                # The quote belongs to the parity gateway snapshot, not to the
+                # original release decision. Keep its timestamp beside the
+                # price so PAPER/LIVE latency analysis remains meaningful.
+                req.submit_quote_price = float(sub_res.paper_quote_price)
+                req.submit_quote_at = datetime.now(timezone.utc)
+            maker_telemetry = {
+                "maker_status": sub_res.maker_status,
+                "maker_attempts": sub_res.maker_attempts,
+                "maker_best_bid": (str(sub_res.maker_best_bid) if sub_res.maker_best_bid is not None else None),
+                "maker_best_ask": (str(sub_res.maker_best_ask) if sub_res.maker_best_ask is not None else None),
+                "submitted_limit_price": str(req.submitted_limit_price),
+            }
+            existing_response = attempt.raw_response if isinstance(attempt.raw_response, dict) else {}
+            paper_telemetry = {
+                "profile": getattr(gateway, "profile", None),
+                "quote_price": (str(sub_res.paper_quote_price) if sub_res.paper_quote_price is not None else None),
+                "quote_at": (req.submit_quote_at.isoformat() if req.submit_quote_at is not None else None),
+                "available_shares": (str(sub_res.paper_available_shares) if sub_res.paper_available_shares is not None else None),
+                "delay_seconds": sub_res.paper_delay_seconds,
+                "slippage_usdc": (str(sub_res.paper_slippage_usdc) if sub_res.paper_slippage_usdc is not None else None),
+                "fee_usdc": (str(sub_res.paper_fee_usdc) if sub_res.paper_fee_usdc is not None else None),
+                "provider_status": sub_res.provider_status,
+                "fills": [
+                    {
+                        "provider_trade_id": fill.provider_trade_id,
+                        "price": str(fill.price),
+                        "shares": str(fill.shares),
+                        "gross_quote_usdc": str(fill.gross_quote_usdc),
+                        "fee_usdc": str(fill.fee_usdc),
+                        "matched_at": fill.matched_at.isoformat(),
+                    }
+                    for fill in sub_res.fills
+                ],
+            }
+            attempt.raw_response = {
+                **existing_response,
+                "maker_telemetry": maker_telemetry,
+                "paper_telemetry": paper_telemetry,
+            }
 
             if not sub_res.accepted or sub_res.provider_status in ("REJECTED", "ERROR"):
                 attempt.status = "FAILED"
@@ -1255,7 +1435,6 @@ async def reconcile_active_requests():
                 attempt.provider_status = sub_res.provider_status
                 if sub_res.settlement_state:
                     attempt.settlement_state = sub_res.settlement_state
-
                 PENDING_ORDER_STATUSES = frozenset(
                     {"ACCEPTED", "UNKNOWN", "PENDING", "LIVE", "DELAYED"}
                 )

@@ -18,6 +18,8 @@ class MarketPricesResult(TypedDict, total=False):
     tick_size: float | None
     min_order_size: float | None
     error: str
+    bids: list[dict[str, float]]
+    asks: list[dict[str, float]]
 
 def _canonical_strike(market: Dict[str, Any], event: Dict[str, Any]) -> float | None:
     """Extract Polymarket's opening/Chainlink strike without Binance fallbacks."""
@@ -201,18 +203,41 @@ class PolymarketClient:
                 )
                 return {"error": "Empty orderbook (no bids/asks)"}
                 
+            def _levels(raw_levels):
+                normalized = []
+                for level in raw_levels:
+                    try:
+                        price = float(level.get("price"))
+                        size = float(level.get("size") or level.get("quantity") or 0)
+                    except (AttributeError, TypeError, ValueError):
+                        continue
+                    if price > 0 and size > 0 and price == price and size == size:
+                        normalized.append({"price": price, "size": size})
+                return normalized
+
+            normalized_bids = _levels(bids)
+            normalized_asks = _levels(asks)
+            if not normalized_bids or not normalized_asks:
+                logger.warning(
+                    "empty_orderbook_normalized",
+                    token_id=yes_token_id,
+                    bids_count=len(normalized_bids),
+                    asks_count=len(normalized_asks),
+                )
+                return {"error": "Empty orderbook (no valid bids/asks)"}
+
             # Polymarket API может возвращать стакан отсортированным от худших цен к лучшим.
             # Поэтому надежнее искать максимум для bid и минимум для ask.
-            best_bid = max(float(b.get("price", 0)) for b in bids)
-            best_ask = min(float(a.get("price", 1)) for a in asks)
-            
+            best_bid = max(level["price"] for level in normalized_bids)
+            best_ask = min(level["price"] for level in normalized_asks)
+
             if best_ask <= best_bid:
                 logger.warning("crossed_book", token_id=yes_token_id, bid=best_bid, ask=best_ask)
                 return {"error": "Crossed book (bid >= ask)"}
-            
+
             mid_price = (best_bid + best_ask) / 2.0
             spread = best_ask - best_bid
-            
+
             tick_size = book.get("tick_size") or book.get("minimum_tick_size")
             min_order_size = book.get("min_order_size") or book.get("minimum_order_size")
             return {
@@ -223,6 +248,8 @@ class PolymarketClient:
                 "best_ask": best_ask,
                 "tick_size": float(tick_size) if tick_size is not None else None,
                 "min_order_size": float(min_order_size) if min_order_size is not None else None,
+                "bids": normalized_bids,
+                "asks": normalized_asks,
             }
         except httpx.TimeoutException:
             logger.error("error_fetching_clob_book_timeout", token_id=yes_token_id)

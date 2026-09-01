@@ -968,6 +968,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let modelsSortField = "trained_at";
   let modelsSortAsc = false;
   let modelsTypeFilter = "logistic_regression";
+  let modelsAssetFilter = "all";
   let rawModelsData = [];
   let rawModelsPnlData = {};
 
@@ -1065,6 +1066,28 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  function setupModelAssetFilter() {
+    const buttons = document.querySelectorAll(".btn-model-asset-filter");
+
+    buttons.forEach((btn) => {
+      if (btn.dataset.bound === "true") return;
+      btn.dataset.bound = "true";
+
+      btn.addEventListener("click", () => {
+        buttons.forEach((item) => {
+          item.style.background = "";
+          item.style.color = "";
+        });
+        btn.style.background = "var(--poly-blue, #2563eb)";
+        btn.style.color = "#ffffff";
+
+        modelsAssetFilter = String(btn.dataset.asset || "all").toUpperCase();
+        modelsCurrentPage = 1;
+        renderModelsTable();
+      });
+    });
+  }
+
   let currentModelStatusFilter = "all";
 
   function setupModelStatusFilter() {
@@ -1090,8 +1113,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   async function loadModelsHistory() {
-    setupModelTypeFilter();
     window.renderExperimentComparison = renderExperimentComparison;
+    setupModelAssetFilter();
     setupModelStatusFilter();
 
     try {
@@ -1195,6 +1218,13 @@ document.addEventListener("DOMContentLoaded", () => {
       filteredData = rawModelsData.filter(m => {
         const isLgbm = m.model_type === "lightgbm" || ["_low_vol", "_mid_vol", "_high_vol"].some(s => m.asset.endsWith(s));
         return modelsTypeFilter === "lightgbm" ? isLgbm : !isLgbm;
+      });
+    }
+
+    if (modelsAssetFilter !== "all") {
+      filteredData = filteredData.filter((m) => {
+        const baseAsset = String(m.asset || "").toUpperCase().split("_")[0].replace("USDT", "");
+        return baseAsset === modelsAssetFilter;
       });
     }
 

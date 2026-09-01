@@ -200,6 +200,30 @@ async def _fetch_lgbm_signal(
 
 
 
+def _build_mrf_failure_audit(
+    cfg,
+    failure_reason: str,
+    reason_codes: list[str] | None = None,
+    as_of=None,
+) -> dict:
+    """Build a serializable audit for attempts that could not classify MRF."""
+    return {
+        "mode": getattr(cfg, "mrf_mode", "UNKNOWN"),
+        "version": getattr(cfg, "mrf_version", 2),
+        "global_phase": "UNKNOWN",
+        "global_regime": "UNKNOWN",
+        "asset_phase": "UNKNOWN",
+        "asset_regime": "UNKNOWN",
+        "global_strength": 0.0,
+        "global_confidence": 0.0,
+        "applied": False,
+        "history_ready": False,
+        "failure_reason": failure_reason,
+        "reason_codes": list(reason_codes or []),
+        "as_of": as_of.isoformat() if hasattr(as_of, "isoformat") else str(as_of),
+    }
+
+
 async def _apply_mrf_filter(
     db_session,
     cfg,
@@ -213,9 +237,9 @@ async def _apply_mrf_filter(
     decision_run_id: str = "",
     lgbm_applied: bool = False,
 ):
-    """Apply MRF filter. Returns (adjusted_action, adjusted_bet_size, mrf_audit, outcome)."""
+    """Apply MRF filter. Returns (adjusted_action, adjusted_bet_size, mrf_audit, outcome, failure_reason)."""
     if cfg.mrf_mode == "OFF":
-        return action, bet_size_usdc, None, None
+        return action, bet_size_usdc, None, None, None
 
     try:
         import asyncio
@@ -234,23 +258,61 @@ async def _apply_mrf_filter(
 
         results = await asyncio.gather(*tasks.values(), return_exceptions=True)
         candles_by_asset = {}
+        fetch_errors = []
         for asset_name, result in zip(tasks.keys(), results):
             if isinstance(result, Exception):
                 logger.warning("mrf_candle_fetch_error", asset=asset_name, error=str(result))
+                fetch_errors.append(asset_name)
                 continue
             if result:
                 candles_by_asset[asset_name] = result
 
         if not candles_by_asset:
             logger.warning("mrf_no_candles_any_asset")
-            return action, bet_size_usdc, None, None
+            failure = "candle_error:no_candles"
+            return (
+                action,
+                bet_size_usdc,
+                _build_mrf_failure_audit(cfg, failure, as_of=start_time),
+                None,
+                failure,
+            )
 
-        snapshot = build_snapshot_from_multi_asset_candles(candles_by_asset, as_of=start_time)
+        snapshot = build_snapshot_from_multi_asset_candles(
+            candles_by_asset,
+            as_of=start_time,
+            expected_assets=list(COMBINED_MODE_SUPPORTED_ASSETS),
+        )
 
         if not snapshot.basket.history_ready:
+            reason_codes = snapshot.reason_codes or []
+            if any("asset_missing" in r for r in reason_codes):
+                fail = "missing_asset:" + ",".join(
+                    r.split(":", 1)[1] for r in reason_codes if "asset_missing" in r
+                )
+            elif any("no_candles" in r for r in reason_codes):
+                fail = "candle_error:" + ",".join(
+                    r.split(":", 1)[1] for r in reason_codes if "no_candles" in r
+                )
+            elif any("candle_continuity" in r for r in reason_codes):
+                fail = "continuity_error:" + ",".join(
+                    r.split(":", 1)[1] for r in reason_codes if "candle_continuity" in r
+                )
+            elif any("insufficient_history" in r for r in reason_codes):
+                fail = "insufficient_history"
+            else:
+                fail = "not_ready"
             logger.info("mrf_history_not_ready", asset=asset_upper,
-                        reason_codes=snapshot.reason_codes)
-            return action, bet_size_usdc, None, None
+                        reason_codes=reason_codes, failure_reason=fail)
+            return (
+                action,
+                bet_size_usdc,
+                _build_mrf_failure_audit(
+                    cfg, fail, reason_codes=reason_codes, as_of=start_time,
+                ),
+                None,
+                fail,
+            )
 
         outcome = apply_regime_policy(
             cfg=cfg,
@@ -261,6 +323,7 @@ async def _apply_mrf_filter(
             bet_size_usdc=bet_size_usdc,
             action=action,
             decision_run_id=decision_run_id,
+            asset_symbol=asset_upper,
         )
 
         logger.info(
@@ -276,11 +339,18 @@ async def _apply_mrf_filter(
             applied=outcome.applied,
         )
 
-        return outcome.adjusted_action, outcome.adjusted_bet_size, outcome.audit_dict, outcome
+        return outcome.adjusted_action, outcome.adjusted_bet_size, outcome.audit_dict, outcome, None
 
     except Exception as exc:
         logger.error("mrf_error", asset=asset_upper, error=str(exc))
-        return action, bet_size_usdc, None, None
+        failure = f"runtime_error:{type(exc).__name__}"
+        return (
+            action,
+            bet_size_usdc,
+            _build_mrf_failure_audit(cfg, failure, as_of=start_time),
+            None,
+            failure,
+        )
 
 async def decide_combined_mode(
     db_session: AsyncSession,
@@ -658,63 +728,6 @@ async def decide_combined_mode(
     }
     lgbm_meta = json.dumps(lgbm_meta_dict)
 
-    # Passive AI Lab shadow comparison. This is deliberately best-effort:
-    # persistence failures must never change or block the trading decision.
-    if lgbm_shadow and direction_signal and comb_res.direction_model_key:
-        try:
-            candidate_probability = (
-                direction_signal.p_up
-                if lgbm_direction_value == "UP"
-                else direction_signal.p_down
-                if lgbm_direction_value == "DOWN"
-                else None
-            )
-            candidate_ask = (
-                yes_best_ask
-                if lgbm_direction_value == "UP"
-                else no_best_ask
-                if lgbm_direction_value == "DOWN"
-                else None
-            )
-            active_ask = (
-                yes_best_ask
-                if comb_res.action in {"BUY_YES", "YES", "UP"}
-                else no_best_ask
-                if comb_res.action in {"BUY_NO", "NO", "DOWN"}
-                else None
-            )
-            candidate_net_edge = (
-                float(candidate_probability) - float(candidate_ask) - comb_cost_buffer
-                if candidate_probability is not None and candidate_ask is not None
-                else None
-            )
-            # Shadow persistence is observational. Keep it in a savepoint so
-            # it cannot commit or roll back the caller's decision/order
-            # transaction.
-            async with db_session.begin_nested():
-                await record_decision_shadow(
-                    db_session,
-                    asset=asset_upper,
-                    market_id=str(market.market_id),
-                    snapshot_at=getattr(market, "updated_at", None) or datetime.now(timezone.utc),
-                    run_id=None,
-                    active_model_key=entry_model_key,
-                    candidate_model_key=comb_res.direction_model_key,
-                    active_action=comb_res.action,
-                    candidate_action=lgbm_direction_value,
-                    active_probability=comb_res.p_logreg_win,
-                    candidate_probability=candidate_probability,
-                    active_ask=active_ask,
-                    candidate_ask=candidate_ask,
-                    active_net_edge=comb_res.net_edge,
-                    candidate_net_edge=candidate_net_edge,
-                    lr_direction_vote=comb_res.direction_value,
-                    lgbm_direction_vote=lgbm_direction_value,
-                    consensus_type=comb_res.consensus_type,
-                )
-        except Exception as exc:
-            logger.warning("ai_lab_shadow_observation_failed", asset=asset_upper, error=str(exc))
-
     if comb_res.action != "SKIP":
         trade_decision = TradeDecision(
             action=comb_res.action,
@@ -772,6 +785,95 @@ async def decide_combined_mode(
     confirm_passed = (comb_res.direction_status == "READY") if lgbm_applied else None
     final_dir_status = "SHADOW_NOT_APPLIED" if lgbm_shadow else ("DISABLED_BY_OPERATOR" if lgbm_mode == "OFF" else comb_res.direction_status)
 
+    # ── MRF: apply regime filter BEFORE funnel logging (MRF-FIX-08) ──────
+    original_action = comb_res.action
+    original_bet = comb_res.bet_size_usdc
+    mrf_adjusted_action = comb_res.action
+    mrf_adjusted_bet = comb_res.bet_size_usdc
+    mrf_audit = None
+    mrf_outcome = None
+    mrf_failure_reason = None
+
+    if comb_res.action in ("BUY_YES", "BUY_NO") and cfg.mrf_mode != "OFF":
+        mrf_adjusted_action, mrf_adjusted_bet, mrf_audit, mrf_outcome, mrf_pre_outcome_reason = await _apply_mrf_filter(
+            db_session=db_session,
+            cfg=cfg,
+            asset_upper=asset_upper,
+            binance_symbol=binance_symbol or "",
+            start_time=start_time,
+            candidate_side=comb_res.candidate_side,
+            fresh_yes_price=fresh_yes_price,
+            bet_size_usdc=comb_res.bet_size_usdc,
+            action=comb_res.action,
+            decision_run_id=decision_run_id,
+            lgbm_applied=lgbm_applied,  # MRF-FIX-07: real lgbm flag from lgbm_mode == "ACTIVE"
+        )
+        if mrf_outcome and mrf_outcome.skip_reason:
+            mrf_failure_reason = mrf_outcome.skip_reason
+        elif mrf_pre_outcome_reason:
+            # DecisionFunnelLog.mrf_failure_reason is VARCHAR(256).
+            mrf_failure_reason = str(mrf_pre_outcome_reason)[:256]
+
+    # Update trade_decision if MRF changed action OR bet size
+    mrf_phase = "UNKNOWN"
+    mrf_asset_phase_str = "UNKNOWN"
+    mrf_strength_val = 0.0
+    mrf_confidence_val = 0.0
+    mrf_multiplier_val = None
+
+    if mrf_outcome:
+        mrf_phase = mrf_outcome.global_phase or "UNKNOWN"
+        mrf_asset_phase_str = mrf_outcome.asset_phase or "UNKNOWN"
+        if mrf_outcome.policy_result:
+            mrf_strength_val = mrf_outcome.policy_result.global_strength
+            mrf_confidence_val = mrf_outcome.policy_result.global_confidence
+            mrf_multiplier_val = mrf_outcome.policy_result.stake_multiplier
+    elif mrf_audit and isinstance(mrf_audit, dict):
+        mrf_phase = mrf_audit.get("global_phase", "UNKNOWN")
+
+    if mrf_adjusted_action != comb_res.action or mrf_adjusted_bet != comb_res.bet_size_usdc:
+        skip_reason = mrf_outcome.skip_reason if mrf_outcome and mrf_outcome.skip_reason else f"MRF:{mrf_phase}"
+        logger.info(
+            "mrf_decision_override",
+            asset=asset_upper,
+            original=comb_res.action,
+            adjusted=mrf_adjusted_action,
+            original_bet=comb_res.bet_size_usdc,
+            adjusted_bet=mrf_adjusted_bet,
+            phase=mrf_phase,
+        )
+        trade_decision = TradeDecision(
+            action=mrf_adjusted_action,
+            buy_price=trade_decision.buy_price,
+            bet_size_usdc=mrf_adjusted_bet,
+            reason=skip_reason if mrf_adjusted_action == "SKIP" else trade_decision.reason,
+            strategy_type=trade_decision.strategy_type,
+            p_flip=trade_decision.p_flip,
+            p_up=trade_decision.p_up,
+            strike=trade_decision.strike,
+            edge=trade_decision.edge,
+            p_win_effective=trade_decision.p_win_effective,
+            p_win_raw=trade_decision.p_win_raw,
+            decision_details=trade_decision.decision_details,
+        )
+
+    # Build MRF audit JSON for funnel
+    mrf_audit_json = None
+    if mrf_audit and isinstance(mrf_audit, dict):
+        import json as _json
+        mrf_audit_json = _json.dumps(mrf_audit, ensure_ascii=False, default=str)
+
+    # ── Log funnel (MRF-FIX-08: now includes MRF results) ─────────────────
+    # Step 5: mrf_evaluated=true ONLY if MRF actually classified and evaluated.
+    # If _apply_mrf_filter returned None outcome (candle error, not_ready, etc),
+    # mrf_evaluated should be false — it was attempted but not truly evaluated.
+    mrf_actually_evaluated = (
+        mrf_outcome is not None
+        and cfg.mrf_mode != "OFF"
+        and comb_res.action in ("BUY_YES", "BUY_NO")
+    )
+    mrf_evaluated = mrf_actually_evaluated
+
     await log_funnel(
         db_session,
         market_id=market.market_id,
@@ -803,7 +905,7 @@ async def decide_combined_mode(
         proposed_amount_usdc=comb_res.bet_size_usdc if comb_res.action != "SKIP" else 0.0,
         confirm_direction=lgbm_direction_value,
         confirm_passed=confirm_passed,
-        
+
         # Новая телеметрия
         direction_status=final_dir_status,
         direction_model_key=lgbm_attribution["funnel_model_key"],
@@ -843,62 +945,26 @@ async def decide_combined_mode(
         p_flip_raw=comb_res.p_flip_raw,
         entry_model_ece=comb_res.entry_model_ece,
 
-        final_action=comb_res.action,
-        skip_reason=comb_res.reason if comb_res.action == "SKIP" else None,
+        # MRF telemetry (MRF-FIX-03 + MRF-FIX-08)
+        mrf_mode=cfg.mrf_mode,
+        mrf_phase=mrf_phase,
+        mrf_asset_phase=mrf_asset_phase_str,
+        mrf_strength=mrf_strength_val,
+        mrf_confidence=mrf_confidence_val,
+        mrf_multiplier=mrf_multiplier_val,
+        mrf_applied=mrf_adjusted_action != original_action or mrf_adjusted_bet != original_bet,
+        mrf_evaluated=mrf_evaluated,
+        mrf_as_of=start_time,
+        mrf_failure_reason=mrf_failure_reason,
+        mrf_audit_json=mrf_audit_json,
+        mrf_original_action=original_action,
+        mrf_original_bet=original_bet,
+        mrf_final_action=mrf_adjusted_action,
+        mrf_final_bet=mrf_adjusted_bet,
+
+        final_action=mrf_adjusted_action,
+        skip_reason=trade_decision.reason if trade_decision.action == "SKIP" else None,
     )
-
-    # ── MRF: apply regime filter to decision ──────────────────────────────
-    mrf_adjusted_action = comb_res.action
-    mrf_adjusted_bet = comb_res.bet_size_usdc
-    mrf_audit = None
-    mrf_outcome = None
-
-    if comb_res.action in ("BUY_YES", "BUY_NO") and cfg.mrf_mode != "OFF":
-        mrf_adjusted_action, mrf_adjusted_bet, mrf_audit, mrf_outcome = await _apply_mrf_filter(
-            db_session=db_session,
-            cfg=cfg,
-            asset_upper=asset_upper,
-            binance_symbol=binance_symbol or "",
-            start_time=start_time,
-            candidate_side=comb_res.candidate_side,
-            fresh_yes_price=fresh_yes_price,
-            bet_size_usdc=comb_res.bet_size_usdc,
-            action=comb_res.action,
-            decision_run_id=decision_run_id,
-            lgbm_applied=bool(entry_model_phase and entry_model_phase != "FAILED"),
-        )
-
-    # Update trade_decision if MRF changed action OR bet size
-    if mrf_adjusted_action != comb_res.action or mrf_adjusted_bet != comb_res.bet_size_usdc:
-        mrf_phase = "UNKNOWN"
-        if mrf_outcome and mrf_outcome.global_phase:
-            mrf_phase = mrf_outcome.global_phase
-        elif mrf_audit and isinstance(mrf_audit, dict):
-            mrf_phase = mrf_audit.get("global_phase", "UNKNOWN")
-        skip_reason = mrf_outcome.skip_reason if mrf_outcome and mrf_outcome.skip_reason else f"MRF:{mrf_phase}"
-        logger.info(
-            "mrf_decision_override",
-            asset=asset_upper,
-            original=comb_res.action,
-            adjusted=mrf_adjusted_action,
-            original_bet=comb_res.bet_size_usdc,
-            adjusted_bet=mrf_adjusted_bet,
-            phase=mrf_phase,
-        )
-        trade_decision = TradeDecision(
-            action=mrf_adjusted_action,
-            buy_price=trade_decision.buy_price,
-            bet_size_usdc=mrf_adjusted_bet,
-            reason=skip_reason if mrf_adjusted_action == "SKIP" else trade_decision.reason,
-            strategy_type=trade_decision.strategy_type,
-            p_flip=trade_decision.p_flip,
-            p_up=trade_decision.p_up,
-            strike=trade_decision.strike,
-            edge=trade_decision.edge,
-            p_win_effective=trade_decision.p_win_effective,
-            p_win_raw=trade_decision.p_win_raw,
-            decision_details=trade_decision.decision_details,
-        )
 
     # Build MRF audit for caller
     mrf_audit_dict = None

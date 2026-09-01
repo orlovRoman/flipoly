@@ -424,6 +424,9 @@ async def test_paper_golden_e2e_flow(db_session, monkeypatch, engine):
         engine, expire_on_commit=False, class_=AsyncSession
     )
     monkeypatch.setenv("EXECUTION_MODE", "PAPER")
+    # This golden test intentionally covers the legacy deterministic gateway.
+    # LIVE_PARITY behavior is covered by tests/execution/test_fake_gateway.py.
+    monkeypatch.setenv("PAPER_EXECUTION_PROFILE", "INSTANT")
     monkeypatch.setattr(worker, "async_session", test_session_factory)
 
     await worker.process_ready_requests()

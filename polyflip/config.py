@@ -72,6 +72,10 @@ class Settings(BaseSettings):
     AI_LAB_MODEL_RESEARCH: str = "gpt-4o"
     AI_LAB_MODEL_SUMMARY: str = "gpt-4o-mini"
     AI_LAB_LLM_STORE: bool = False
+    AI_LAB_LLM_API_KEY: str = ""
+    AI_LAB_LLM_ENDPOINT: str = ""
+    AI_LAB_LLM_AVAILABLE_PROVIDERS: str = "mock,openai,opencode"
+    AI_LAB_ALLOWED_MODELS: str = ""
     # Optional Codex thread lifecycle; "none" keeps research usable without SDK.
     AI_LAB_THREAD_PROVIDER: str = "none"
     AI_LAB_MAX_RUNTIME_SECONDS: int = 3600
@@ -87,6 +91,17 @@ class Settings(BaseSettings):
     AI_LAB_SCHEDULE_CRON: str = ""
     AI_LAB_MAX_DAILY_RUNS: int = 1
     AI_LAB_MAX_CONCURRENT_RUNS: int = 1
+    # Dynamic OpenCode model discovery for the independent research agent.
+    AI_LAB_OPENCODE_MODELS_ENDPOINT: str = ""
+    AI_LAB_OPENCODE_CATALOG_TTL_SECONDS: int = 3600
+    AI_LAB_OPENCODE_MODELS_FALLBACK: str = ""
+    AI_LAB_OPENCODE_RESPONSES_ENDPOINT: str = "https://opencode.ai/zen/v1/responses"
+    AI_LAB_OPENCODE_CHAT_ENDPOINT: str = "https://opencode.ai/zen/v1/chat/completions"
+    AI_LAB_OPENCODE_CHAT_MODELS: str = "big-pickle,nemotron-3-ultra-free"
+    AI_LAB_OPENCODE_PROBE_TTL_SECONDS: int = 86400
+    # External ai_research_agent container authentication (falls back to API_KEY).
+    AI_LAB_AGENT_TOKEN: str = ""
+    AI_LAB_AGENT_LEASE_TTL_SECONDS: int = 120
 
     @field_validator("AI_LAB_MODE")
     @classmethod

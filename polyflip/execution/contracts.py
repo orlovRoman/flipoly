@@ -109,6 +109,20 @@ class SubmissionResult(BaseModel):
     # Заполняется шлюзами, которые возвращают fills синхронно (SHADOW, FAKE).
     # Если непустое — worker пропускает fetch_order_fills.
     fills: tuple["TradeExecution", ...] = ()
+    # Maker execution telemetry. These fields describe an optional local
+    # reprice attempt without changing the provider status contract.
+    submitted_limit_price: Decimal | None = None
+    submitted_requested_shares: Decimal | None = None
+    maker_status: str | None = None
+    maker_attempts: int = 1
+    maker_best_bid: Decimal | None = None
+    maker_best_ask: Decimal | None = None
+    paper_quote_price: Decimal | None = None
+    paper_available_shares: Decimal | None = None
+    paper_delay_seconds: float | None = None
+    paper_slippage_usdc: Decimal | None = None
+    paper_fee_usdc: Decimal | None = None
+
 
 
 class ExecutionGateway(Protocol):

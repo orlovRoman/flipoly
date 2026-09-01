@@ -33,8 +33,24 @@ services:
       - ASSETS=${ASSETS:-BTC,ETH,SOL,XRP,DOGE}
       - EXECUTION_MODE=${EXECUTION_MODE:-PAPER}
       - AI_LAB_MODE=${AI_LAB_MODE:-STANDARD}
+      - AI_LAB_LLM_PROVIDER=${AI_LAB_LLM_PROVIDER:-mock}
+      - AI_LAB_MODEL_RESEARCH=${AI_LAB_MODEL_RESEARCH:-gpt-5.6}
+      - AI_LAB_MODEL_SUMMARY=${AI_LAB_MODEL_SUMMARY:-gpt-5.6-mini}
+      - AI_LAB_LLM_ENDPOINT=${AI_LAB_LLM_ENDPOINT:-}
+      - AI_LAB_LLM_AVAILABLE_PROVIDERS=${AI_LAB_LLM_AVAILABLE_PROVIDERS:-mock,openai,opencode}
+      - AI_LAB_ALLOWED_MODELS=${AI_LAB_ALLOWED_MODELS:-}
       - AI_LAB_THREAD_PROVIDER=${AI_LAB_THREAD_PROVIDER:-none}
       - LIVE_TRADING_ENABLED=${LIVE_TRADING_ENABLED:-false}
+      - AI_LAB_AGENT_TOKEN=${AI_LAB_AGENT_TOKEN:-${API_KEY:-test-key}}
+      - AI_LAB_AGENT_LEASE_TTL_SECONDS=${AI_LAB_AGENT_LEASE_TTL_SECONDS:-120}
+      - AI_LAB_API_BASE_URL=${AI_LAB_API_BASE_URL:-http://api:8001}
+      - AI_LAB_OPENCODE_MODELS_ENDPOINT=${AI_LAB_OPENCODE_MODELS_ENDPOINT:-}
+      - AI_LAB_OPENCODE_CATALOG_TTL_SECONDS=${AI_LAB_OPENCODE_CATALOG_TTL_SECONDS:-3600}
+      - AI_LAB_OPENCODE_MODELS_FALLBACK=${AI_LAB_OPENCODE_MODELS_FALLBACK:-}
+      - AI_LAB_OPENCODE_RESPONSES_ENDPOINT=${AI_LAB_OPENCODE_RESPONSES_ENDPOINT:-https://opencode.ai/zen/v1/responses}
+      - AI_LAB_OPENCODE_CHAT_ENDPOINT=${AI_LAB_OPENCODE_CHAT_ENDPOINT:-https://opencode.ai/zen/v1/chat/completions}
+      - AI_LAB_OPENCODE_PROBE_TTL_SECONDS=${AI_LAB_OPENCODE_PROBE_TTL_SECONDS:-86400}
+      - AI_LAB_LLM_API_KEY=${AI_LAB_LLM_API_KEY:-}
     volumes:
       - ./polyflip:/app/polyflip
       - ./scripts:/app/scripts
@@ -85,6 +101,10 @@ services:
   ai_lab_agent:
     build: .
     container_name: polyflip_ai_lab_agent
+    # The legacy in-process runner stays available for rollback, but is
+    # opt-in after the independent agent e2e cutover. This prevents two
+    # workers from claiming the same research run by default.
+    profiles: ["legacy-ai-lab"]
     restart: always
     depends_on:
       - db
@@ -92,6 +112,10 @@ services:
       - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}}
       - POLYFLIP_BUILD_SHA=${POLYFLIP_BUILD_SHA:-dev}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - AI_LAB_LLM_API_KEY=${AI_LAB_LLM_API_KEY:-}
+      - AI_LAB_LLM_ENDPOINT=${AI_LAB_LLM_ENDPOINT:-}
+      - AI_LAB_LLM_AVAILABLE_PROVIDERS=${AI_LAB_LLM_AVAILABLE_PROVIDERS:-mock,openai,opencode}
+      - AI_LAB_ALLOWED_MODELS=${AI_LAB_ALLOWED_MODELS:-}
       - AI_LAB_LLM_PROVIDER=${AI_LAB_LLM_PROVIDER:-mock}
       - AI_LAB_MODEL_RESEARCH=${AI_LAB_MODEL_RESEARCH:-gpt-5.6}
       - AI_LAB_MODEL_SUMMARY=${AI_LAB_MODEL_SUMMARY:-gpt-5.6-mini}
@@ -114,6 +138,27 @@ services:
         limits:
           memory: 384M
           cpus: "0.50"
+
+  ai_research_agent:
+    build:
+      context: .
+      dockerfile: services/ai_research_agent/Dockerfile
+    container_name: polyflip_ai_research_agent
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      - AI_LAB_API_BASE_URL=${AI_LAB_API_BASE_URL:-http://api:8001}
+      - AI_LAB_AGENT_TOKEN=${AI_LAB_AGENT_TOKEN:-${API_KEY:-test-key}}
+      - AI_LAB_AGENT_WORKER_ID=${AI_LAB_AGENT_WORKER_ID:-}
+      - AI_LAB_LLM_PROVIDER=${AI_LAB_LLM_PROVIDER:-opencode}
+      - AI_LAB_LLM_API_KEY=${AI_LAB_LLM_API_KEY:-}
+      - AI_LAB_OPENCODE_RESPONSES_ENDPOINT=${AI_LAB_OPENCODE_RESPONSES_ENDPOINT:-https://opencode.ai/zen/v1/responses}
+      - AI_LAB_OPENCODE_CHAT_ENDPOINT=${AI_LAB_OPENCODE_CHAT_ENDPOINT:-https://opencode.ai/zen/v1/chat/completions}
+      - AI_LAB_OPENCODE_CHAT_MODELS=${AI_LAB_OPENCODE_CHAT_MODELS:-big-pickle,nemotron-3-ultra-free}
+      - AI_LAB_POLL_SECONDS=${AI_LAB_POLL_SECONDS:-10}
+      - AI_LAB_AGENT_LEASE_TTL_SECONDS=${AI_LAB_AGENT_LEASE_TTL_SECONDS:-120}
 
   scheduler:
     build: .
@@ -217,13 +262,16 @@ services:
     container_name: flipoly-execution_worker_live-1
     restart: unless-stopped
     profiles: ["live-v2"]
+    # Credentials stay outside the repository and are injected only into the LIVE worker.
+    env_file:
+      - path: ${POLYMARKET_CREDENTIALS_FILE:-/home/orlovrp/.flipoly-live-v2.env}
+        required: false
     depends_on:
       - db
-    env_file:
-      - /home/orlovrp/.flipoly-live-v2.env
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}}
       - EXECUTION_MODE=LIVE
+      - LIVE_TRADING_ENABLED=${LIVE_TRADING_ENABLED:-false}
     volumes:
       - ./polyflip:/app/polyflip
       - ./scripts:/app/scripts
@@ -232,7 +280,6 @@ services:
       resources:
         limits:
           memory: 512M
-
   execution_worker_shadow:
     build: .
     container_name: polyflip_execution_worker_shadow

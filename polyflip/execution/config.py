@@ -4,6 +4,9 @@ from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LIVE_MIN_GROSS_BUY_USDC = Decimal("1.10")
+# PAPER parity mirrors the Polymarket CLOB minimum outcome-token size.
+# Keep this independent from the LIVE dollar-budget migration.
+POLYMARKET_MIN_ORDER_SHARES = Decimal("5")
 
 
 class ExecutionMode(StrEnum):
@@ -19,15 +22,26 @@ class ExecutionSettings(BaseSettings):
     )
 
     execution_mode: ExecutionMode = ExecutionMode.PAPER
+    # The live worker is intentionally kept alive in deployments where the
+    # global kill switch is OFF and credentials are not mounted.  Keep this
+    # optional so local/tests without the setting retain strict validation.
+    live_trading_enabled: bool = False
     polymarket_host: str = "https://clob.polymarket.com"
     polygon_private_key: str | None = None
     polygon_address: str | None = None
     polymarket_relayer_api_key: str | None = None
     polymarket_relayer_api_key_address: str | None = None
 
+    paper_execution_profile: str = "LIVE_PARITY"
+    paper_live_delay_sec: float = 2.0
+    paper_slippage_pct: float = 0.5
+    paper_fee_rate: float = 0.002
+
+    paper_min_order_shares: Decimal = POLYMARKET_MIN_ORDER_SHARES
+
     @model_validator(mode="after")
     def validate_live_credentials(self):
-        if self.execution_mode == ExecutionMode.LIVE:
+        if self.execution_mode == ExecutionMode.LIVE and self.live_trading_enabled is not False:
             required = {
                 "POLYGON_PRIVATE_KEY": self.polygon_private_key,
                 "POLYGON_ADDRESS": self.polygon_address,
