@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional
+from math import isfinite
 
 from polyflip.trading.weighted_policy import clamp_probability
 
@@ -46,6 +47,64 @@ def fractional_kelly_fraction(
     odds = win_profit / price_plus_cost
     raw = (odds * p - q) / odds
     return max(0.0, min(1.0, raw * max(0.0, float(fraction))))
+
+
+DEFAULT_STEPPED_EDGE_THRESHOLDS: tuple[float, float, float] = (0.03, 0.06, 0.10)
+
+
+def stepped_bet_size(
+    edge_lower: float,
+    *,
+    base_bet_usdc: float = 1.0,
+    cap_usdc: float = 3.0,
+    edge_thresholds: tuple[float, float, float] = DEFAULT_STEPPED_EDGE_THRESHOLDS,
+) -> float:
+    """Return a conservative $1 -> $1.5 -> $2 -> $3 stake by lower-bound edge.
+
+    The first level is deliberately the fallback for missing or weak evidence.
+    Thresholds are net USDC edge per share and comparisons are inclusive.
+    """
+    try:
+        base = float(base_bet_usdc)
+    except (TypeError, ValueError, OverflowError):
+        base = 1.0
+    try:
+        cap = float(cap_usdc)
+    except (TypeError, ValueError, OverflowError):
+        cap = 3.0
+    if not isfinite(base) or base < 0.0:
+        base = 1.0
+    if not isfinite(cap) or cap < 0.0:
+        cap = 3.0
+    if cap <= 0.0:
+        return 0.0
+    if base <= 0.0:
+        base = min(1.0, cap)
+    try:
+        thresholds = tuple(float(value) for value in edge_thresholds)
+    except (TypeError, ValueError, OverflowError):
+        thresholds = DEFAULT_STEPPED_EDGE_THRESHOLDS
+    if len(thresholds) != 3 or any(
+        not isfinite(value) for value in thresholds
+    ) or tuple(sorted(thresholds)) != thresholds:
+        thresholds = DEFAULT_STEPPED_EDGE_THRESHOLDS
+    try:
+        edge = float(edge_lower)
+    except (TypeError, ValueError, OverflowError):
+        edge = float("-inf")
+    levels = (base, base * 1.5, base * 2.0, base * 3.0)
+    if not isfinite(edge):
+        selected = levels[0]
+    elif edge >= thresholds[2]:
+        selected = levels[3]
+    elif edge >= thresholds[1]:
+        selected = levels[2]
+    elif edge >= thresholds[0]:
+        selected = levels[1]
+    else:
+        selected = levels[0]
+    return round(max(0.0, min(cap, selected)), 8)
+
 
 
 def conservative_size(

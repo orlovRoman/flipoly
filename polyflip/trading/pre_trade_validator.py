@@ -233,7 +233,15 @@ async def validate_pre_trade(
             multiplier = float(multiplier)
         except (TypeError, ValueError, OverflowError):
             multiplier = 1.0
-        multiplier = max(0.0, min(1.0, multiplier))
+        try:
+            size_cap = max(
+                0.0,
+                float(getattr(cfg, "weighted_size_cap_usdc", fixed_bet * 3.0)),
+            )
+        except (TypeError, ValueError, OverflowError):
+            size_cap = fixed_bet * 3.0
+        max_multiplier = size_cap / fixed_bet if fixed_bet > 0.0 else 0.0
+        multiplier = max(0.0, min(max_multiplier, multiplier))
         actual_bet_size = fixed_bet * multiplier
     elif cfg.bet_sizing_mode == "fixed":
         # P1.12: Запретить уменьшение fixed ставки. Игнорируем decision_obj.bet_size_usdc

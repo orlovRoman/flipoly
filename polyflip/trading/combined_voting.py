@@ -43,7 +43,7 @@ from polyflip.trading.policy_artifact import (
     load_policy_artifact,
     weighted_policy_config_from_artifact,
 )
-from polyflip.trading.weighted_sizing import conservative_size
+from polyflip.trading.weighted_sizing import conservative_size, stepped_bet_size
 
 logger = structlog.get_logger(__name__)
 
@@ -105,14 +105,21 @@ def _weighted_sizing_fields(
             "weighted_size_multiplier": 0.0,
         }
     mode = str(getattr(cfg, "weighted_sizing_mode", "FIXED") or "FIXED").upper()
-    if mode != "LOWER_BOUND_KELLY":
-        edge_lower = selected.net_ev_per_share
-        multiplier = 1.0
-    else:
-        is_outsider = (
-            (selected.side == "BUY_YES" and fresh_yes_price < 0.50)
-            or (selected.side == "BUY_NO" and fresh_yes_price >= 0.50)
+    fixed_bet = max(0.01, float(getattr(cfg, "weighted_fixed_bet_usdc", 1.0)))
+    try:
+        size_cap = max(
+            0.0,
+            float(getattr(cfg, "weighted_size_cap_usdc", fixed_bet * 3.0)),
         )
+    except (TypeError, ValueError, OverflowError):
+        size_cap = fixed_bet * 3.0
+    artifact = _weighted_artifact(cfg)
+    artifact_config = artifact.policy_config if artifact is not None else {}
+    is_outsider = (
+        (selected.side == "BUY_YES" and fresh_yes_price < 0.50)
+        or (selected.side == "BUY_NO" and fresh_yes_price >= 0.50)
+    )
+    if mode == "LOWER_BOUND_KELLY":
         sizing = conservative_size(
             selected.p_win,
             price=selected.ask,
@@ -123,9 +130,28 @@ def _weighted_sizing_fields(
         )
         edge_lower = sizing.edge_lower
         multiplier = sizing.size_multiplier
+    elif mode == "STEPPED_EDGE":
+        # Use the lower-bound edge for the step selection but do not apply
+        # Kelly here: a weak/uncertain signal stays at the base stake.
+        sizing = conservative_size(
+            selected.p_win,
+            price=selected.ask,
+            cost_per_share=selected.cost.total_per_share,
+            standard_error=getattr(cfg, "weighted_standard_error", 0.0),
+            fraction=0.0,
+            min_edge_lower=-1.0,
+        )
+        edge_lower = sizing.edge_lower
+        stepped = stepped_bet_size(
+            edge_lower,
+            base_bet_usdc=fixed_bet,
+            cap_usdc=size_cap,
+        )
+        multiplier = stepped / fixed_bet if fixed_bet > 0.0 else 0.0
+    else:
+        edge_lower = selected.net_ev_per_share
+        multiplier = 1.0
 
-    artifact = _weighted_artifact(cfg)
-    artifact_config = artifact.policy_config if artifact is not None else {}
     application = str(
         artifact_config.get(
             "mrf_application",
@@ -146,7 +172,8 @@ def _weighted_sizing_fields(
             gamma, evidence = 0.0, 0.0
         mrf_multiplier = max(0.5, min(1.25, 1.0 + gamma * evidence))
         multiplier *= mrf_multiplier
-    multiplier = max(0.0, min(1.0, multiplier))
+    max_multiplier = size_cap / fixed_bet if fixed_bet > 0.0 else 0.0
+    multiplier = max(0.0, min(max_multiplier, multiplier))
     return {
         "weighted_edge_lower_bound": round(edge_lower, 8),
         "weighted_size_multiplier": round(multiplier, 8),

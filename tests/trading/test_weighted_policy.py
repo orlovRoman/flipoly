@@ -1,5 +1,6 @@
 import math
 
+from polyflip.trading.weighted_sizing import stepped_bet_size
 from polyflip.trading.weighted_policy import (
     WeightedPolicyConfig,
     compute_net_ev_per_share,
@@ -10,6 +11,17 @@ from polyflip.trading.weighted_policy import (
     select_weighted_side,
     sigmoid,
 )
+
+
+def test_stepped_bet_size_keeps_base_for_weak_lower_bound_and_caps_levels():
+    assert stepped_bet_size(-0.10) == 1.0
+    assert stepped_bet_size(0.03) == 1.5
+    assert stepped_bet_size(0.06) == 2.0
+    assert stepped_bet_size(0.10) == 3.0
+    assert stepped_bet_size(0.20, cap_usdc=2.25) == 2.25
+    assert stepped_bet_size(float("nan")) == 1.0
+
+
 
 
 def test_logit_residual_formula_uses_market_as_prior():

@@ -173,6 +173,29 @@ def test_weighted_active_loads_policy_artifact_and_lower_bound_sizing(tmp_path):
     assert result.bet_size_usdc == result.weighted_size_multiplier
 
 
+def test_weighted_active_stepped_edge_sizing_uses_lower_bound_and_cap():
+    cfg = replace(
+        _weighted_cfg("WEIGHTED_ACTIVE"),
+        weighted_sizing_mode="STEPPED_EDGE",
+        weighted_standard_error=0.0,
+        weighted_fixed_bet_usdc=1.0,
+        weighted_size_cap_usdc=3.0,
+    )
+    result = _evaluate(cfg)
+
+    assert result.action == "BUY_YES"
+    assert result.weighted_edge_lower_bound is not None
+    assert result.weighted_size_multiplier == 1.5
+    assert result.bet_size_usdc == 1.5
+
+
+def test_weighted_sizing_parser_accepts_stepped_edge_mode():
+    cfg = parse_trading_settings({"WEIGHTED_SIZING_MODE": "STEPPED_EDGE"})
+    assert cfg.weighted_sizing_mode == "STEPPED_EDGE"
+
+
+
+
 def test_weighted_active_rejects_missing_policy_artifact(tmp_path):
     cfg = replace(
         _weighted_cfg("WEIGHTED_ACTIVE"),

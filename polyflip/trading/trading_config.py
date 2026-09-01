@@ -268,7 +268,7 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         raw.get("WEIGHTED_SIZING_MODE", getattr(settings, "WEIGHTED_SIZING_MODE", "FIXED"))
         or "FIXED"
     ).strip().upper()
-    if weighted_sizing_mode not in {"FIXED", "LOWER_BOUND_KELLY"}:
+    if weighted_sizing_mode not in {"FIXED", "LOWER_BOUND_KELLY", "STEPPED_EDGE"}:
         logger.warning(
             "invalid_weighted_sizing_mode",
             value=weighted_sizing_mode,
