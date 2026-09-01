@@ -128,6 +128,15 @@ class Settings(BaseSettings):
     AI_LAB_OPENCODE_CHAT_ENDPOINT: str = "https://opencode.ai/zen/v1/chat/completions"
     AI_LAB_OPENCODE_CHAT_MODELS: str = "big-pickle,nemotron-3-ultra-free"
     AI_LAB_OPENCODE_PROBE_TTL_SECONDS: int = 86400
+    # OpenRouter catalogue/probe settings mirror the .env and compose contract.
+    AI_LAB_OPENROUTER_ENDPOINT: str = "https://openrouter.ai/api/v1/chat/completions"
+    AI_LAB_OPENROUTER_MODELS_ENDPOINT: str = "https://openrouter.ai/api/v1/models"
+    AI_LAB_OPENROUTER_MODELS: str = ""
+    AI_LAB_OPENROUTER_CATALOG_TTL_SECONDS: int = 3600
+    AI_LAB_OPENROUTER_MODELS_FALLBACK: str = ""
+    AI_LAB_OPENROUTER_PROBE_TTL_SECONDS: int = 86400
+    AI_LAB_OPENROUTER_HTTP_REFERER: str = ""
+    AI_LAB_OPENROUTER_X_TITLE: str = "Flipoly AI Lab"
     # External ai_research_agent container authentication (falls back to API_KEY).
     AI_LAB_AGENT_TOKEN: str = ""
     AI_LAB_AGENT_LEASE_TTL_SECONDS: int = 120
