@@ -16,6 +16,7 @@ from polyflip.trading.weighted_benchmark import (
     cluster_bootstrap_ci,
     deduplicate_observations,
     evaluate_arm,
+    filter_fixed_horizons,
     fit_ridge_logistic_stacker,
     fit_hierarchical_stackers,
     observation_segment_key,
@@ -182,3 +183,61 @@ def test_hierarchical_stacker_has_role_and_agreement_segment():
     assert key in model.segment_models
     assert len(model.global_model.coefficients) == 8
     assert model.predict_one(rows[0]) is not None
+
+
+def test_walk_forward_never_splits_one_market_between_train_and_test():
+    rows = []
+    for market_index in range(6):
+        for horizon in ("10M", "5M"):
+            rows.append(
+                MarketObservation(
+                    **{
+                        **_row(len(rows), market_index % 2 == 0).__dict__,
+                        "market_id": f"market-{market_index}",
+                        "horizon": horizon,
+                    }
+                )
+            )
+    folds = purged_walk_forward_folds(
+        rows,
+        train_min_rows=4,
+        test_size=2,
+        purge_gap=1,
+    )
+    assert folds
+    for fold in folds:
+        train_markets = {rows[index].market_id for index in fold.train_indices}
+        test_markets = {rows[index].market_id for index in fold.test_indices}
+        assert train_markets.isdisjoint(test_markets)
+
+
+def test_benchmark_arm_metrics_are_out_of_time_only():
+    rows = [_row(index, index % 2 == 0) for index in range(12)]
+    result = benchmark(
+        rows,
+        config=BenchmarkConfig(
+            policy_config=WeightedPolicyConfig(
+                fee_rate=0.0,
+                slippage_rate=0.0,
+            ),
+            train_min_rows=4,
+            test_size=4,
+            bootstrap_iterations=10,
+        ),
+    )
+    market_only = next(item for item in result.arms if item.arm == "MARKET_ONLY")
+    assert market_only.observations == 8
+    assert all(
+        evaluation.market_id in {f"m-{index}" for index in range(4, 12)}
+        for evaluation in market_only.evaluations
+    )
+
+
+def test_fixed_horizon_filter_accepts_aliases_and_excludes_other_windows():
+    rows = [
+        MarketObservation(**{**_row(0).__dict__, "horizon": "10"}),
+        MarketObservation(**{**_row(1).__dict__, "horizon": "5min"}),
+        MarketObservation(**{**_row(2).__dict__, "horizon": "1H"}),
+    ]
+    filtered = filter_fixed_horizons(rows)
+    assert [item.horizon for item in filtered] == ["10", "5min"]

@@ -241,6 +241,7 @@ class StackerModel:
 @dataclass(frozen=True)
 class TradeEvaluation:
     market_id: str
+    timestamp: datetime
     asset: str
     side: str
     ask: float
@@ -320,19 +321,58 @@ def purged_walk_forward_folds(
     test_size: int = 100,
     purge_gap: int = 0,
 ) -> tuple[PurgedFold, ...]:
-    """Build chronological folds with a purge gap immediately before test."""
-    order = sorted(range(len(observations)), key=lambda i: observations[i].timestamp)
+    """Build chronological folds without splitting one market across windows.
+
+    purge_gap is expressed in market groups, not raw rows.  A market can have
+    several fixed-horizon observations, so purging rows alone would leak
+    another horizon of the same market into training.
+    """
+    order = sorted(
+        range(len(observations)),
+        key=lambda i: (observations[i].timestamp, observations[i].market_id, i),
+    )
     train_min_rows, test_size = max(1, int(train_min_rows)), max(1, int(test_size))
     purge_gap = max(0, int(purge_gap))
+    grouped: dict[str, list[int]] = {}
+    group_order: list[str] = []
+    for index in order:
+        key = observations[index].market_id or f"__row__{index}"
+        if key not in grouped:
+            grouped[key] = []
+            group_order.append(key)
+        grouped[key].append(index)
+    if not group_order:
+        return ()
+
+    train_groups = 0
+    train_rows = 0
+    while train_groups < len(group_order) and train_rows < train_min_rows:
+        train_rows += len(grouped[group_order[train_groups]])
+        train_groups += 1
+
     folds: list[PurgedFold] = []
-    test_start = train_min_rows + purge_gap
-    while test_start < len(order):
-        train_end = test_start - purge_gap
-        test_end = min(len(order), test_start + test_size)
+    test_start = train_groups + purge_gap
+    while test_start < len(group_order):
+        train_end = max(0, test_start - purge_gap)
+        test_end = test_start
+        test_rows = 0
+        while test_end < len(group_order) and (
+            test_rows < test_size or test_end == test_start
+        ):
+            test_rows += len(grouped[group_order[test_end]])
+            test_end += 1
         folds.append(
             PurgedFold(
-                train_indices=tuple(order[:train_end]),
-                test_indices=tuple(order[test_start:test_end]),
+                train_indices=tuple(
+                    index
+                    for key in group_order[:train_end]
+                    for index in grouped[key]
+                ),
+                test_indices=tuple(
+                    index
+                    for key in group_order[test_start:test_end]
+                    for index in grouped[key]
+                ),
             )
         )
         test_start = test_end
@@ -507,13 +547,21 @@ def evaluate_arm(
     min_net_ev: float = 0.0,
     stacker: Optional[StackerModel] = None,
     stacker_predictions: Optional[Mapping[int, float]] = None,
+    evaluation_indices: Optional[Sequence[int]] = None,
 ) -> ArmMetrics:
     """Evaluate one arm using net realized PnL per one-share trade."""
     base = config or WeightedPolicyConfig()
     arm_name = arm.upper()
     metrics = ArmMetrics(arm=arm_name)
     brier, logloss = [], []
+    allowed_indices = (
+        {int(index) for index in evaluation_indices}
+        if evaluation_indices is not None
+        else None
+    )
     for index, observation in enumerate(observations):
+        if allowed_indices is not None and index not in allowed_indices:
+            continue
         if observation.outcome_yes is None:
             continue
         metrics.observations += 1
@@ -578,6 +626,7 @@ def evaluate_arm(
         metrics.evaluations.append(
             TradeEvaluation(
                 market_id=observation.market_id,
+                timestamp=observation.timestamp,
                 asset=observation.asset,
                 side=quote.side,
                 ask=quote.ask,
@@ -611,7 +660,9 @@ def cluster_bootstrap_ci(
         return None, None
     grouped: dict[str, list[float]] = {}
     for item in evaluations:
-        grouped.setdefault(item.group or item.market_id, []).append(item.pnl)
+        timestamp = item.timestamp.astimezone(timezone.utc)
+        cluster = f"{item.market_id}|{timestamp.date().isoformat()}"
+        grouped.setdefault(cluster, []).append(item.pnl)
     keys = list(grouped)
     rng = np.random.default_rng(seed)
     samples = [
@@ -666,6 +717,9 @@ def benchmark(
             p = model.predict_one(ordered[i])
             if p is not None:
                 oof[i] = p
+    oot_indices = tuple(
+        sorted({index for fold in folds for index in fold.test_indices})
+    )
     if folds:
         try:
             stacker_model = fit_ridge_logistic_stacker(
@@ -696,6 +750,7 @@ def benchmark(
             min_net_ev=cfg.min_net_ev,
             stacker=stacker_model,
             stacker_predictions=oof if arm.upper() == "STACKER" else None,
+            evaluation_indices=oot_indices,
         )
         result.pnl_ci_low, result.pnl_ci_high = cluster_bootstrap_ci(
             result.evaluations,
@@ -709,6 +764,7 @@ def benchmark(
             "STACKER",
             config=cfg.policy_config,
             min_net_ev=cfg.min_net_ev,
+            evaluation_indices=oot_indices,
             stacker=stacker_model,
             stacker_predictions=oof,
         )
@@ -726,6 +782,7 @@ def benchmark(
                 arm,
                 config=cfg.policy_config,
                 min_net_ev=float(threshold),
+                evaluation_indices=oot_indices,
             )
             sensitivity.append(
                 {
@@ -836,7 +893,7 @@ def observation_key(observation: MarketObservation) -> tuple[str, str]:
     market_id = observation.market_id or (
         f"{observation.asset}|{observation.timestamp.isoformat()}"
     )
-    return market_id, observation.horizon.strip().upper()
+    return market_id, normalize_horizon(observation.horizon)
 
 
 def deduplicate_observations(
@@ -850,3 +907,14 @@ def deduplicate_observations(
         if previous is None or item.timestamp < previous.timestamp:
             selected[key] = item
     return tuple(sorted(selected.values(), key=lambda item: item.timestamp))
+
+
+def filter_fixed_horizons(
+    observations: Sequence[MarketObservation],
+) -> tuple[MarketObservation, ...]:
+    """Return only the fixed 10M/5M/2M benchmark horizons."""
+    return tuple(
+        item
+        for item in observations
+        if normalize_horizon(item.horizon) in FIXED_HORIZONS
+    )
