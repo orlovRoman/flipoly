@@ -25,6 +25,8 @@ from polyflip.trading.weighted_benchmark import (
     optimize_price_cap,
     optimize_time_window,
     compare_mrf_application,
+    create_policy_artifact_from_benchmark,
+    fingerprint_observations,
     purged_walk_forward_folds,
 )
 from polyflip.trading.weighted_policy import WeightedPolicyConfig
@@ -346,3 +348,41 @@ def test_observation_mapping_tolerates_invalid_time_and_preserves_horizon():
     )
     assert item.horizon == "5M"
     assert item.time_left_sec is None
+
+
+def test_benchmark_fingerprint_binds_artifact_to_exact_dataset():
+    rows = [_row(index, index % 2 == 0) for index in range(12)]
+    report = benchmark(
+        rows,
+        config=BenchmarkConfig(
+            train_min_rows=4,
+            test_size=4,
+            bootstrap_iterations=10,
+        ),
+    )
+    artifact = create_policy_artifact_from_benchmark(
+        rows,
+        report,
+        version="benchmark-v1",
+        policy_config=WeightedPolicyConfig(fee_rate=0.01),
+        thresholds={"min_net_ev_favorite": 0.03},
+    )
+    assert report.dataset_fingerprint == fingerprint_observations(rows)
+    assert artifact.dataset_fingerprint == report.dataset_fingerprint
+    assert artifact.training_window["observations"] == len(rows)
+    assert artifact.model["feature_names"]
+
+
+def test_benchmark_filters_labeled_non_fixed_horizons_before_fingerprint():
+    rows = [
+        MarketObservation(**{**_row(0).__dict__, "horizon": "10M"}),
+        MarketObservation(**{**_row(1).__dict__, "horizon": "1H"}),
+    ]
+    report = benchmark(
+        rows,
+        config=BenchmarkConfig(train_min_rows=1, test_size=1, bootstrap_iterations=5),
+    )
+    assert report.observations == 1
+    assert report.dataset_fingerprint == fingerprint_observations(
+        (rows[0],)
+    )

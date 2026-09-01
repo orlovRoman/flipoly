@@ -11,6 +11,9 @@ from datetime import datetime, timezone
 from math import log
 from typing import Any, Mapping, Optional, Sequence
 
+import hashlib
+import json
+
 import numpy as np
 
 from polyflip.trading.weighted_policy import (
@@ -309,6 +312,7 @@ class BenchmarkReport:
     sensitivity: tuple[dict[str, Any], ...]
     hierarchical_stacker: Optional["HierarchicalStacker"] = None
     duplicate_rows_removed: int = 0
+    dataset_fingerprint: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -327,6 +331,7 @@ class BenchmarkReport:
             "sensitivity": list(self.sensitivity),
             "hierarchical_stacker": self.hierarchical_stacker.as_dict() if self.hierarchical_stacker else None,
             "duplicate_rows_removed": self.duplicate_rows_removed,
+            "dataset_fingerprint": self.dataset_fingerprint,
         }
 
 
@@ -1027,6 +1032,76 @@ def cluster_bootstrap_ci(
     )
 
 
+def fingerprint_observations(
+    observations: Sequence[MarketObservation],
+) -> str:
+    """Return a stable SHA-256 fingerprint for an ordered dataset."""
+    payload = [
+        item.as_dict()
+        for item in sorted(
+            observations,
+            key=lambda item: (
+                item.timestamp,
+                item.market_id,
+                normalize_horizon(item.horizon),
+            ),
+        )
+    ]
+    canonical = json.dumps(
+        payload,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def create_policy_artifact_from_benchmark(
+    observations: Sequence[MarketObservation],
+    report: BenchmarkReport,
+    *,
+    version: str,
+    policy_config: Optional[WeightedPolicyConfig] = None,
+    thresholds: Optional[Mapping[str, Any]] = None,
+    source_report_hash: Optional[str] = None,
+):
+    """Create an immutable policy artifact tied to one benchmark dataset."""
+    from polyflip.trading.policy_artifact import create_policy_artifact
+
+    has_horizon_labels = any(
+        bool(str(item.horizon or "").strip()) for item in observations
+    )
+    source = (
+        filter_fixed_horizons(observations)
+        if has_horizon_labels
+        else tuple(observations)
+    )
+    ordered = deduplicate_observations(source)
+    fingerprint = fingerprint_observations(ordered)
+    if report.dataset_fingerprint and report.dataset_fingerprint != fingerprint:
+        raise ValueError("benchmark report does not match supplied observations")
+    timestamps = [item.timestamp for item in ordered]
+    training_window = {
+        "first_timestamp": min(timestamps).isoformat() if timestamps else None,
+        "last_timestamp": max(timestamps).isoformat() if timestamps else None,
+        "observations": len(ordered),
+        "resolved_observations": sum(
+            1 for item in ordered if item.outcome_yes is not None
+        ),
+        "folds": len(report.folds),
+    }
+    return create_policy_artifact(
+        version=version,
+        created_at=datetime.now(timezone.utc).isoformat(),
+        training_window=training_window,
+        stacker=report.stacker,
+        policy_config=policy_config or WeightedPolicyConfig(),
+        thresholds=dict(thresholds or {}),
+        source_report_hash=source_report_hash,
+        dataset_fingerprint=fingerprint,
+    )
+
+
 def benchmark(
     observations: Sequence[MarketObservation],
     *,
@@ -1044,8 +1119,17 @@ def benchmark(
     """Run purged walk-forward stacker training plus comparison arms."""
     cfg = config or BenchmarkConfig()
     raw_count = len(observations)
-    ordered = deduplicate_observations(observations)
+    has_horizon_labels = any(
+        bool(str(item.horizon or "").strip()) for item in observations
+    )
+    source_observations = (
+        filter_fixed_horizons(observations)
+        if has_horizon_labels
+        else tuple(observations)
+    )
+    ordered = deduplicate_observations(source_observations)
     resolved = tuple(item for item in ordered if item.outcome_yes is not None)
+    dataset_fp = fingerprint_observations(ordered)
     folds = purged_walk_forward_folds(
         ordered,
         train_min_rows=cfg.train_min_rows,
@@ -1156,6 +1240,7 @@ def benchmark(
         sensitivity=tuple(sensitivity),
         hierarchical_stacker=hierarchical_model,
         duplicate_rows_removed=max(0, raw_count - len(ordered)),
+        dataset_fingerprint=dataset_fp,
     )
 @dataclass(frozen=True)
 class HierarchicalStacker:

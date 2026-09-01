@@ -29,6 +29,7 @@ class PolicyArtifact:
     policy_config: Mapping[str, Any]
     thresholds: Mapping[str, Any]
     source_report_hash: Optional[str] = None
+    dataset_fingerprint: Optional[str] = None
 
     def payload(self) -> dict[str, Any]:
         return {
@@ -39,6 +40,7 @@ class PolicyArtifact:
             "policy_config": dict(self.policy_config),
             "thresholds": dict(self.thresholds),
             "source_report_hash": self.source_report_hash,
+            "dataset_fingerprint": self.dataset_fingerprint,
         }
 
     def as_dict(self) -> dict[str, Any]:
@@ -54,6 +56,7 @@ def create_policy_artifact(
     policy_config: WeightedPolicyConfig,
     thresholds: Mapping[str, Any],
     source_report_hash: Optional[str] = None,
+    dataset_fingerprint: Optional[str] = None,
 ) -> PolicyArtifact:
     model = stacker.as_dict() if stacker else {"type": "NONE"}
     config = {
@@ -69,6 +72,7 @@ def create_policy_artifact(
         "policy_config": config,
         "thresholds": dict(thresholds),
         "source_report_hash": source_report_hash,
+        "dataset_fingerprint": dataset_fingerprint,
     }
     return PolicyArtifact(
         artifact_id=artifact_hash(payload),
@@ -79,6 +83,7 @@ def create_policy_artifact(
         policy_config=config,
         thresholds=dict(thresholds),
         source_report_hash=source_report_hash,
+        dataset_fingerprint=dataset_fingerprint,
     )
 
 
@@ -131,6 +136,7 @@ def load_policy_artifact(path: str | Path) -> PolicyArtifact:
         policy_config=raw["policy_config"],
         thresholds=raw["thresholds"],
         source_report_hash=raw.get("source_report_hash"),
+        dataset_fingerprint=raw.get("dataset_fingerprint"),
     )
 
 
