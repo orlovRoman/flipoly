@@ -36,6 +36,8 @@ class FakeExecutionGateway:
         delay_sec: float = 0.0,
         slippage_pct: Decimal | float | str = Decimal("0"),
         fee_rate: Decimal | float | str = Decimal("0"),
+        fee_exponent: Decimal | float | str = Decimal("1"),
+        fee_model: str = "FLAT_NOTIONAL",
         min_order_shares: Decimal | float | str = POLYMARKET_MIN_ORDER_SHARES,
         sleep_fn: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
@@ -47,10 +49,22 @@ class FakeExecutionGateway:
         self.delay_sec = max(0.0, float(delay_sec or 0.0))
         self.slippage_pct = self._decimal(slippage_pct, "0")
         self.fee_rate = self._decimal(fee_rate, "0")
+        self.fee_exponent = self._decimal(fee_exponent, "1")
+        normalized_fee_model = str(fee_model or "FLAT_NOTIONAL").strip().upper()
+        if normalized_fee_model not in {"FLAT_NOTIONAL", "POLYMARKET_PRICE_DEPENDENT"}:
+            raise ValueError(
+                "PAPER fee model must be FLAT_NOTIONAL or POLYMARKET_PRICE_DEPENDENT"
+            )
+        self.fee_model = normalized_fee_model
         self.min_order_shares = self._decimal(
             min_order_shares, str(POLYMARKET_MIN_ORDER_SHARES)
         )
-        if self.slippage_pct < 0 or self.fee_rate < 0 or self.min_order_shares <= 0:
+        if (
+            self.slippage_pct < 0
+            or self.fee_rate < 0
+            or self.fee_exponent < 0
+            or self.min_order_shares <= 0
+        ):
             raise ValueError("PAPER execution parameters must be non-negative")
         self._sleep = sleep_fn
         self._orders: dict[str, SubmissionResult] = {}
@@ -84,12 +98,23 @@ class FakeExecutionGateway:
             self._orders[result.provider_order_id] = result
         return result
 
+    def _fee_per_share(self, price: Decimal) -> Decimal:
+        if self.fee_model == "POLYMARKET_PRICE_DEPENDENT":
+            bounded_price = max(Decimal("0"), min(Decimal("1"), price))
+            curve = bounded_price * (Decimal("1") - bounded_price)
+            return self.fee_rate * (curve ** self.fee_exponent)
+        return price * self.fee_rate
+
+    def _fee_for_fill(self, price: Decimal, shares: Decimal) -> Decimal:
+        # Polymarket rounds the final USDC fee to five decimal places.
+        return (self._fee_per_share(price) * shares).quantize(Decimal("0.00001"))
+
     def _instant_result(self, order: GatewayOrder) -> SubmissionResult:
         now = datetime.now(timezone.utc)
         price = order.limit_price
         shares = order.requested_shares
         trade_id = f"TRADE:{order.attempt_id}"
-        fee = (price * shares * self.fee_rate).quantize(Decimal("0.00000001"))
+        fee = self._fee_for_fill(price, shares)
         fill = TradeExecution(
             provider_trade_id=trade_id,
             gateway=self.name,
@@ -255,19 +280,30 @@ class FakeExecutionGateway:
             )
             if execution_price <= 0:
                 continue
-            if side == "BUY" and execution_price > order.limit_price:
+            # Slippage is an execution-cost model.  Give a FAK order room
+            # for that synthetic cost instead of rejecting an ask equal to
+            # the submitted limit immediately.  A BUY remains bounded by
+            # max_acceptable_price when a retry supplied a fresh quote.
+            execution_limit = order.limit_price
+            if side == "BUY":
+                execution_limit *= Decimal("1") + slippage_factor
+                if order.max_acceptable_price is not None:
+                    execution_limit = min(
+                        execution_limit, order.max_acceptable_price
+                    )
+            if side == "BUY" and execution_price > execution_limit:
                 break
-            if side == "SELL" and execution_price < order.limit_price:
+            if side == "SELL" and execution_price < execution_limit:
                 break
             take = min(remaining, depth)
             if remaining_budget is not None:
-                denominator = execution_price * (Decimal("1") + self.fee_rate)
+                denominator = execution_price + self._fee_per_share(execution_price)
                 if denominator > 0:
                     take = min(take, remaining_budget / denominator)
             if take <= 0:
                 break
             gross = execution_price * take
-            fee = (gross * self.fee_rate).quantize(Decimal("0.00000001"))
+            fee = self._fee_for_fill(execution_price, take)
             trade_id = f"TRADE:{order.attempt_id}:{len(fills) + 1}"
             fills.append(
                 TradeExecution(

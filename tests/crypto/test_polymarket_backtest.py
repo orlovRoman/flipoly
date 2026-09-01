@@ -176,3 +176,110 @@ def test_aggregate_drawdown_uses_persisted_stake():
     assert aggregated["max_drawdown_usdc"] == pytest.approx(computed["max_drawdown_usdc"])
     assert aggregated["max_drawdown_pct"] == pytest.approx(computed["max_drawdown_pct"])
     assert aggregated["max_drawdown_pct"] < 100.0
+
+
+def test_aggregate_preserves_weighted_accounting_metadata():
+    result = aggregate_stored_polymarket_backtests(
+        [{
+            "n_markets": 1,
+            "n_quotes": 1,
+            "n_oof": 1,
+            "n_eligible": 1,
+            "n_trades": 1,
+            "win_rate": 1.0,
+            "total_invested": 1.0,
+            "stake_usdc": 1.0,
+            "net_profit": 0.1,
+            "avg_edge": 0.1,
+            "avg_net_edge": 0.08,
+            "avg_entry_price": 0.4,
+            "policy_mode": "WEIGHTED_ACTIVE",
+            "accounting_model": "POLYMARKET_PRICE_DEPENDENT_BUDGET",
+            "fee_model": "POLYMARKET_PRICE_DEPENDENT",
+            "fee_rate": 0.07,
+            "execution_role": "TAKER",
+            "slices": [],
+            "equity_curve": [{
+                "entry_time": "2026-08-01T00:00:00+00:00",
+                "trade_pnl": 0.1,
+                "pnl": 0.1,
+            }],
+        }],
+        strategy_branch="COMBINED",
+    )
+
+    assert result["policy_mode"] == "WEIGHTED_ACTIVE"
+    assert result["accounting_model"] == "POLYMARKET_PRICE_DEPENDENT_BUDGET"
+    assert result["fee_model"] == "POLYMARKET_PRICE_DEPENDENT"
+    assert result["fee_rate"] == pytest.approx(0.07)
+    assert result["execution_role"] == "TAKER"
+
+
+def test_weighted_backtest_uses_same_cost_aware_policy_and_source_alignment():
+    """Weighted replay must use the matching OOF row after quote filtering."""
+    frame, quotes = _fixtures()
+    # Keep this test focused on source-index alignment. A separate spread
+    # scenario verifies that historical spread reaches the weighted scorer.
+    quotes["spread"] = 0.0
+    # Keep only the second quote.  The second OOF score is deliberately high;
+    # using the compressed merge index would incorrectly read the first score.
+    result = compute_oof_polymarket_backtest(
+        frame,
+        [0.10, 0.90],
+        quotes.iloc[[1]],
+        strategy_branch="COMBINED",
+        policy_mode="WEIGHTED",
+        p_logreg_scores=[0.50, 0.50],
+        min_edge=0.02,
+    )
+
+    assert result["policy_mode"] == "WEIGHTED"
+    assert result["accounting_model"] == "POLYMARKET_PRICE_DEPENDENT_BUDGET"
+    assert result["n_quotes"] == 1
+    assert result["n_trades"] == 1
+    trade = result["trades"][0]
+    assert trade["market_id"] == "m2"
+    assert trade["side"] == "BUY_YES"
+    assert trade["p_win"] == pytest.approx(0.24879061)
+    assert trade["fee_usdc"] > 0.0
+    assert trade["shares"] > 0.0
+    assert trade["total_cost_usdc"] == pytest.approx(1.0)
+
+
+def test_weighted_backtest_rejects_edge_consumed_by_historical_spread():
+    frame, quotes = _fixtures()
+    result = compute_oof_polymarket_backtest(
+        frame.iloc[[0]],
+        [0.80],
+        quotes.iloc[[0]],
+        strategy_branch="COMBINED",
+        policy_mode="WEIGHTED",
+        p_logreg_scores=[0.80],
+        weighted_fee_rate=0.0,
+        weighted_slippage_rate=0.0,
+        min_edge=0.0,
+    )
+
+    assert result["n_trades"] == 0
+    assert result["coverage_reasons"]["no_positive_weighted_ev"] == 1
+
+
+def test_weighted_backtest_missing_logreg_renormalizes_and_keeps_loss_budget_bounded():
+    frame, quotes = _fixtures()
+    frame.loc[0, "final_outcome"] = "NO"
+    quotes.loc[0, "best_ask"] = 0.75
+    result = compute_oof_polymarket_backtest(
+        frame.iloc[[0]],
+        [0.95],
+        quotes.iloc[[0]],
+        strategy_branch="COMBINED",
+        policy_mode="WEIGHTED",
+        min_edge=0.0,
+    )
+
+    assert result["n_trades"] == 1
+    trade = result["trades"][0]
+    assert trade["won"] is False
+    # A fixed $1 budget must not turn a loss into a gross-price-dependent loss.
+    assert trade["total_cost_usdc"] == pytest.approx(1.0)
+    assert trade["pnl"] == pytest.approx(-1.0)

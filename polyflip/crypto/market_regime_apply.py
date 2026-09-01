@@ -216,3 +216,7 @@ def apply_regime_policy(
         global_phase=policy_result.phase.value,
         asset_phase=asset_phase_str,
     )
+
+
+# Backward compatibility alias
+apply_market_regime_filter = apply_regime_policy
