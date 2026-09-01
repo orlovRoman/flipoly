@@ -230,7 +230,7 @@ def test_weighted_backtest_uses_same_cost_aware_policy_and_source_alignment():
         strategy_branch="COMBINED",
         policy_mode="WEIGHTED",
         p_logreg_scores=[0.50, 0.50],
-        min_edge=0.04,
+        min_edge=0.02,
     )
 
     assert result["policy_mode"] == "WEIGHTED"
@@ -240,7 +240,7 @@ def test_weighted_backtest_uses_same_cost_aware_policy_and_source_alignment():
     trade = result["trades"][0]
     assert trade["market_id"] == "m2"
     assert trade["side"] == "BUY_YES"
-    assert trade["p_win"] == pytest.approx(0.25)
+    assert trade["p_win"] == pytest.approx(0.24879061)
     assert trade["fee_usdc"] > 0.0
     assert trade["shares"] > 0.0
     assert trade["total_cost_usdc"] == pytest.approx(1.0)

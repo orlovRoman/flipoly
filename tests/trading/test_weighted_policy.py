@@ -2,13 +2,17 @@ import math
 
 from polyflip.trading.weighted_policy import (
     WeightedPolicyConfig,
+    compute_net_ev_per_share,
     estimate_trade_cost,
+    logit,
+    market_yes_probability,
     score_weighted_probability,
     select_weighted_side,
+    sigmoid,
 )
 
 
-def test_direct_blend_uses_configured_weights():
+def test_logit_residual_formula_uses_market_as_prior():
     result = score_weighted_probability(
         p_market_yes=0.60,
         p_logreg_yes=0.70,
@@ -22,12 +26,17 @@ def test_direct_blend_uses_configured_weights():
         ),
     )
 
-    assert math.isclose(result.p_final_yes, 0.615, rel_tol=1e-9)
+    expected = sigmoid(
+        logit(0.60)
+        + 0.05 * (logit(0.70) - logit(0.60))
+        + 0.05 * (logit(0.80) - logit(0.60))
+    )
+    assert math.isclose(result.p_final_yes, expected, rel_tol=1e-7)
     assert result.missing_components == ()
     assert math.isclose(result.market_weight, 0.90, rel_tol=1e-9)
 
 
-def test_missing_model_is_removed_and_remaining_weights_are_renormalized():
+def test_missing_model_weight_is_absorbed_by_market_prior():
     result = score_weighted_probability(
         p_market_yes=0.60,
         p_logreg_yes=0.70,
@@ -35,13 +44,11 @@ def test_missing_model_is_removed_and_remaining_weights_are_renormalized():
         config=WeightedPolicyConfig(),
     )
 
-    assert math.isclose(
-        result.p_final_yes,
-        (0.90 * 0.60 + 0.05 * 0.70) / 0.95,
-        rel_tol=1e-7,
-    )
+    expected = sigmoid(logit(0.60) + 0.05 * (logit(0.70) - logit(0.60)))
+    assert math.isclose(result.p_final_yes, expected, rel_tol=1e-7)
     assert result.missing_components == ("lgbm",)
     assert math.isclose(result.lgbm_weight, 0.0)
+    assert math.isclose(result.market_weight, 0.95)
 
 
 def test_all_zero_available_weights_fail_closed():
@@ -135,3 +142,47 @@ def test_mrf_evidence_adjusts_log_odds_only_when_enabled():
 
     assert base.p_final_yes == 0.60
     assert adjusted.p_final_yes < base.p_final_yes
+
+
+def test_market_prior_normalizes_both_executable_asks():
+    result = market_yes_probability(yes_ask=0.55, no_ask=0.47, fallback_yes=0.90)
+
+    assert math.isclose(result, 0.55 / (0.55 + 0.47), rel_tol=1e-7)
+
+
+def test_contributions_sum_to_final_log_odds_and_record_agreement():
+    result = score_weighted_probability(
+        p_market_yes=0.55,
+        p_logreg_yes=0.70,
+        p_lgbm_yes=0.40,
+        config=WeightedPolicyConfig(mrf_beta=0.2, intercept=0.1),
+        mrf_evidence=-0.5,
+    )
+
+    assert result.models_agree is False
+    assert math.isclose(
+        sum(result.contributions.values()),
+        logit(result.p_final_yes),
+        rel_tol=1e-7,
+        abs_tol=1e-7,
+    )
+
+
+def test_net_ev_and_compatibility_edge_use_per_share_usdc():
+    costs = estimate_trade_cost(
+        0.60, fee_rate=0.0, slippage_rate=0.0, latency_buffer=0.01
+    )
+    assert compute_net_ev_per_share(0.70, 0.60, costs) == 0.09
+
+    selection = select_weighted_side(
+        p_market_yes=0.70,
+        p_logreg_yes=0.70,
+        p_lgbm_yes=0.70,
+        yes_ask=0.60,
+        no_ask=0.40,
+        config=WeightedPolicyConfig(
+            fee_rate=0.0, slippage_rate=0.0, latency_buffer=0.01
+        ),
+    )
+    assert selection.selected is not None
+    assert selection.selected.net_edge == selection.selected.net_ev_per_share

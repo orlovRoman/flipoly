@@ -209,6 +209,21 @@ REGISTRY: list[SettingDef] = [
                description="Оценка проскальзывания weighted policy как доля цены (0.005 = 0.5%)."),
     SettingDef("WEIGHTED_EXECUTION_ROLE", "TAKER",
                description="Роль для оценки затрат weighted policy: TAKER | MAKER."),
+    SettingDef("WEIGHTED_INTERCEPT", "0.0",
+               description="Калибровочный intercept в log-odds weighted policy."),
+    SettingDef("WEIGHTED_MAKER_FEE_RATE", "0.0",
+               description="Fallback maker fee rate для weighted policy."),
+    SettingDef("WEIGHTED_LATENCY_BUFFER", "0.0",
+               description="Дополнительная стоимость задержки, USDC на одну share."),
+    SettingDef("WEIGHTED_MIN_NET_EV_FAVORITE", "0.03",
+               description="Минимальный net EV фаворита, USDC на одну share."),
+    SettingDef("WEIGHTED_MIN_NET_EV_OUTSIDER", "0.03",
+               description="Минимальный net EV аутсайдера, USDC на одну share."),
+    SettingDef("WEIGHTED_FIXED_BET_USDC", "1.0",
+               description="Фиксированный бюджет weighted active до валидации sizing."),
+    SettingDef("WEIGHTED_MRF_EXTREME_VETO_THRESHOLD", "-1.0",
+               description="Экспериментальный extreme MRF veto; -1.0 отключает veto."),
+
 
     # --- Обучение LogReg / Phase models ---
     SettingDef("TRAIN_MAX_PARALLEL_JOBS", "2",
@@ -401,6 +416,13 @@ REQUIRED_SETTINGS_KEYS = frozenset([
     "WEIGHTED_FEE_EXPONENT",
     "WEIGHTED_SLIPPAGE_RATE",
     "WEIGHTED_EXECUTION_ROLE",
+    "WEIGHTED_INTERCEPT",
+    "WEIGHTED_MAKER_FEE_RATE",
+    "WEIGHTED_LATENCY_BUFFER",
+    "WEIGHTED_MIN_NET_EV_FAVORITE",
+    "WEIGHTED_MIN_NET_EV_OUTSIDER",
+    "WEIGHTED_FIXED_BET_USDC",
+    "WEIGHTED_MRF_EXTREME_VETO_THRESHOLD",
 ])
 
 def validate_required_keys():

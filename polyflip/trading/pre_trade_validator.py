@@ -8,7 +8,7 @@ from polyflip.trading.trading_config import TradingConfig
 from polyflip.trading.decision_logic import TradeDecision
 from polyflip.trading.position_sizing import compute_bet_size_edge_scaled
 from polyflip.crypto.edge import compute_economic_edge
-from polyflip.trading.weighted_policy import estimate_trade_cost
+from polyflip.trading.weighted_policy import compute_net_ev_per_share, estimate_trade_cost
 from polyflip.constants import TRADING_MODE_COMBINED
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -139,26 +139,32 @@ async def validate_pre_trade(
         )
     p_win = decision_obj.p_win_effective
 
+    weighted_active = bool(
+        decision_obj.decision_details
+        and decision_obj.decision_details.get("weighted_policy_mode") == "WEIGHTED_ACTIVE"
+    )
     if asset_mode == TRADING_MODE_COMBINED:
         # Определяем: аутсайдер (price < 0.5) или фаворит
         is_outsider = buy_price < 0.5
-        current_min_edge = cfg.get_min_edge(is_outsider=is_outsider)
+        current_min_edge = (
+            cfg.get_weighted_min_net_ev(is_outsider)
+            if weighted_active
+            else cfg.get_min_edge(is_outsider=is_outsider)
+        )
     else:
         current_min_edge = asset_min_edge
     
     # Re-use the same units and cost model as the decision stage.  The legacy
     # path keeps its historical ROI-style edge for compatibility; weighted
     # active mode uses cost-aware expected value per share.
-    if (
-        decision_obj.decision_details
-        and decision_obj.decision_details.get("weighted_policy_mode") == "WEIGHTED_ACTIVE"
-    ):
+    if weighted_active:
         weighted_cost = estimate_trade_cost(
             buy_price,
             fee_rate=decision_obj.decision_details.get(
                 "weighted_fee_rate",
                 getattr(cfg, "weighted_fee_rate", 0.07),
             ),
+            maker_fee_rate=getattr(cfg, "weighted_maker_fee_rate", 0.0),
             fee_exponent=decision_obj.decision_details.get(
                 "weighted_fee_exponent",
                 getattr(cfg, "weighted_fee_exponent", 1.0),
@@ -166,9 +172,10 @@ async def validate_pre_trade(
             slippage_rate=getattr(cfg, "weighted_slippage_rate", 0.005),
             role=getattr(cfg, "weighted_execution_role", "TAKER"),
             spread=fresh_spread,
+            latency_buffer=getattr(cfg, "weighted_latency_buffer", 0.0),
             source=decision_obj.decision_details.get("weighted_fee_source") or "CONFIG_DEFAULT",
         )
-        edge = round(p_win - buy_price - weighted_cost.total_per_share, 4)
+        edge = compute_net_ev_per_share(p_win, buy_price, weighted_cost)
     else:
         edge = compute_economic_edge(p_win, buy_price, cfg.fee_rate, cfg.slippage_rate)
     
@@ -180,7 +187,7 @@ async def validate_pre_trade(
 
     ANOMALY_EDGE_WARN = 0.60
     if edge > ANOMALY_EDGE_WARN:
-        derived_p_win = round((edge + 1.0) * buy_price, 4)
+        derived_p_win = round(edge + buy_price + (weighted_cost.total_per_share if weighted_active else 0.0), 4)
         logger.warning(
             "anomalous_edge_detected",
             asset=market.asset,
@@ -197,7 +204,9 @@ async def validate_pre_trade(
         )
         
     # Рассчитываем новую ставку (если не фикс)
-    if cfg.bet_sizing_mode == "fixed":
+    if weighted_active:
+        actual_bet_size = float(getattr(cfg, "weighted_fixed_bet_usdc", 1.0))
+    elif cfg.bet_sizing_mode == "fixed":
         # P1.12: Запретить уменьшение fixed ставки. Игнорируем decision_obj.bet_size_usdc
         actual_bet_size = cfg.bet_size
     else:
