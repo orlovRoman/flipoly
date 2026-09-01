@@ -164,6 +164,7 @@ class CombinedEntryResult:
     weighted_intercept_contribution_logodds: Optional[float] = None
     weighted_models_agree: Optional[bool] = None
     # mode, while LEGACY behavior remains unchanged.
+    weighted_policy_id: str = "UNVERSIONED"
     weighted_policy_mode: str = "LEGACY"
     weighted_p_market_yes: Optional[float] = None
     weighted_p_logreg_yes: Optional[float] = None
@@ -269,6 +270,7 @@ def _build_weighted_selection(
         slippage_rate=float(getattr(cfg, "weighted_slippage_rate", 0.005)),
         latency_buffer=float(getattr(cfg, "weighted_latency_buffer", 0.0)),
         execution_role=str(getattr(cfg, "weighted_execution_role", "TAKER")),
+        policy_id=str(getattr(cfg, "weighted_policy_id", "UNVERSIONED") or "UNVERSIONED")[:64],
     )
     return select_weighted_side(
         p_market_yes=market_yes_probability(
@@ -285,12 +287,14 @@ def _build_weighted_selection(
         min_net_ev=0.0,
         fee_source=fee_source,
         spread=spread,
+        mrf_extreme_veto_threshold=getattr(cfg, "weighted_mrf_extreme_veto_threshold", -1.0),
     )
 
 
 def _weighted_result_fields(
     policy_mode: str,
     selection: WeightedSelection,
+    policy_id: str,
 ) -> dict[str, Any]:
     """Flatten weighted policy telemetry into ``CombinedEntryResult`` fields."""
     probability = selection.probability
@@ -298,6 +302,7 @@ def _weighted_result_fields(
     return {
         "weighted_policy_mode": policy_mode,
         "weighted_p_market_yes": probability.p_market_yes,
+        "weighted_policy_id": policy_id,
         "weighted_p_logreg_yes": probability.p_logreg_yes,
         "weighted_p_lgbm_yes": probability.p_lgbm_yes,
         "weighted_p_final_yes": probability.p_final_yes,
@@ -395,7 +400,7 @@ def evaluate_combined_entry(
             fee_source=weighted_fee_source,
             spread=spread or 0.0,
         )
-        result = replace(result, **_weighted_result_fields(policy_mode, weighted_selection))
+        result = replace(result, **_weighted_result_fields(policy_mode, weighted_selection, str(getattr(cfg, "weighted_policy_id", "UNVERSIONED") or "UNVERSIONED")[:64]))
 
     if crypto_sig:
         result = replace(
@@ -510,6 +515,31 @@ def _evaluate_combined_entry_inner(
                 "WEIGHTED_SCORE",
                 "Selected side with highest cost-aware expected value",
             )
+    if weighted_active and weighted_selection is not None and weighted_selection.selected is None:
+        return CombinedEntryResult(
+            action="SKIP",
+            reason=f"Weighted policy: {weighted_selection.reason}",
+            direction_status="WEIGHTED_NO_SELECTION",
+            direction_model_key=crypto_sig.model_key or None,
+            direction_model_version=crypto_sig.model_version,
+            direction_regime=crypto_sig.regime or None,
+            direction_probability=dir_prob,
+            direction_p_up=getattr(crypto_sig, "p_up", None),
+            direction_p_down=getattr(crypto_sig, "p_down", None),
+            direction_value=dir_val,
+            entry_requested_key=entry_requested_key,
+            entry_model_key=entry_model_key,
+            entry_model_version=entry_model_version,
+            entry_model_phase=market_phase,
+            entry_model_source=entry_model_source,
+            entry_status="WEIGHTED_SKIP",
+            fallback_reason=fallback_reason,
+            p_flip=p_flip,
+            p_flip_raw=p_flip_raw,
+            p_flip_effective=p_flip_effective,
+            entry_model_ece=entry_model_ece,
+            would_live_accept=False,
+        )
     elif logreg_only:
         dir_status = "SHADOW_NOT_APPLIED" if lgbm_mode == "SHADOW" else "DISABLED_BY_OPERATOR"
 
@@ -1075,7 +1105,7 @@ def _evaluate_combined_entry_inner(
             entry_model_ece=entry_model_ece,
         )
 
-    if is_outsider:  # safety gate in all modes
+    if not weighted_active and is_outsider:  # legacy predictive gate
         flip_thresh_val = flip_threshold_value
         if p_flip is not None and p_flip < flip_thresh_val:
             return CombinedEntryResult(

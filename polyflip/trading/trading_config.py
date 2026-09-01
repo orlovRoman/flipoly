@@ -100,6 +100,7 @@ class TradingConfig:
     # Weighted trading policy rollout.  Keep LEGACY as the safe default so
     # adding these settings cannot silently change an existing deployment.
     trading_policy_mode: str = "LEGACY"
+    weighted_policy_id: str = "UNVERSIONED"
     weighted_market_weight: float = 0.90
     weighted_logreg_weight: float = 0.05
     weighted_lgbm_weight: float = 0.05
@@ -338,6 +339,7 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         ),
         enable_ece_correction=_parse_bool(raw.get("ENABLE_ECE_CORRECTION"), getattr(settings, "ENABLE_ECE_CORRECTION", True)),
         trading_policy_mode=trading_policy_mode,
+        weighted_policy_id=str(raw.get("WEIGHTED_POLICY_ID", getattr(settings, "WEIGHTED_POLICY_ID", "UNVERSIONED")) or "UNVERSIONED").strip()[:64],
         weighted_market_weight=_parse_bounded_float(raw, "WEIGHTED_MARKET_WEIGHT", getattr(settings, "WEIGHTED_MARKET_WEIGHT", 0.90), 0.0, 1.0),
         weighted_logreg_weight=_parse_bounded_float(raw, "WEIGHTED_LOGREG_WEIGHT", getattr(settings, "WEIGHTED_LOGREG_WEIGHT", 0.05), 0.0, 1.0),
         weighted_lgbm_weight=_parse_bounded_float(raw, "WEIGHTED_LGBM_WEIGHT", getattr(settings, "WEIGHTED_LGBM_WEIGHT", 0.05), 0.0, 1.0),

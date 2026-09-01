@@ -16,6 +16,7 @@ from polyflip.crypto.predictor import MIN_CANDLES_REQUIRED
 from polyflip.crypto.candle_repository import get_recent_candles
 from polyflip.trading.utils import compute_dead_zone
 from polyflip.trading.funnel_logger import log_funnel
+from polyflip.trading.weighted_telemetry import weighted_telemetry_from_object
 from polyflip.crypto.market_regime_integration import build_snapshot_from_candles
 from polyflip.crypto.market_regime import MIN_HISTORY_CANDLES
 from polyflip.crypto.market_regime_apply import apply_market_regime_filter
@@ -860,6 +861,7 @@ async def decide_combined_mode(
             else ("LOGREG_PLUS_LIGHTGBM" if lgbm_applied else "LOGREG_ONLY")
         ),
         "weighted_policy_mode": comb_res.weighted_policy_mode,
+        "weighted_policy_id": comb_res.weighted_policy_id,
         "weighted_p_market_yes": comb_res.weighted_p_market_yes,
         "weighted_p_logreg_yes": comb_res.weighted_p_logreg_yes,
         "weighted_p_lgbm_yes": comb_res.weighted_p_lgbm_yes,
@@ -966,6 +968,7 @@ async def decide_combined_mode(
             else ("LOGREG_PLUS_LIGHTGBM" if lgbm_applied else "LOGREG_ONLY")
         ),
         "weighted_policy_mode": comb_res.weighted_policy_mode,
+        "weighted_policy_id": comb_res.weighted_policy_id,
         "weighted_p_final_yes": comb_res.weighted_p_final_yes,
         "weighted_selected_side": comb_res.weighted_selected_side,
         "weighted_net_ev_per_share": comb_res.weighted_net_ev_per_share,
@@ -1246,6 +1249,7 @@ async def decide_combined_mode(
         would_live_accept=comb_res.would_live_accept,
         p_flip_raw=comb_res.p_flip_raw,
         entry_model_ece=comb_res.entry_model_ece,
+        **weighted_telemetry_from_object(comb_res),
 
         # MRF telemetry (MRF-FIX-03 + MRF-FIX-08)
         mrf_mode=cfg.mrf_mode,

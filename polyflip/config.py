@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     # Weighted trading policy.  LEGACY preserves the current hard-vote
     # behavior; shadow/active are explicit rollout switches.
     TRADING_POLICY_MODE: str = "LEGACY"
+    WEIGHTED_POLICY_ID: str = "UNVERSIONED"
     WEIGHTED_MARKET_WEIGHT: float = 0.90
     WEIGHTED_LOGREG_WEIGHT: float = 0.05
     WEIGHTED_LGBM_WEIGHT: float = 0.05
@@ -87,14 +88,13 @@ class Settings(BaseSettings):
 
     # AI Lab LLM & Autonomous Loop (Phase 10)
     OPENAI_API_KEY: str = ""
-    OPENROUTER_API_KEY: str = ""
     AI_LAB_LLM_PROVIDER: str = "openai"
     AI_LAB_MODEL_RESEARCH: str = "gpt-4o"
     AI_LAB_MODEL_SUMMARY: str = "gpt-4o-mini"
     AI_LAB_LLM_STORE: bool = False
     AI_LAB_LLM_API_KEY: str = ""
     AI_LAB_LLM_ENDPOINT: str = ""
-    AI_LAB_LLM_AVAILABLE_PROVIDERS: str = "mock,openai,opencode,openrouter"
+    AI_LAB_LLM_AVAILABLE_PROVIDERS: str = "mock,openai,opencode"
     AI_LAB_ALLOWED_MODELS: str = ""
     # Optional Codex thread lifecycle; "none" keeps research usable without SDK.
     AI_LAB_THREAD_PROVIDER: str = "none"
@@ -118,19 +118,7 @@ class Settings(BaseSettings):
     AI_LAB_OPENCODE_RESPONSES_ENDPOINT: str = "https://opencode.ai/zen/v1/responses"
     AI_LAB_OPENCODE_CHAT_ENDPOINT: str = "https://opencode.ai/zen/v1/chat/completions"
     AI_LAB_OPENCODE_CHAT_MODELS: str = "big-pickle,nemotron-3-ultra-free"
-    AI_LAB_OPENCODE_GO_RESPONSES_ENDPOINT: str = "https://opencode.ai/zen/go/v1/responses"
-    AI_LAB_OPENCODE_GO_CHAT_ENDPOINT: str = "https://opencode.ai/zen/go/v1/chat/completions"
-    AI_LAB_OPENCODE_GO_MESSAGES_ENDPOINT: str = "https://opencode.ai/zen/go/v1/messages"
     AI_LAB_OPENCODE_PROBE_TTL_SECONDS: int = 86400
-    # OpenRouter uses the OpenAI-compatible Chat Completions API.
-    AI_LAB_OPENROUTER_ENDPOINT: str = "https://openrouter.ai/api/v1/chat/completions"
-    AI_LAB_OPENROUTER_MODELS: str = ""
-    AI_LAB_OPENROUTER_MODELS_ENDPOINT: str = "https://openrouter.ai/api/v1/models"
-    AI_LAB_OPENROUTER_CATALOG_TTL_SECONDS: int = 3600
-    AI_LAB_OPENROUTER_MODELS_FALLBACK: str = ""
-    AI_LAB_OPENROUTER_PROBE_TTL_SECONDS: int = 86400
-    AI_LAB_OPENROUTER_HTTP_REFERER: str = ""
-    AI_LAB_OPENROUTER_X_TITLE: str = "Flipoly AI Lab"
     # External ai_research_agent container authentication (falls back to API_KEY).
     AI_LAB_AGENT_TOKEN: str = ""
     AI_LAB_AGENT_LEASE_TTL_SECONDS: int = 120
