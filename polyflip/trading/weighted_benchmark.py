@@ -632,11 +632,17 @@ def benchmark(
     stacker_model = None
     oof: dict[int, float] = {}
     for fold in folds:
-        model = fit_ridge_logistic_stacker(
-            [ordered[i] for i in fold.train_indices],
-            ridge_lambda=cfg.ridge_lambda,
-            coefficient_bound=cfg.coefficient_bound,
-        )
+        try:
+            model = fit_ridge_logistic_stacker(
+                [ordered[i] for i in fold.train_indices],
+                ridge_lambda=cfg.ridge_lambda,
+                coefficient_bound=cfg.coefficient_bound,
+            )
+        except ValueError:
+            # Historical rows can lack a quote/model probability.  Keep the
+            # fold in the audit trail but do not let one sparse train window
+            # invalidate the remaining OOT folds.
+            continue
         for i in fold.test_indices:
             p = model.predict_one(ordered[i])
             if p is not None:
