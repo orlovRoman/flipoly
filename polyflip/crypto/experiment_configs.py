@@ -14,6 +14,31 @@ from typing import Any, Mapping
 from polyflip.crypto.feature_sets import get_feature_set
 
 
+import structlog
+
+logger = structlog.get_logger(__name__)
+
+LGBM_PARAM_ALIASES: dict[str, str] = {
+    "bagging_fraction": "subsample",
+    "sub_row": "subsample",
+    "feature_fraction": "colsample_bytree",
+    "col_subsample": "colsample_bytree",
+    "lambda_l2": "reg_lambda",
+    "l2_regularization": "reg_lambda",
+    "lambda_l1": "reg_alpha",
+    "l1_regularization": "reg_alpha",
+    "min_data_in_leaf": "min_child_samples",
+    "min_data_per_leaf": "min_child_samples",
+    "min_child_weight": "min_child_samples",
+    "bagging_freq": "subsample_freq",
+    "subsample_frequency": "subsample_freq",
+    "eta": "learning_rate",
+    "num_iterations": "n_estimators",
+    "n_iter": "n_estimators",
+    "num_trees": "n_estimators",
+    "max_leaves": "num_leaves",
+}
+
 MODEL_DEFAULTS: dict[str, int | float] = {
     "n_estimators": 300,
     "learning_rate": 0.05,
@@ -25,6 +50,7 @@ MODEL_DEFAULTS: dict[str, int | float] = {
     "colsample_bytree": 0.8,
     "reg_alpha": 0.1,
     "reg_lambda": 1.0,
+    "min_split_gain": 0.0,
 }
 
 CALIBRATION_DEFAULTS: dict[str, Any] = {"method": "AUTO"}
@@ -53,6 +79,7 @@ _MODEL_BOUNDS: dict[str, tuple[float, float, type]] = {
     "colsample_bytree": (0.1, 1.0, float),
     "reg_alpha": (0.0, 1000.0, float),
     "reg_lambda": (0.0, 1000.0, float),
+    "min_split_gain": (0.0, 100.0, float),
 }
 
 _BACKTEST_BOUNDS: dict[str, tuple[float, float]] = {
@@ -71,6 +98,17 @@ _THRESHOLD_BOUNDS: dict[str, tuple[float, float]] = {
 }
 
 
+def _canonicalize_aliases(values: Mapping[str, Any] | None) -> dict[str, Any]:
+    if not values:
+        return {}
+    canonical: dict[str, Any] = {}
+    for key, val in values.items():
+        canonical_key = LGBM_PARAM_ALIASES.get(key, key)
+        if canonical_key not in canonical or key == canonical_key:
+            canonical[canonical_key] = val
+    return canonical
+
+
 def _coerce_value(name: str, value: Any, *, integer: bool) -> int | float:
     if isinstance(value, bool):
         raise ValueError(f"{name} must be a number, not bool")
@@ -85,16 +123,39 @@ def _validate_group(
     values: Mapping[str, Any] | None,
     defaults: Mapping[str, int | float],
     bounds: Mapping[str, tuple[float, float] | tuple[float, float, type]],
+    *,
+    group_name: str = "group",
+    soft_fail: bool = False,
 ) -> dict[str, int | float]:
     result = deepcopy(dict(defaults))
     for name, value in (values or {}).items():
         if name not in bounds:
+            if soft_fail:
+                logger.warning("ignored_unknown_experiment_parameter", group=group_name, param=name)
+                continue
             raise ValueError(f"Unknown experiment parameter: {name}")
         bound = bounds[name]
         lower, upper = bound[0], bound[1]
         integer = len(bound) == 3 and bound[2] is int
-        coerced = _coerce_value(name, value, integer=integer)
+        try:
+            coerced = _coerce_value(name, value, integer=integer)
+        except ValueError:
+            if soft_fail:
+                logger.warning("ignored_invalid_experiment_parameter_type", group=group_name, param=name, value=value)
+                continue
+            raise
         if not lower <= float(coerced) <= upper:
+            if soft_fail:
+                clamped = lower if float(coerced) < lower else upper
+                logger.warning(
+                    "clamped_out_of_bounds_experiment_parameter",
+                    group=group_name,
+                    param=name,
+                    original=coerced,
+                    clamped=clamped,
+                )
+                result[name] = int(clamped) if integer else float(clamped)
+                continue
             raise ValueError(f"{name} must be between {lower} and {upper}")
         result[name] = coerced
     return result
@@ -111,11 +172,30 @@ def normalize_experiment_config(payload: Mapping[str, Any] | None = None) -> dic
     if method not in {"AUTO", "NONE", "PLATT", "ISOTONIC"}:
         raise ValueError("calibration.method must be AUTO, NONE, PLATT or ISOTONIC")
     calibration["method"] = method
-    backtest = _validate_group(data.get("backtest"), BACKTEST_DEFAULTS, _BACKTEST_BOUNDS)
+    backtest = _validate_group(
+        data.get("backtest"),
+        BACKTEST_DEFAULTS,
+        _BACKTEST_BOUNDS,
+        group_name="backtest",
+        soft_fail=False,
+    )
     if backtest["min_price"] > backtest["max_price"]:
         raise ValueError("backtest.min_price must not exceed max_price")
-    model = _validate_group(data.get("model"), MODEL_DEFAULTS, _MODEL_BOUNDS)
-    thresholds = _validate_group(data.get("thresholds"), THRESHOLD_DEFAULTS, _THRESHOLD_BOUNDS)
+    raw_model = _canonicalize_aliases(data.get("model"))
+    model = _validate_group(
+        raw_model,
+        MODEL_DEFAULTS,
+        _MODEL_BOUNDS,
+        group_name="model",
+        soft_fail=True,
+    )
+    thresholds = _validate_group(
+        data.get("thresholds"),
+        THRESHOLD_DEFAULTS,
+        _THRESHOLD_BOUNDS,
+        group_name="thresholds",
+        soft_fail=False,
+    )
     return {
         "feature_set": feature_spec.key,
         "feature_set_version": feature_spec.version,

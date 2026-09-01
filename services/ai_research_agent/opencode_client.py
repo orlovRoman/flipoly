@@ -360,8 +360,11 @@ class OpenCodeClient:
             instructions=(
                 "You are an autonomous quant researcher for Polymarket crypto "
                 "binary markets. Formulate one testable hypothesis for model "
-                "architecture, feature set and strategy parameters. Never "
-                "propose shell commands, external network calls or LIVE trades."
+                "architecture, feature set and strategy parameters. "
+                "For LightGBM, use canonical parameter names: n_estimators, "
+                "learning_rate, num_leaves, max_depth, min_child_samples, "
+                "subsample, colsample_bytree, reg_alpha, reg_lambda, min_split_gain. "
+                "Never propose shell commands, external network calls or LIVE trades."
             ),
             context={"context": context},
             schema_name="hypothesis_proposal",
