@@ -17,6 +17,7 @@ from polyflip.trading.weighted_benchmark import (
     cluster_bootstrap_ci,
     deduplicate_observations,
     evaluate_arm,
+    estimate_oof_standard_error,
     evaluate_sizing_steps,
     filter_fixed_horizons,
     fit_ridge_logistic_stacker,
@@ -428,6 +429,19 @@ def test_mapping_preserves_phase_fields_for_stability_reports():
     )
     assert item.phase == "STRONG_UP"
     assert item.asset_phase == "BTC_STRONG_UP"
+
+
+def test_oof_standard_error_is_reproducible_and_bounded():
+    rows = [_row(index, index % 2 == 0) for index in range(8)]
+    estimate = estimate_oof_standard_error(
+        rows,
+        {index: 0.75 for index in range(8)},
+        evaluation_indices=(4, 5, 6, 7),
+    )
+    assert estimate is not None
+    assert 0.0 < estimate <= 0.5
+
+
 
 
 def test_sizing_step_report_uses_same_oot_sample_for_each_level():

@@ -350,6 +350,7 @@ class BenchmarkReport:
     hierarchical_stacker: Optional["HierarchicalStacker"] = None
     duplicate_rows_removed: int = 0
     dataset_fingerprint: str = ""
+    oof_standard_error: Optional[float] = None
     stability: tuple[dict[str, Any], ...] = ()
     sizing_steps: tuple[dict[str, Any], ...] = ()
 
@@ -371,6 +372,7 @@ class BenchmarkReport:
             "hierarchical_stacker": self.hierarchical_stacker.as_dict() if self.hierarchical_stacker else None,
             "duplicate_rows_removed": self.duplicate_rows_removed,
             "dataset_fingerprint": self.dataset_fingerprint,
+            "oof_standard_error": self.oof_standard_error,
             "stability": [dict(item) for item in self.stability],
             "sizing_steps": [dict(item) for item in self.sizing_steps],
         }
@@ -1086,6 +1088,37 @@ def compare_mrf_application(
     }
 
 
+def estimate_oof_standard_error(
+    observations: Sequence[MarketObservation],
+    predictions: Mapping[int, float],
+    *,
+    evaluation_indices: Optional[Sequence[int]] = None,
+) -> Optional[float]:
+    """Estimate calibration uncertainty from chronological OOF residuals."""
+    allowed = (
+        {int(index) for index in evaluation_indices}
+        if evaluation_indices is not None
+        else set(predictions)
+    )
+    residuals: list[float] = []
+    for index, prediction in predictions.items():
+        if index not in allowed:
+            continue
+        if index < 0 or index >= len(observations):
+            continue
+        outcome = observations[index].outcome_yes
+        probability = clamp_probability(prediction)
+        if outcome is None or probability is None:
+            continue
+        residuals.append(float(outcome) - probability)
+    if len(residuals) < 2:
+        return None
+    estimate = float(np.std(np.asarray(residuals), ddof=1))
+    return round(max(0.0, min(0.5, estimate)), 8)
+
+
+
+
 def parameter_sensitivity(
     observations: Sequence[MarketObservation],
     *,
@@ -1122,7 +1155,19 @@ def parameter_sensitivity(
                 perturbation = float(delta)
             except (TypeError, ValueError, OverflowError):
                 continue
-            value = baseline * (1.0 + perturbation)
+            scale_for_zero = {
+                "market_weight": 0.05,
+                "logreg_weight": 0.05,
+                "lgbm_weight": 0.05,
+                "mrf_beta": 1.0,
+                "fee_rate": 0.01,
+                "slippage_rate": 0.01,
+            }.get(parameter, 1.0)
+            value = (
+                baseline * (1.0 + perturbation)
+                if baseline != 0.0
+                else perturbation * scale_for_zero
+            )
             if parameter.endswith("_weight"):
                 value = max(0.0, min(1.0, value))
             elif parameter == "mrf_beta":
@@ -1375,6 +1420,7 @@ def create_policy_artifact_from_benchmark(
             1 for item in ordered if item.outcome_yes is not None
         ),
         "folds": len(report.folds),
+        "oof_standard_error": report.oof_standard_error,
     }
     return create_policy_artifact(
         version=version,
@@ -1442,6 +1488,11 @@ def benchmark(
                 oof[i] = p
     oot_indices = tuple(
         sorted({index for fold in folds for index in fold.test_indices})
+    )
+    oof_standard_error = estimate_oof_standard_error(
+        ordered,
+        oof,
+        evaluation_indices=oot_indices,
     )
     if folds:
         try:
@@ -1562,6 +1613,7 @@ def benchmark(
         hierarchical_stacker=hierarchical_model,
         duplicate_rows_removed=max(0, raw_count - len(ordered)),
         dataset_fingerprint=dataset_fp,
+        oof_standard_error=oof_standard_error,
         stability=stability,
         sizing_steps=sizing_steps,
     )
