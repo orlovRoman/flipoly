@@ -24,6 +24,9 @@ from polyflip.trading.weighted_policy import (
 )
 
 
+FIXED_HORIZONS: tuple[str, ...] = ("10M", "5M", "2M")
+
+
 def _dt(value: Any) -> datetime:
     if isinstance(value, datetime):
         result = value
@@ -53,6 +56,22 @@ def _evidence(value: Any) -> Optional[float]:
         return None
     return max(-1.0, min(1.0, result))
 
+
+def normalize_horizon(value: Any) -> str:
+    """Normalize exported horizon labels to the benchmark's fixed buckets."""
+    text = str(value or "").strip().upper().replace("_", "").replace("-", "")
+    aliases = {
+        "2": "2M",
+        "2M": "2M",
+        "2MIN": "2M",
+        "5": "5M",
+        "5M": "5M",
+        "5MIN": "5M",
+        "10": "10M",
+        "10M": "10M",
+        "10MIN": "10M",
+    }
+    return aliases.get(text, text)
 
 def _outcome_yes(value: Any) -> Optional[bool]:
     if value is None:
@@ -163,7 +182,7 @@ class MarketObservation:
                 else None
             ),
             group=str(raw.get("group", raw.get("asset", "")) or ""),
-            horizon=str(raw.get("horizon", raw.get("market_horizon", "")) or ""),
+            horizon=normalize_horizon(raw.get("horizon", raw.get("market_horizon", ""))),
         )
 
     def as_dict(self) -> dict[str, Any]:
