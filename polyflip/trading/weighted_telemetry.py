@@ -54,7 +54,6 @@ WEIGHTED_TELEMETRY_FIELDS: tuple[str, ...] = (
     "weighted_policy_id",
     "weighted_edge_lower_bound",
     "weighted_size_multiplier",
-    "weighted_execution_role",
     "weighted_benchmark_json",
 )
 
