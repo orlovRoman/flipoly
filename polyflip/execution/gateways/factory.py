@@ -27,6 +27,8 @@ def build_execution_gateway(settings: ExecutionSettings, *, paper_config=None, q
                 delay_sec=(config.get("delay_sec", settings.paper_live_delay_sec) if parity_enabled else 0),
                 slippage_pct=(config.get("slippage_pct", settings.paper_slippage_pct) if parity_enabled else 0),
                 fee_rate=(config.get("fee_rate", settings.paper_fee_rate) if parity_enabled else 0),
+                fee_model=(config.get("fee_model", "FLAT_NOTIONAL") if parity_enabled else "FLAT_NOTIONAL"),
+                fee_exponent=(config.get("fee_exponent", "1.0") if parity_enabled else "1.0"),
                 min_order_shares=(config.get("min_order_shares", settings.paper_min_order_shares) if parity_enabled else settings.paper_min_order_shares),
             )
         case ExecutionMode.SHADOW:

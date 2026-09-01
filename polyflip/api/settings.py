@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from datetime import datetime, timezone
 import structlog
+import os
 
 from polyflip.db.connection import async_session
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +12,10 @@ from polyflip.db.models import RuntimeSettings, StrategyConfig
 from polyflip.api.auth import verify_api_key
 from polyflip.config import settings
 from polyflip.settings_registry import registry_defaults, editable_keys as _registry_editable_keys
+from polyflip.execution.config import (
+    LIVE_MIN_GROSS_BUY_USDC,
+    POLYMARKET_MIN_ORDER_SHARES,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -53,6 +58,101 @@ async def api_get_all_settings():
     """
     return await get_all_settings()
 
+def _runtime_bool(values: dict[str, str], key: str, default: bool = False) -> bool:
+    raw = values.get(key)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _runtime_float(values: dict[str, str], key: str, default: float) -> float:
+    try:
+        value = float(values.get(key, default))
+        return value if value == value and value not in {float("inf"), float("-inf")} else default
+    except (TypeError, ValueError, OverflowError):
+        return default
+
+
+@router.get("/runtime-info")
+async def api_get_runtime_info():
+    """
+    Returns the effective trading configuration and execution contracts.
+
+    This endpoint intentionally exposes no credentials. It combines runtime
+    settings from the database with process-level execution mode and the
+    constants used by the release/execution code, so the UI can distinguish
+    an active setting from a hardcoded guard.
+    """
+    values = await get_all_settings()
+    order_mode = str(values.get("LIVE_ORDER_MODE", "FAK")).strip().upper()
+    paper_profile = str(values.get("PAPER_EXECUTION_PROFILE", "LIVE_PARITY")).strip().upper()
+    weighted_mode = str(values.get("TRADING_POLICY_MODE", "LEGACY")).strip().upper()
+    mrf_mode = str(values.get("MARKET_REGIME_FILTER_MODE", "OFF")).strip().upper()
+    lgbm_mode = str(values.get("LIGHTGBM_DECISION_MODE", "SHADOW")).strip().upper()
+
+    return {
+        "execution_mode": str(os.getenv("EXECUTION_MODE", "PAPER")).strip().upper(),
+        "trading_enabled": _runtime_bool(values, "TRADING_ENABLED"),
+        "trading_mode": str(values.get("TRADING_MODE", "combined")).strip().upper(),
+        "lightgbm_decision_mode": lgbm_mode,
+        "weighted_policy": {
+            "mode": weighted_mode,
+            "id": str(values.get("WEIGHTED_POLICY_ID", "UNVERSIONED")),
+            "market_weight": _runtime_float(values, "WEIGHTED_MARKET_WEIGHT", 0.90),
+            "logreg_weight": _runtime_float(values, "WEIGHTED_LOGREG_WEIGHT", 0.05),
+            "lgbm_weight": _runtime_float(values, "WEIGHTED_LGBM_WEIGHT", 0.05),
+            "mrf_beta": _runtime_float(values, "WEIGHTED_MRF_BETA", 0.0),
+            "min_net_ev_favorite": _runtime_float(values, "WEIGHTED_MIN_NET_EV_FAVORITE", 0.03),
+            "min_net_ev_outsider": _runtime_float(values, "WEIGHTED_MIN_NET_EV_OUTSIDER", 0.03),
+            "fixed_bet_usdc": _runtime_float(values, "WEIGHTED_FIXED_BET_USDC", 1.0),
+        },
+        "mrf": {
+            "mode": mrf_mode,
+            "version": int(_runtime_float(values, "MARKET_REGIME_FILTER_VERSION", 1)),
+        },
+        "live": {
+            "kill_switch": _runtime_bool(values, "LIVE_TRADING_ENABLED"),
+            "mirror_enabled": _runtime_bool(values, "LIVE_MIRROR_ENABLED"),
+            "release_mode": str(values.get("LIVE_RELEASE_MODE", "DISABLED")).strip().upper(),
+        },
+        "order": {
+            "mode": order_mode,
+            "gtc_ttl_seconds": _runtime_float(values, "LIVE_GTC_TTL_SECONDS", 5.0),
+            "fak_retry_max_attempts": int(_runtime_float(values, "LIVE_FAK_RETRY_MAX_ATTEMPTS", 3)),
+            "fak_retry_delay_sec": _runtime_float(values, "LIVE_FAK_RETRY_DELAY_SEC", 0.75),
+            "maker_reprice_on_cross": _runtime_bool(values, "LIVE_MAKER_REPRICE_ON_CROSS", True),
+            "maker_reprice_max_retries": int(_runtime_float(values, "LIVE_MAKER_REPRICE_MAX_RETRIES", 1)),
+            "maker_tick_size": _runtime_float(values, "LIVE_MAKER_TICK_SIZE", 0.01),
+        },
+        "paper": {
+            "profile": paper_profile,
+            "live_delay_sec": _runtime_float(values, "PAPER_LIVE_DELAY_SEC", 2.0),
+            "slippage_pct": _runtime_float(values, "PAPER_SLIPPAGE_PCT", 0.5),
+            "fee_model": str(values.get("PAPER_FEE_MODEL", "FLAT_NOTIONAL")).strip().upper(),
+            "fee_rate": _runtime_float(values, "PAPER_FEE_RATE", 0.002),
+            "fee_exponent": _runtime_float(values, "PAPER_FEE_EXPONENT", 1.0),
+            "min_order_shares": _runtime_float(
+                values, "PAPER_MIN_ORDER_SHARES", float(POLYMARKET_MIN_ORDER_SHARES)
+            ),
+        },
+        "limits": {
+            "max_open_positions": int(_runtime_float(values, "MAX_OPEN_POSITIONS", 20)),
+            "max_total_exposure_usdc": _runtime_float(values, "MAX_TOTAL_EXPOSURE_USDC", 50.0),
+            "max_single_order_usdc": _runtime_float(values, "MAX_SINGLE_ORDER_USDC", 1.0),
+            "confirm_threshold_usdc": _runtime_float(values, "CONFIRM_THRESHOLD_USDC", 5.0),
+            "daily_loss_limit_usdc": _runtime_float(values, "DAILY_LOSS_LIMIT_USDC", -100.0),
+        },
+        "contracts": {
+            "live_min_gross_buy_usdc": float(LIVE_MIN_GROSS_BUY_USDC),
+            "maker_min_order_shares": float(POLYMARKET_MIN_ORDER_SHARES),
+            "small_order_route": "FAK_RETRY",
+            "maker_min_source": "execution.config constant",
+            "live_min_source": "release_gate constant",
+        },
+        "costs": {
+            "polymarket_fee_rate": _runtime_float(values, "POLYMARKET_FEE_RATE", 0.002),
+        },
+    }
 @router.get("/recommended_thresholds")
 async def get_recommended_thresholds():
     """

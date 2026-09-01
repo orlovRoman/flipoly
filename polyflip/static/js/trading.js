@@ -264,10 +264,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // ----------------------------------------------------
   // Trading Settings Logic
   // ----------------------------------------------------
-  let currentFlipThreshold = 0.70;
 
   const settingsElements = {
-    apiKeyInput: document.getElementById("API_KEY"),
     favorMinTimeLeft: document.getElementById("FAVOR_MIN_TIME_LEFT_SEC"),
     favorMaxTimeLeft: document.getElementById("FAVOR_MAX_TIME_LEFT_SEC"),
     outsMinTimeLeft: document.getElementById("OUTS_MIN_TIME_LEFT_SEC"),
@@ -279,7 +277,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     minDirectionProb: document.getElementById("MIN_DIRECTION_PROB"),
     minWinProb: document.getElementById("MIN_WIN_PROB"),
-    tradeFlipThreshold: document.getElementById("TRADE_FLIP_THRESHOLD"),
+    deadZoneWidth: document.getElementById("DEAD_ZONE_WIDTH"),
+    maxBetEdge: document.getElementById("MAX_BET_EDGE"),
     dailyLossLimit: document.getElementById("DAILY_LOSS_LIMIT_USDC"),
     tradingEnabled: document.getElementById("TRADING_ENABLED"),
     initialCapital: document.getElementById("INITIAL_CAPITAL"),
@@ -293,6 +292,8 @@ document.addEventListener("DOMContentLoaded", () => {
     combinedFallbackToLogregOnNone: document.getElementById("COMBINED_FALLBACK_TO_LOGREG_ON_NONE"),
     invertLgbmSignal: document.getElementById("INVERT_LGBM_SIGNAL"),
     enableEceCorrection: document.getElementById("ENABLE_ECE_CORRECTION"),
+    lightgbmDecisionMode: document.getElementById("LIGHTGBM_DECISION_MODE"),
+    lgbmUnavailablePolicy: document.getElementById("COMBINED_LGBM_UNAVAILABLE_POLICY"),
     combinedLogregAbstainBand: document.getElementById("COMBINED_LOGREG_ABSTAIN_BAND"),
     combinedCostBuffer: document.getElementById("COMBINED_COST_BUFFER"),
     stopLossEnabled: document.getElementById("STOP_LOSS_ENABLED"),
@@ -303,8 +304,7 @@ document.addEventListener("DOMContentLoaded", () => {
     takeProfitMultiplier: document.getElementById("TAKE_PROFIT_MULTIPLIER"),
     takeProfitOrderMode: document.getElementById("TAKE_PROFIT_ORDER_MODE"),
     takeProfitCheckIntervalSec: document.getElementById("TAKE_PROFIT_CHECK_INTERVAL_SEC"),
-    tradingModeRadios: document.querySelectorAll('input[name="trading_mode"]'),
-    tradingModeBadge: document.getElementById('trading-mode-badge'),
+    tradingModeBadge: document.getElementById("trading-mode-badge"),
     pollIntervalInput: document.getElementById("LIVE_POLL_INTERVAL_SECONDS"),
 
     favoriteThreshold: document.getElementById("FAVORITE_THRESHOLD"),
@@ -313,35 +313,56 @@ document.addEventListener("DOMContentLoaded", () => {
     flipThreshold: document.getElementById("FLIP_THRESHOLD"),
     outsMinEdge: document.getElementById("OUTS_MIN_EDGE"),
     favoriteMinEdge: document.getElementById("FAVORITE_MIN_EDGE"),
-
     favoriteMinPrice: document.getElementById("FAVORITE_MIN_PRICE"),
     favoriteMaxPrice: document.getElementById("FAVORITE_MAX_PRICE"),
     outsiderMaxPrice: document.getElementById("OUTSIDER_MAX_PRICE"),
-    bypassBetSizeCheck: document.getElementById("BYPASS_BET_SIZE_CHECK"),
     liquidityFraction: document.getElementById("LIQUIDITY_FRACTION"),
     maxPriceDrift: document.getElementById("MAX_PRICE_DRIFT"),
-    combinedModeSettings: document.getElementById('combined-mode-settings'),
+
+    maxOpenPositions: document.getElementById("MAX_OPEN_POSITIONS"),
+    maxTotalExposureUsdc: document.getElementById("MAX_TOTAL_EXPOSURE_USDC"),
+    maxSingleOrderUsdc: document.getElementById("MAX_SINGLE_ORDER_USDC"),
+    confirmThresholdUsdc: document.getElementById("CONFIRM_THRESHOLD_USDC"),
+
+    liveOrderMode: document.getElementById("LIVE_ORDER_MODE"),
+    liveGtcTtlSeconds: document.getElementById("LIVE_GTC_TTL_SECONDS"),
+    liveFakRetryMaxAttempts: document.getElementById("LIVE_FAK_RETRY_MAX_ATTEMPTS"),
+    liveFakRetryDelaySec: document.getElementById("LIVE_FAK_RETRY_DELAY_SEC"),
+    liveMakerRepriceOnCross: document.getElementById("LIVE_MAKER_REPRICE_ON_CROSS"),
+    liveMakerRepriceMaxRetries: document.getElementById("LIVE_MAKER_REPRICE_MAX_RETRIES"),
+    liveMakerTickSize: document.getElementById("LIVE_MAKER_TICK_SIZE"),
+    paperExecutionProfile: document.getElementById("PAPER_EXECUTION_PROFILE"),
+    paperLiveDelaySec: document.getElementById("PAPER_LIVE_DELAY_SEC"),
+    paperSlippagePct: document.getElementById("PAPER_SLIPPAGE_PCT"),
+    paperFeeModel: document.getElementById("PAPER_FEE_MODEL"),
+    paperFeeRate: document.getElementById("PAPER_FEE_RATE"),
+    paperFeeExponent: document.getElementById("PAPER_FEE_EXPONENT"),
+    paperMinOrderShares: document.getElementById("PAPER_MIN_ORDER_SHARES"),
+    polymarketFeeRate: document.getElementById("POLYMARKET_FEE_RATE"),
 
     // MRF (Market Regime Filter)
     mrfModeRadios: document.querySelectorAll('input[name="mrf_mode"]'),
-    mrfModeBadge: document.getElementById('mrf-mode-badge'),
-    mrfEfficiencyThreshold: document.getElementById('MARKET_REGIME_EFFICIENCY_THRESHOLD'),
-    mrfBreadthThreshold: document.getElementById('MARKET_REGIME_BREADTH_THRESHOLD'),
-    mrfMinHistory: document.getElementById('MARKET_REGIME_MIN_HISTORY'),
-    mrfUnknownMultiplier: document.getElementById('MARKET_REGIME_UNKNOWN_MULTIPLIER'),
-    mrfOutsiderTrendMultiplier: document.getElementById('MARKET_REGIME_OUTSIDER_TREND_MULTIPLIER'),
-    mrfFilterVersion: document.getElementById('MARKET_REGIME_FILTER_VERSION'),
-    mrfStatusPanel: document.getElementById('mrf-status-panel'),
-    mrfCurrentRegime: document.getElementById('mrf-current-regime'),
-    mrfStatusDetails: document.getElementById('mrf-status-details'),
-    mrfStatEvaluated: document.getElementById('mrf-stat-evaluated'),
-    mrfStatBlocked: document.getElementById('mrf-stat-blocked'),
-    mrfStatMultiplier: document.getElementById('mrf-stat-multiplier'),
-    mrfStatStrength: document.getElementById('mrf-stat-strength'),
-    mrfPerAssetCards: document.getElementById('mrf-per-asset-cards'),
+    mrfModeBadge: document.getElementById("mrf-mode-badge"),
+    mrfEfficiencyThreshold: document.getElementById("MARKET_REGIME_EFFICIENCY_THRESHOLD"),
+    mrfBreadthThreshold: document.getElementById("MARKET_REGIME_BREADTH_THRESHOLD"),
+    mrfMinHistory: document.getElementById("MARKET_REGIME_MIN_HISTORY"),
+    mrfUnknownMultiplier: document.getElementById("MARKET_REGIME_UNKNOWN_MULTIPLIER"),
+    mrfOutsiderTrendMultiplier: document.getElementById("MARKET_REGIME_OUTSIDER_TREND_MULTIPLIER"),
+    mrfVetoThreshold: document.getElementById("MARKET_REGIME_VETO_THRESHOLD"),
+    mrfEdgeOverrideMargin: document.getElementById("MARKET_REGIME_EDGE_OVERRIDE_MARGIN"),
+    mrfAssetWeight: document.getElementById("MARKET_REGIME_ASSET_WEIGHT"),
+    mrfGlobalWeight: document.getElementById("MARKET_REGIME_GLOBAL_WEIGHT"),
+    mrfFilterVersion: document.getElementById("MARKET_REGIME_FILTER_VERSION"),
+    mrfStatusPanel: document.getElementById("mrf-status-panel"),
+    mrfCurrentRegime: document.getElementById("mrf-current-regime"),
+    mrfStatusDetails: document.getElementById("mrf-status-details"),
+    mrfStatEvaluated: document.getElementById("mrf-stat-evaluated"),
+    mrfStatBlocked: document.getElementById("mrf-stat-blocked"),
+    mrfStatMultiplier: document.getElementById("mrf-stat-multiplier"),
+    mrfStatStrength: document.getElementById("mrf-stat-strength"),
+    mrfPerAssetCards: document.getElementById("mrf-per-asset-cards"),
   };
 
-  function updateDeadZoneInfo() {}
 
   
   function updateSizingModeUI() {
@@ -375,73 +396,8 @@ document.addEventListener("DOMContentLoaded", () => {
     updateOutsiderStrategyStatus();
   }
 
-  if (settingsElements.apiKeyInput) {
-    settingsElements.apiKeyInput.value = apiKey;
-  }
 
-  async function loadRecommendedThresholds() {
-    try {
 
-      const res = await fetch(`${window.API_BASE}/api/settings/recommended_thresholds`, {
-        headers: { "X-API-Key": apiKey }
-      });
-      const data = await res.json();
-      const g = data.global;
-
-      // Текущее значение no_flip берем из API
-      const currentNoFlipVal = g.current_no_flip || 0.45;
-      const currentNoFlipPct = Math.round(currentNoFlipVal * 100);
-      
-      const firstAsset = Object.keys(data.per_asset)[0];
-      const recPct = firstAsset ? Math.round(data.per_asset[firstAsset].recommended_no_flip * 100) : Math.round(currentNoFlipVal * 100);
-
-      // Подсказка под полем no_flip
-      const hint = document.getElementById("no-flip-hint");
-      if (hint) {
-        hint.innerHTML = `
-            Текущее значение: <strong>${currentNoFlipPct}%</strong>
-            ${firstAsset ? `&nbsp;(Рекомендовано для ${firstAsset}: <strong style="color:#00ff88">${recPct}%</strong>)` : ""}
-        `;
-      }
-
-      // Кнопка "Применить рекомендованное"
-      const btn = document.getElementById("btn-apply-recommended-no-flip");
-      if (btn) {
-        if (firstAsset) {
-          btn.style.display = "none";
-        } else {
-          btn.style.display = "none";
-        }
-      }
-
-      // Per-asset пороги (автокалиброванные trainer'ом)
-      const perAssetDiv = document.getElementById("per-asset-thresholds");
-      if (perAssetDiv) {
-        if (Object.keys(data.per_asset).length > 0) {
-          perAssetDiv.innerHTML = Object.entries(data.per_asset).map(([asset, v]) =>
-            `<span style="margin-right:1rem;">
-                ${asset}: <strong>${Math.round(v.recommended_no_flip * 100)}%</strong>
-                <span style="color:#00ff88; font-size:0.78rem;">(auto)</span>
-            </span>`
-          ).join("");
-        } else {
-          perAssetDiv.innerHTML = "";
-        }
-      }
-    } catch (e) {
-      console.warn("Failed to load recommended thresholds", e);
-    }
-  }
-
-  function onTradingModeChange(mode) {
-    if (settingsElements.combinedModeSettings) {
-      settingsElements.combinedModeSettings.style.display = 'block';
-    }
-    if (settingsElements.tradingModeBadge) {
-      settingsElements.tradingModeBadge.textContent = '⚖️ Режим: ML + LightGBM (Combined)';
-      settingsElements.tradingModeBadge.className = `mode-badge mode-combined`;
-    }
-  }
 
   
   // ── MRF Mode Change Handler ──
@@ -565,42 +521,99 @@ document.addEventListener("DOMContentLoaded", () => {
   setInterval(loadMrfStatus, 30000);
 
 
-  if (settingsElements.tradingModeRadios) {
-    settingsElements.tradingModeRadios.forEach(radio => {
-      radio.addEventListener('change', (e) => onTradingModeChange(e.target.value));
-    });
+
+
+
+  function setRuntimeValue(id, value, tone = "") {
+    const element = document.getElementById(id);
+    if (!element) return;
+    element.textContent = value == null || value === "" ? "—" : String(value);
+    element.className = `value${tone ? " " + tone : ""}`;
   }
 
-  function getPerAssetFields() { return []; }
+  function runtimeNumber(value, digits = 2) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number.toFixed(digits) : "—";
+  }
 
-  async function checkCalibrationWarnings() {
+  async function loadRuntimeInfo() {
     try {
-      const res = await fetch(window.API_BASE + "/api/analytics/models", {
+      const res = await fetch(window.API_BASE + "/api/settings/runtime-info", {
         headers: { "X-API-Key": apiKey },
       });
       if (!res.ok) return;
-      const models = await res.json();
-      
-      const perAssetNames = getPerAssetFields();
-      perAssetNames.forEach((asset) => {
-        const warnSpan = document.getElementById(`calibration-warning-${asset}`);
-        if (warnSpan) {
-          warnSpan.style.display = "none";
-          warnSpan.textContent = "";
-        }
-      });
+      const data = await res.json();
+      const order = data.order || {};
+      const paper = data.paper || {};
+      const live = data.live || {};
+      const contracts = data.contracts || {};
+      const weighted = data.weighted_policy || {};
+      const mrf = data.mrf || {};
 
-      models.forEach((m) => {
-        if (m.is_active && m.ece !== null && m.ece > 0.10) {
-          const warnSpan = document.getElementById(`calibration-warning-${m.asset.toUpperCase()}`);
-          if (warnSpan) {
-            warnSpan.textContent = `⚠️ Калибровка: Плохая (ECE: ${m.ece.toFixed(4)})`;
-            warnSpan.style.display = "inline-block";
-          }
-        }
-      });
+      setRuntimeValue("runtime-execution-mode", data.execution_mode || "—");
+      setRuntimeValue(
+        "runtime-trading-mode",
+        `${data.trading_mode || "—"} · ${data.trading_enabled ? "торговля включена" : "торговля выключена"}`,
+        data.trading_enabled ? "ok" : "warn",
+      );
+      setRuntimeValue("runtime-lgbm-mode", data.lightgbm_decision_mode || "—");
+      setRuntimeValue(
+        "runtime-policy-mode",
+        weighted.mode ? `${weighted.mode}${weighted.id ? " · " + weighted.id : ""}` : "—",
+      );
+      setRuntimeValue(
+        "runtime-mrf-mode",
+        mrf.mode ? `${mrf.mode} · v${mrf.version ?? "—"}` : "—",
+      );
+      setRuntimeValue(
+        "runtime-order-mode",
+        order.mode
+          ? `${order.mode} · TTL ${runtimeNumber(order.gtc_ttl_seconds, 1)}с`
+          : "—",
+      );
+      setRuntimeValue("runtime-paper-profile", paper.profile || "—");
+      setRuntimeValue(
+        "runtime-live-safety",
+        `kill-switch ${live.kill_switch ? "ON" : "OFF"} · release ${live.release_mode || "—"} · mirror ${live.mirror_enabled ? "ON" : "OFF"}`,
+        live.kill_switch && live.release_mode !== "DISABLED" ? "ok" : "warn",
+      );
+      setRuntimeValue(
+        "runtime-live-min",
+        `$${runtimeNumber(contracts.live_min_gross_buy_usdc, 2)} · ${contracts.live_min_source || "constant"}`,
+      );
+      setRuntimeValue(
+        "runtime-maker-min",
+        `${runtimeNumber(contracts.maker_min_order_shares, 2)} shares · ${contracts.maker_min_source || "constant"}`,
+      );
+      setRuntimeValue(
+        "runtime-small-order-route",
+        contracts.small_order_route || "FAK_RETRY",
+        "ok",
+      );
+      setRuntimeValue(
+        "runtime-paper-min",
+        `${runtimeNumber(paper.min_order_shares, 2)} shares`,
+      );
+
+      const weightedText = weighted.mode === "LEGACY"
+        ? `Weighted policy: LEGACY — сейчас не участвует в решении. Сохранены веса для аудита: market ${runtimeNumber(weighted.market_weight, 2)}, LogReg ${runtimeNumber(weighted.logreg_weight, 2)}, LGBM ${runtimeNumber(weighted.lgbm_weight, 2)}.`
+        : `Weighted policy активна: market ${runtimeNumber(weighted.market_weight, 2)}, LogReg ${runtimeNumber(weighted.logreg_weight, 2)}, LGBM ${runtimeNumber(weighted.lgbm_weight, 2)}, MRF β ${runtimeNumber(weighted.mrf_beta, 2)}.`;
+      setRuntimeValue("runtime-weighted-details", weightedText);
+
+      const updated = document.getElementById("runtime-info-updated");
+      if (updated) {
+        updated.textContent = "обновлено " + new Date().toLocaleTimeString();
+      }
+
+      if (settingsElements.tradingModeBadge) {
+        const mode = String(data.trading_mode || "COMBINED").toUpperCase();
+        settingsElements.tradingModeBadge.textContent =
+          mode === "COMBINED" ? "⚖️ Режим решений: Combined" : "Режим решений: " + mode;
+        settingsElements.tradingModeBadge.className =
+          "mode-badge " + (mode === "COMBINED" ? "mode-combined" : "mode-ml");
+      }
     } catch (e) {
-      console.warn("Failed to check calibration warnings", e);
+      console.warn("Failed to load runtime info", e);
     }
   }
 
@@ -639,10 +652,19 @@ document.addEventListener("DOMContentLoaded", () => {
         if (val <= 1) val *= 100;
         settingsElements.minWinProb.value = val.toFixed(1);
       }
-      if (settingsElements.tradeFlipThreshold && data.TRADE_FLIP_THRESHOLD !== undefined) {
-        let val = parseFloat(data.TRADE_FLIP_THRESHOLD);
-        if (val > 1) val /= 100;
-        settingsElements.tradeFlipThreshold.value = Math.round(val * 100);
+      if (settingsElements.deadZoneWidth && data.DEAD_ZONE_WIDTH !== undefined) {
+        const val = parseFloat(data.DEAD_ZONE_WIDTH);
+        settingsElements.deadZoneWidth.value = Number.isFinite(val) ? (val * 100).toFixed(1) : "0";
+      }
+      if (settingsElements.maxBetEdge && data.MAX_BET_EDGE !== undefined) {
+        const val = parseFloat(data.MAX_BET_EDGE);
+        settingsElements.maxBetEdge.value = Number.isFinite(val) ? (val * 100).toFixed(1) : "0";
+      }
+      if (settingsElements.lightgbmDecisionMode && data.LIGHTGBM_DECISION_MODE !== undefined) {
+        settingsElements.lightgbmDecisionMode.value = String(data.LIGHTGBM_DECISION_MODE).toUpperCase();
+      }
+      if (settingsElements.lgbmUnavailablePolicy && data.COMBINED_LGBM_UNAVAILABLE_POLICY !== undefined) {
+        settingsElements.lgbmUnavailablePolicy.value = String(data.COMBINED_LGBM_UNAVAILABLE_POLICY).toUpperCase();
       }
 
 
@@ -726,9 +748,8 @@ document.addEventListener("DOMContentLoaded", () => {
         updateOutsiderStrategyStatus();
       }
       if (settingsElements.flipThreshold && data.FLIP_THRESHOLD !== undefined) {
-        let val = parseFloat(data.FLIP_THRESHOLD);
-        settingsElements.flipThreshold.value = Math.round(val * 100);
-        currentFlipThreshold = val;
+        const val = parseFloat(data.FLIP_THRESHOLD);
+        settingsElements.flipThreshold.value = Number.isFinite(val) ? Math.round(val * 100) : 0;
       }
       if (settingsElements.favoriteMaxPrice && data.FAVORITE_MAX_PRICE !== undefined) {
         settingsElements.favoriteMaxPrice.value = data.FAVORITE_MAX_PRICE;
@@ -749,15 +770,52 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.outsiderMaxPrice && data.OUTSIDER_MAX_PRICE !== undefined) {
         settingsElements.outsiderMaxPrice.value = data.OUTSIDER_MAX_PRICE;
       }
-      if (settingsElements.bypassBetSizeCheck && data.BYPASS_BET_SIZE_CHECK) {
-        settingsElements.bypassBetSizeCheck.checked = data.BYPASS_BET_SIZE_CHECK === "true";
-      }
       if (settingsElements.liquidityFraction && data.LIQUIDITY_FRACTION !== undefined) {
         settingsElements.liquidityFraction.value = data.LIQUIDITY_FRACTION;
       }
       if (settingsElements.maxPriceDrift && data.MAX_PRICE_DRIFT !== undefined) {
-        settingsElements.maxPriceDrift.value = data.MAX_PRICE_DRIFT;
+        const val = parseFloat(data.MAX_PRICE_DRIFT);
+        settingsElements.maxPriceDrift.value = Number.isFinite(val) ? (val * 100).toFixed(1) : "0";
       }
+      if (settingsElements.maxOpenPositions && data.MAX_OPEN_POSITIONS !== undefined)
+        settingsElements.maxOpenPositions.value = data.MAX_OPEN_POSITIONS;
+      if (settingsElements.maxTotalExposureUsdc && data.MAX_TOTAL_EXPOSURE_USDC !== undefined)
+        settingsElements.maxTotalExposureUsdc.value = data.MAX_TOTAL_EXPOSURE_USDC;
+      if (settingsElements.maxSingleOrderUsdc && data.MAX_SINGLE_ORDER_USDC !== undefined)
+        settingsElements.maxSingleOrderUsdc.value = data.MAX_SINGLE_ORDER_USDC;
+      if (settingsElements.confirmThresholdUsdc && data.CONFIRM_THRESHOLD_USDC !== undefined)
+        settingsElements.confirmThresholdUsdc.value = data.CONFIRM_THRESHOLD_USDC;
+
+      if (settingsElements.liveOrderMode && data.LIVE_ORDER_MODE !== undefined)
+        settingsElements.liveOrderMode.value = String(data.LIVE_ORDER_MODE).toUpperCase();
+      if (settingsElements.liveGtcTtlSeconds && data.LIVE_GTC_TTL_SECONDS !== undefined)
+        settingsElements.liveGtcTtlSeconds.value = data.LIVE_GTC_TTL_SECONDS;
+      if (settingsElements.liveFakRetryMaxAttempts && data.LIVE_FAK_RETRY_MAX_ATTEMPTS !== undefined)
+        settingsElements.liveFakRetryMaxAttempts.value = data.LIVE_FAK_RETRY_MAX_ATTEMPTS;
+      if (settingsElements.liveFakRetryDelaySec && data.LIVE_FAK_RETRY_DELAY_SEC !== undefined)
+        settingsElements.liveFakRetryDelaySec.value = data.LIVE_FAK_RETRY_DELAY_SEC;
+      if (settingsElements.liveMakerRepriceOnCross && data.LIVE_MAKER_REPRICE_ON_CROSS !== undefined)
+        settingsElements.liveMakerRepriceOnCross.value = String(data.LIVE_MAKER_REPRICE_ON_CROSS).toLowerCase();
+      if (settingsElements.liveMakerRepriceMaxRetries && data.LIVE_MAKER_REPRICE_MAX_RETRIES !== undefined)
+        settingsElements.liveMakerRepriceMaxRetries.value = data.LIVE_MAKER_REPRICE_MAX_RETRIES;
+      if (settingsElements.liveMakerTickSize && data.LIVE_MAKER_TICK_SIZE !== undefined)
+        settingsElements.liveMakerTickSize.value = data.LIVE_MAKER_TICK_SIZE;
+      if (settingsElements.paperExecutionProfile && data.PAPER_EXECUTION_PROFILE !== undefined)
+        settingsElements.paperExecutionProfile.value = data.PAPER_EXECUTION_PROFILE;
+      if (settingsElements.paperLiveDelaySec && data.PAPER_LIVE_DELAY_SEC !== undefined)
+        settingsElements.paperLiveDelaySec.value = data.PAPER_LIVE_DELAY_SEC;
+      if (settingsElements.paperSlippagePct && data.PAPER_SLIPPAGE_PCT !== undefined)
+        settingsElements.paperSlippagePct.value = data.PAPER_SLIPPAGE_PCT;
+      if (settingsElements.paperFeeModel && data.PAPER_FEE_MODEL !== undefined)
+        settingsElements.paperFeeModel.value = String(data.PAPER_FEE_MODEL).toUpperCase();
+      if (settingsElements.paperFeeRate && data.PAPER_FEE_RATE !== undefined)
+        settingsElements.paperFeeRate.value = data.PAPER_FEE_RATE;
+      if (settingsElements.paperFeeExponent && data.PAPER_FEE_EXPONENT !== undefined)
+        settingsElements.paperFeeExponent.value = data.PAPER_FEE_EXPONENT;
+      if (settingsElements.paperMinOrderShares && data.PAPER_MIN_ORDER_SHARES !== undefined)
+        settingsElements.paperMinOrderShares.value = data.PAPER_MIN_ORDER_SHARES;
+      if (settingsElements.polymarketFeeRate && data.POLYMARKET_FEE_RATE !== undefined)
+        settingsElements.polymarketFeeRate.value = data.POLYMARKET_FEE_RATE;
       if (settingsElements.maxSpreadPct && data.MAX_SPREAD_PCT !== undefined) {
         let val = parseFloat(data.MAX_SPREAD_PCT);
         settingsElements.maxSpreadPct.value = (val * 100).toFixed(1);
@@ -807,6 +865,16 @@ document.addEventListener("DOMContentLoaded", () => {
         settingsElements.mrfUnknownMultiplier.value = data.MARKET_REGIME_UNKNOWN_MULTIPLIER;
       if (settingsElements.mrfOutsiderTrendMultiplier && data.MARKET_REGIME_OUTSIDER_TREND_MULTIPLIER !== undefined)
         settingsElements.mrfOutsiderTrendMultiplier.value = data.MARKET_REGIME_OUTSIDER_TREND_MULTIPLIER;
+      if (settingsElements.mrfVetoThreshold && data.MARKET_REGIME_VETO_THRESHOLD !== undefined)
+        settingsElements.mrfVetoThreshold.value = data.MARKET_REGIME_VETO_THRESHOLD;
+      if (settingsElements.mrfEdgeOverrideMargin && data.MARKET_REGIME_EDGE_OVERRIDE_MARGIN !== undefined) {
+        const val = parseFloat(data.MARKET_REGIME_EDGE_OVERRIDE_MARGIN);
+        settingsElements.mrfEdgeOverrideMargin.value = Number.isFinite(val) ? (val * 100).toFixed(1) : "0";
+      }
+      if (settingsElements.mrfAssetWeight && data.MARKET_REGIME_ASSET_WEIGHT !== undefined)
+        settingsElements.mrfAssetWeight.value = data.MARKET_REGIME_ASSET_WEIGHT;
+      if (settingsElements.mrfGlobalWeight && data.MARKET_REGIME_GLOBAL_WEIGHT !== undefined)
+        settingsElements.mrfGlobalWeight.value = data.MARKET_REGIME_GLOBAL_WEIGHT;
       if (settingsElements.mrfFilterVersion && data.MARKET_REGIME_FILTER_VERSION !== undefined)
         settingsElements.mrfFilterVersion.value = data.MARKET_REGIME_FILTER_VERSION;
       if (data.MARKET_REGIME_FILTER_MODE) {
@@ -816,12 +884,6 @@ document.addEventListener("DOMContentLoaded", () => {
         updateMrfModeBadge();
       }
 
-      if (data.TRADING_MODE) {
-        const mode = data.TRADING_MODE;
-        const radio = document.querySelector(`input[name="trading_mode"][value="${mode}"]`);
-        if (radio) radio.checked = true;
-        onTradingModeChange(mode);
-      }
       if (settingsElements.pollIntervalInput && data.LIVE_POLL_INTERVAL_SECONDS !== undefined) {
         settingsElements.pollIntervalInput.value = data.LIVE_POLL_INTERVAL_SECONDS;
       }
@@ -833,14 +895,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
       }
 
-      // Заполняем индивидуальные настройки по активам
-      const perAssetNames = getPerAssetFields();
-      perAssetNames.forEach((asset) => {
-        // Individual asset settings removed.
-      });
-
-      await loadRecommendedThresholds();
-      await checkCalibrationWarnings();
+      await loadRuntimeInfo();
     } catch (e) {
       console.error("Failed to load settings", e);
     }
@@ -857,19 +912,11 @@ document.addEventListener("DOMContentLoaded", () => {
         .map((cb) => cb.value)
         .join(",");
 
-      if (settingsElements.apiKeyInput) {
-        const newKey = settingsElements.apiKeyInput.value.trim() || "test-key";
-        localStorage.setItem("polyflip_api_key", newKey);
-        apiKey = newKey; // update local scope variable
-      }
 
-      // ВАЖНО: нормализация значений перед сохранением в Redis:
-      // FAVORITE_MIN_EDGE   → / 100  (хранится как float, напр. -0.01)
-      // LIQUIDITY_FRACTION  → as-is  (хранится как float, напр. 0.05)
-      // MAX_PRICE_DRIFT     → as-is  (хранится как float, напр. 0.03)
-      // NO_MIN_PRICE        → as-is  (хранится как float, напр. 0.55)
-      // OUTSIDER_MAX_PRICE   → as-is  (хранится как float)
-      // Если меняешь формат хранения — обнови loadSettings() симметрично.
+      // Значения сохраняются в RuntimeSettings в БД.
+      // Проценты из UI нормализуются в доли: 10% → 0.10.
+      // Цены, USDC, секунды и коэффициенты без процентной шкалы сохраняются как есть.
+      // Загрузка и сохранение должны оставаться симметричными.
       const settingsToSave = {};
       if (settingsElements.favorMinTimeLeft) settingsToSave.FAVOR_MIN_TIME_LEFT_SEC = settingsElements.favorMinTimeLeft.value;
       if (settingsElements.favorMaxTimeLeft) settingsToSave.FAVOR_MAX_TIME_LEFT_SEC = settingsElements.favorMaxTimeLeft.value;
@@ -880,6 +927,10 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.betSize) settingsToSave.TRADE_BET_SIZE_USDC = settingsElements.betSize.value;
       if (settingsElements.minDirectionProb) settingsToSave.MIN_DIRECTION_PROB = parseFloat(settingsElements.minDirectionProb.value) / 100;
       if (settingsElements.minWinProb) settingsToSave.MIN_WIN_PROB = parseFloat(settingsElements.minWinProb.value) / 100;
+      if (settingsElements.deadZoneWidth) settingsToSave.DEAD_ZONE_WIDTH = parseFormattedFloat(settingsElements.deadZoneWidth.value) / 100;
+      if (settingsElements.maxBetEdge) settingsToSave.MAX_BET_EDGE = parseFormattedFloat(settingsElements.maxBetEdge.value) / 100;
+      if (settingsElements.lightgbmDecisionMode) settingsToSave.LIGHTGBM_DECISION_MODE = settingsElements.lightgbmDecisionMode.value;
+      if (settingsElements.lgbmUnavailablePolicy) settingsToSave.COMBINED_LGBM_UNAVAILABLE_POLICY = settingsElements.lgbmUnavailablePolicy.value;
       if (settingsElements.outsiderPwinDiscount) settingsToSave.OUTSIDER_PWIN_DISCOUNT = parseFloat(settingsElements.outsiderPwinDiscount.value) / 100;
       if (settingsElements.combinedDirDiscountWeight) settingsToSave.COMBINED_DIR_DISCOUNT_WEIGHT = parseFormattedFloat(settingsElements.combinedDirDiscountWeight.value) / 100;
       if (settingsElements.combinedDirStrongThreshold) settingsToSave.COMBINED_DIR_STRONG_THRESHOLD = parseFormattedFloat(settingsElements.combinedDirStrongThreshold.value) / 100;
@@ -889,7 +940,6 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.enableEceCorrection) settingsToSave.ENABLE_ECE_CORRECTION = settingsElements.enableEceCorrection.checked ? "true" : "false";
       if (settingsElements.combinedLogregAbstainBand) settingsToSave.COMBINED_LOGREG_ABSTAIN_BAND = (parseFormattedFloat(settingsElements.combinedLogregAbstainBand.value) / 100).toString();
       if (settingsElements.combinedCostBuffer) settingsToSave.COMBINED_COST_BUFFER = parseFormattedFloat(settingsElements.combinedCostBuffer.value).toString();
-      if (settingsElements.tradeFlipThreshold) settingsToSave.TRADE_FLIP_THRESHOLD = parseFloat(settingsElements.tradeFlipThreshold.value) / 100;
 
       if (settingsElements.dailyLossLimit) settingsToSave.DAILY_LOSS_LIMIT_USDC = settingsElements.dailyLossLimit.value;
       if (settingsElements.stopLossEnabled) settingsToSave.STOP_LOSS_ENABLED = settingsElements.stopLossEnabled.checked ? "true" : "false";
@@ -948,7 +998,6 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.minPrice) settingsToSave.TRADE_MIN_PRICE = settingsElements.minPrice.value;
       if (settingsElements.maxPrice) settingsToSave.TRADE_MAX_PRICE = settingsElements.maxPrice.value;
       if (settingsElements.maxSpreadPct) settingsToSave.MAX_SPREAD_PCT = (parseFloat(settingsElements.maxSpreadPct.value) / 100).toString();
-      settingsToSave.TRADING_MODE = 'combined';
 
       if (settingsElements.pollIntervalInput) {
         let parsedInt = parseInt(settingsElements.pollIntervalInput.value, 10);
@@ -968,12 +1017,37 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.favoriteMaxPrice) settingsToSave.FAVORITE_MAX_PRICE = parseFormattedFloat(settingsElements.favoriteMaxPrice.value);
       if (settingsElements.outsiderMaxPrice) settingsToSave.OUTSIDER_MAX_PRICE = parseFormattedFloat(settingsElements.outsiderMaxPrice.value);
       
-      const bypassValue = settingsElements.bypassBetSizeCheck ? (settingsElements.bypassBetSizeCheck.checked ? "true" : "false") : null;
-      
       if (settingsElements.liquidityFraction) settingsToSave.LIQUIDITY_FRACTION = parseFormattedFloat(settingsElements.liquidityFraction.value);
-      if (settingsElements.maxPriceDrift) settingsToSave.MAX_PRICE_DRIFT = parseFormattedFloat(settingsElements.maxPriceDrift.value);
-      if (settingsElements.combinedFallbackToMlOnNone) {
+      if (settingsElements.maxPriceDrift) settingsToSave.MAX_PRICE_DRIFT = (parseFormattedFloat(settingsElements.maxPriceDrift.value) / 100).toString();
+
+      if (settingsElements.maxOpenPositions) settingsToSave.MAX_OPEN_POSITIONS = parseInt(settingsElements.maxOpenPositions.value, 10);
+      if (settingsElements.maxTotalExposureUsdc) settingsToSave.MAX_TOTAL_EXPOSURE_USDC = parseFormattedFloat(settingsElements.maxTotalExposureUsdc.value);
+      if (settingsElements.maxSingleOrderUsdc) settingsToSave.MAX_SINGLE_ORDER_USDC = parseFormattedFloat(settingsElements.maxSingleOrderUsdc.value);
+      if (settingsElements.confirmThresholdUsdc) settingsToSave.CONFIRM_THRESHOLD_USDC = parseFormattedFloat(settingsElements.confirmThresholdUsdc.value);
+
+      if (settingsElements.liveOrderMode) {
+        const mode = String(settingsElements.liveOrderMode.value || "").toUpperCase();
+        const allowedModes = ["SMART_MAKER", "FAK_RETRY", "FAK", "GTC_TTL", "GTD", "MAKER_TTL"];
+        if (!allowedModes.includes(mode)) {
+          alert("Неизвестный LIVE-маршрут ордера");
+          return;
+        }
+        settingsToSave.LIVE_ORDER_MODE = mode;
       }
+      if (settingsElements.liveGtcTtlSeconds) settingsToSave.LIVE_GTC_TTL_SECONDS = parseFormattedFloat(settingsElements.liveGtcTtlSeconds.value);
+      if (settingsElements.liveFakRetryMaxAttempts) settingsToSave.LIVE_FAK_RETRY_MAX_ATTEMPTS = parseInt(settingsElements.liveFakRetryMaxAttempts.value, 10);
+      if (settingsElements.liveFakRetryDelaySec) settingsToSave.LIVE_FAK_RETRY_DELAY_SEC = parseFormattedFloat(settingsElements.liveFakRetryDelaySec.value);
+      if (settingsElements.liveMakerRepriceOnCross) settingsToSave.LIVE_MAKER_REPRICE_ON_CROSS = settingsElements.liveMakerRepriceOnCross.value;
+      if (settingsElements.liveMakerRepriceMaxRetries) settingsToSave.LIVE_MAKER_REPRICE_MAX_RETRIES = parseInt(settingsElements.liveMakerRepriceMaxRetries.value, 10);
+      if (settingsElements.liveMakerTickSize) settingsToSave.LIVE_MAKER_TICK_SIZE = parseFormattedFloat(settingsElements.liveMakerTickSize.value);
+
+      if (settingsElements.paperLiveDelaySec) settingsToSave.PAPER_LIVE_DELAY_SEC = parseFormattedFloat(settingsElements.paperLiveDelaySec.value);
+      if (settingsElements.paperSlippagePct) settingsToSave.PAPER_SLIPPAGE_PCT = parseFormattedFloat(settingsElements.paperSlippagePct.value);
+      if (settingsElements.paperFeeModel) settingsToSave.PAPER_FEE_MODEL = settingsElements.paperFeeModel.value;
+      if (settingsElements.paperFeeRate) settingsToSave.PAPER_FEE_RATE = parseFormattedFloat(settingsElements.paperFeeRate.value);
+      if (settingsElements.paperFeeExponent) settingsToSave.PAPER_FEE_EXPONENT = parseFormattedFloat(settingsElements.paperFeeExponent.value);
+      if (settingsElements.polymarketFeeRate) settingsToSave.POLYMARKET_FEE_RATE = parseFormattedFloat(settingsElements.polymarketFeeRate.value);
+
       settingsToSave.TRADE_ASSETS = tradeAssets;
 
       // MRF settings
@@ -982,37 +1056,15 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.mrfMinHistory) settingsToSave.MARKET_REGIME_MIN_HISTORY = parseInt(settingsElements.mrfMinHistory.value);
       if (settingsElements.mrfUnknownMultiplier) settingsToSave.MARKET_REGIME_UNKNOWN_MULTIPLIER = parseFloat(settingsElements.mrfUnknownMultiplier.value);
       if (settingsElements.mrfOutsiderTrendMultiplier) settingsToSave.MARKET_REGIME_OUTSIDER_TREND_MULTIPLIER = parseFloat(settingsElements.mrfOutsiderTrendMultiplier.value);
+      if (settingsElements.mrfVetoThreshold) settingsToSave.MARKET_REGIME_VETO_THRESHOLD = parseFloat(settingsElements.mrfVetoThreshold.value);
+      if (settingsElements.mrfEdgeOverrideMargin) settingsToSave.MARKET_REGIME_EDGE_OVERRIDE_MARGIN = parseFormattedFloat(settingsElements.mrfEdgeOverrideMargin.value) / 100;
+      if (settingsElements.mrfAssetWeight) settingsToSave.MARKET_REGIME_ASSET_WEIGHT = parseFloat(settingsElements.mrfAssetWeight.value);
+      if (settingsElements.mrfGlobalWeight) settingsToSave.MARKET_REGIME_GLOBAL_WEIGHT = parseFloat(settingsElements.mrfGlobalWeight.value);
       if (settingsElements.mrfFilterVersion) settingsToSave.MARKET_REGIME_FILTER_VERSION = parseInt(settingsElements.mrfFilterVersion.value);
       const mrfModeChecked = document.querySelector('input[name="mrf_mode"]:checked');
       if (mrfModeChecked) settingsToSave.MARKET_REGIME_FILTER_MODE = mrfModeChecked.value;
 
-
-      // Считываем индивидуальные настройки по активам
-      const perAssetNames = getPerAssetFields();
-      perAssetNames.forEach((asset) => {
-        
-        if (modeSelect) {
-        }
-        if (minEdgeInput) {
-          const val = minEdgeInput.value.trim();
-        }
-        if (maxPriceInput) {
-          const val = maxPriceInput.value.trim();
-        }
-        if (flipThresholdInput) {
-          const val = flipThresholdInput.value.trim();
-        }
-      });
-
       try {
-        if (bypassValue !== null) {
-            await fetch(window.API_BASE + "/api/settings/security/BYPASS_BET_SIZE_CHECK", {
-                method: "PUT",
-                headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
-                body: JSON.stringify({ value: bypassValue }),
-            });
-        }
-
         const res = await fetch(window.API_BASE + "/api/settings/bulk", {
           method: "PUT",
           headers: {
@@ -1380,21 +1432,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  const flipInput = document.getElementById("FLIP_THRESHOLD") || document.getElementById("TRADE_FLIP_THRESHOLD");
-  if (flipInput) {
-    flipInput.addEventListener("input", () => {
-      const val = parseFloat(flipInput.value) / 100;
-      if (!isNaN(val)) loadRecommendedThresholds(val);
-    });
-  }
-
-  const noFlipInput = document.getElementById("NO_FLIP_THRESHOLD");
-  if (noFlipInput) {
-    noFlipInput.addEventListener("input", () => {
-      const flipVal = flipInput ? parseFloat(flipInput.value) / 100 : 0.85;
-      if (!isNaN(flipVal)) loadRecommendedThresholds(flipVal);
-    });
-  }
 
   // Bind pagination buttons
   const btnPrev = document.getElementById("btn-prev");

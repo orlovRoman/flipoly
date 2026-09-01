@@ -52,6 +52,43 @@ async def test_get_all_settings_from_db(db_session):
 
 
 @pytest.mark.asyncio
+
+@pytest.mark.asyncio
+async def test_runtime_info_exposes_execution_contract(db_session, monkeypatch):
+    import polyflip.api.settings as settings_module
+
+    original_session = settings_module.async_session
+    settings_module.async_session = patch_session(db_session)
+    monkeypatch.setenv("EXECUTION_MODE", "LIVE")
+    try:
+        now = datetime.now(timezone.utc)
+        db_session.add_all(
+            [
+                RuntimeSettings(key="TRADING_ENABLED", value="true", updated_at=now, updated_by="test"),
+                RuntimeSettings(key="LIVE_ORDER_MODE", value="SMART_MAKER", updated_at=now, updated_by="test"),
+                RuntimeSettings(key="PAPER_EXECUTION_PROFILE", value="LIVE_PARITY", updated_at=now, updated_by="test"),
+                RuntimeSettings(key="PAPER_MIN_ORDER_SHARES", value="5", updated_at=now, updated_by="test"),
+                RuntimeSettings(key="LIGHTGBM_DECISION_MODE", value="ACTIVE", updated_at=now, updated_by="test"),
+                RuntimeSettings(key="MARKET_REGIME_FILTER_MODE", value="SHADOW", updated_at=now, updated_by="test"),
+            ]
+        )
+        await db_session.commit()
+
+        payload = await settings_module.api_get_runtime_info()
+
+        assert payload["execution_mode"] == "LIVE"
+        assert payload["trading_enabled"] is True
+        assert payload["lightgbm_decision_mode"] == "ACTIVE"
+        assert payload["mrf"]["mode"] == "SHADOW"
+        assert payload["order"]["mode"] == "SMART_MAKER"
+        assert payload["paper"]["profile"] == "LIVE_PARITY"
+        assert payload["paper"]["min_order_shares"] == pytest.approx(5.0)
+        assert payload["contracts"]["live_min_gross_buy_usdc"] == pytest.approx(1.10)
+        assert payload["contracts"]["maker_min_order_shares"] == pytest.approx(5.0)
+        assert payload["contracts"]["small_order_route"] == "FAK_RETRY"
+    finally:
+        settings_module.async_session = original_session
+
 async def test_update_setting_valid_daily_limit(db_session):
     import polyflip.api.settings as settings_module
     original_session = settings_module.async_session

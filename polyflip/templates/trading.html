@@ -53,14 +53,6 @@
             border: 1px solid rgba(147, 51, 234, 0.3) !important;
             color: #c084fc !important;
         }
-        .settings-group {
-            margin-top: 1.5rem;
-            margin-bottom: 1.5rem;
-            padding: 1rem;
-            background: rgba(255, 255, 255, 0.03);
-            border-radius: 8px;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-        }
         .settings-section-card {
             margin-top: 1.25rem;
             margin-bottom: 1.25rem;
@@ -171,19 +163,104 @@
         .mrf-stat-item .label { font-size: 0.75rem; color: var(--text-muted); }
         .mrf-stat-item .value { font-size: 1.1rem; font-weight: 700; margin-top: 2px; }
 
+        .runtime-info-panel {
+            margin: 1.25rem 0;
+            padding: 1rem 1.25rem;
+            border: 1px solid rgba(56, 189, 248, 0.28);
+            border-left: 4px solid #38bdf8;
+            border-radius: 10px;
+            background: linear-gradient(135deg, rgba(14, 116, 144, 0.12), rgba(15, 23, 42, 0.55));
+        }
+        .runtime-info-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            margin-bottom: 0.75rem;
+        }
+        .runtime-info-header h4 {
+            margin: 0;
+            color: #7dd3fc;
+            font-size: 1rem;
+        }
+        .runtime-info-updated {
+            color: var(--text-muted);
+            font-size: 0.75rem;
+        }
+        .runtime-info-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0.65rem;
+        }
+        .runtime-info-item {
+            min-width: 0;
+            padding: 0.65rem 0.75rem;
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 7px;
+            background: rgba(0,0,0,0.18);
+        }
+        .runtime-info-item .label {
+            display: block;
+            color: var(--text-muted);
+            font-size: 0.72rem;
+            margin-bottom: 0.25rem;
+        }
+        .runtime-info-item .value {
+            display: block;
+            color: #e2e8f0;
+            font-size: 0.84rem;
+            font-weight: 600;
+            overflow-wrap: anywhere;
+        }
+        .runtime-info-item .value.ok { color: #34d399; }
+        .runtime-info-item .value.warn { color: #fbbf24; }
+        .runtime-info-contracts {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0.65rem;
+            margin-top: 0.65rem;
+        }
+        .runtime-info-note {
+            margin: 0.75rem 0 0;
+            color: var(--text-muted);
+            font-size: 0.76rem;
+            line-height: 1.45;
+        }
+        .settings-subtitle {
+            margin: 0 0 0.75rem;
+            color: var(--text-muted);
+            font-size: 0.78rem;
+            line-height: 1.4;
+        }
+        .settings-readonly {
+            opacity: 0.82;
+        }
+        .group-execution {
+            border-left: 4px solid #6366f1;
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.06), rgba(255, 255, 255, 0.01));
+        }
+        .group-execution .settings-section-title {
+            color: #a5b4fc;
+        }
+        @media (max-width: 900px) {
+            .runtime-info-grid,
+            .runtime-info-contracts {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+        @media (max-width: 600px) {
+            .runtime-info-grid,
+            .runtime-info-contracts {
+                grid-template-columns: 1fr;
+            }
+        }
+
         .group-strategies {
             border-left: 4px solid #ec4899;
             background: linear-gradient(135deg, rgba(236, 72, 153, 0.05) 0%, rgba(255, 255, 255, 0.01) 100%);
         }
         .group-strategies .settings-section-title {
             color: #f472b6;
-        }
-        .settings-label {
-            font-size: 0.85rem;
-            color: var(--text-muted);
-            font-weight: 500;
-            margin-bottom: 0.5rem;
-            display: block;
         }
         .radio-group {
             display: flex;
@@ -497,7 +574,7 @@
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                         <div style="display: flex; align-items: center; gap: 15px;">
                             <h3 style="margin: 0;">Торговые настройки</h3>
-                            <div id="trading-mode-badge" class="mode-badge mode-ml">🤖 Режим: ML</div>
+                            <div id="trading-mode-badge" class="mode-badge mode-combined">⚖️ Режим решений: Combined</div>
                         </div>
                         <button id="btn-save-trading-settings" class="btn primary-btn">Сохранить настройки</button>
                     </div>
@@ -511,14 +588,10 @@
 
                             <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 10px; margin-bottom: 1.25rem;">
                                 <input type="checkbox" id="TRADING_ENABLED" style="width: 1.2rem; height: 1.2rem; accent-color: var(--poly-blue); cursor: pointer; margin: 0;">
-                                <label for="TRADING_ENABLED" style="margin: 0; cursor: pointer; font-weight: 600; color: #fff !important; font-size: 0.95rem !important;">Включить торговлю (Trading Enabled)</label>
+                                <label for="TRADING_ENABLED" title="Разрешает создавать новые торговые заявки. Не отключает уже открытые позиции и не является LIVE kill-switch." style="margin: 0; cursor: pointer; font-weight: 600; color: #fff !important; font-size: 0.95rem !important;">Включить торговлю (Trading Enabled)</label>
                             </div>
 
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1.25rem;">
-                                <div class="form-group">
-                                    <label for="API_KEY">API Key (для доступа к бэкенду)</label>
-                                    <input type="password" id="API_KEY" placeholder="Введите API ключ...">
-                                </div>
                                 <div class="form-group">
                                     <label for="LIVE_POLL_INTERVAL_SECONDS" title="Частота сканирования активных рынков (в секундах) для поиска новых сделок.">Интервал обновления (сек)</label>
                                     <input type="number" id="LIVE_POLL_INTERVAL_SECONDS" min="2" max="300" step="1" value="10">
@@ -530,17 +603,6 @@
                                 <div class="form-group">
                                     <label for="DAILY_LOSS_LIMIT_USDC" title="Сумма чистого убытка за день в USDC, при достижении которой бот прекратит торговлю.">Дневной лимит потерь (USDC, отрицательный)</label>
                                     <input type="number" step="1" max="0" id="DAILY_LOSS_LIMIT_USDC" value="-100">
-                                </div>
-                            </div>
-
-                            <!-- Режим торговли -->
-                            <div class="settings-group" id="trading-mode-group" style="margin-top: 0; margin-bottom: 1.25rem;">
-                                <label class="settings-label" style="font-weight: 600; color: #fff; font-size: 0.95rem;">Режим торговли (Trading Mode)</label>
-                                <div class="radio-group" style="flex-wrap: wrap;">
-                                    <label class="radio-option">
-                                        <input type="radio" name="trading_mode" value="combined" id="mode-combined" checked>
-                                        <span>⚖️ ML + LightGBM (Combined — единственный активный режим)</span>
-                                    </label>
                                 </div>
                             </div>
 
@@ -557,6 +619,69 @@
                             </div>
                         </div> <!-- /group-global -->
 
+                        <div id="runtime-info-panel" class="runtime-info-panel" aria-live="polite">
+                            <div class="runtime-info-header">
+                                <h4>🧭 Фактический контур исполнения</h4>
+                                <span id="runtime-info-updated" class="runtime-info-updated">загрузка…</span>
+                            </div>
+                            <div class="runtime-info-grid">
+                                <div class="runtime-info-item">
+                                    <span class="label">Execution mode</span>
+                                    <span id="runtime-execution-mode" class="value">—</span>
+                                </div>
+                                <div class="runtime-info-item">
+                                    <span class="label">Торговля в БД</span>
+                                    <span id="runtime-trading-mode" class="value">—</span>
+                                </div>
+                                <div class="runtime-info-item">
+                                    <span class="label">LightGBM</span>
+                                    <span id="runtime-lgbm-mode" class="value">—</span>
+                                </div>
+                                <div class="runtime-info-item">
+                                    <span class="label">Политика решений</span>
+                                    <span id="runtime-policy-mode" class="value">—</span>
+                                </div>
+                                <div class="runtime-info-item">
+                                    <span class="label">MRF</span>
+                                    <span id="runtime-mrf-mode" class="value">—</span>
+                                </div>
+                                <div class="runtime-info-item">
+                                    <span class="label">LIVE order route</span>
+                                    <span id="runtime-order-mode" class="value">—</span>
+                                </div>
+                                <div class="runtime-info-item">
+                                    <span class="label">PAPER профиль</span>
+                                    <span id="runtime-paper-profile" class="value">—</span>
+                                </div>
+                                <div class="runtime-info-item">
+                                    <span class="label">LIVE безопасность</span>
+                                    <span id="runtime-live-safety" class="value">—</span>
+                                </div>
+                            </div>
+                            <div class="runtime-info-contracts">
+                                <div class="runtime-info-item">
+                                    <span class="label">LIVE min gross buy</span>
+                                    <span id="runtime-live-min" class="value">—</span>
+                                </div>
+                                <div class="runtime-info-item">
+                                    <span class="label">Maker threshold</span>
+                                    <span id="runtime-maker-min" class="value">—</span>
+                                </div>
+                                <div class="runtime-info-item">
+                                    <span class="label">Малый ордер</span>
+                                    <span id="runtime-small-order-route" class="value">—</span>
+                                </div>
+                                <div class="runtime-info-item">
+                                    <span class="label">PAPER min shares</span>
+                                    <span id="runtime-paper-min" class="value">—</span>
+                                </div>
+                            </div>
+                            <p id="runtime-weighted-details" class="runtime-info-note">—</p>
+                            <p class="runtime-info-note">
+                                ℹ️ $1.10 — отдельный release-gate для LIVE gross buy. Порог 5 токенов относится к maker/resting-ветке;
+                                малые ставки направляются через FAK_RETRY. Это не требование тратить минимум $5 на каждую ставку.
+                            </p>
+                        </div>
 
                         <!-- 2-column layout container for modules -->
                         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr)); gap: 1.25rem; align-items: start;">
@@ -602,6 +727,24 @@
                                 </div>
                             </div>
 
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem;">
+                                <div class="form-group">
+                                    <label for="LIGHTGBM_DECISION_MODE" title="Определяет, участвует ли LightGBM в принятии торгового решения: ACTIVE — голосует, SHADOW — только логируется, OFF — отключен.">Режим LightGBM</label>
+                                    <select id="LIGHTGBM_DECISION_MODE" style="width: 100%; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; padding: 0.65rem 0.85rem; border-radius: 8px; outline: none;">
+                                        <option value="ACTIVE">ACTIVE — участвует в решении</option>
+                                        <option value="SHADOW">SHADOW — только наблюдение</option>
+                                        <option value="OFF">OFF — отключен</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="COMBINED_LGBM_UNAVAILABLE_POLICY" title="Что делать Combined-режиму, если модель LightGBM недоступна: пропустить сигнал или использовать LogReg как fallback.">Если LightGBM недоступен</label>
+                                    <select id="COMBINED_LGBM_UNAVAILABLE_POLICY" style="width: 100%; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; padding: 0.65rem 0.85rem; border-radius: 8px; outline: none;">
+                                        <option value="SKIP">SKIP — пропустить сигнал</option>
+                                        <option value="LOGREG_FALLBACK">LOGREG_FALLBACK — использовать LogReg</option>
+                                    </select>
+                                </div>
+                            </div>
+
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem;">
                                 <div class="form-group">
                                     <label for="MIN_DIRECTION_PROB" title="Минимальная уверенность LGBM в направлении (UP/DOWN) для входа в Combined. Это абсолютный пол, двойная фильтрация отключена.">
@@ -618,7 +761,7 @@
                                 </div>
 
                                 <div class="form-group">
-                                    <label for="OUTSIDER_PWIN_DISCOUNT" title="Дополнительный дисконт к MIN_WIN_PROB для аутсайдеров (в процентах). Если MIN_WIN_PROB = 51%, а DISCOUNT = 2%, то аутсайдеру нужно 53% вероятности победы для входа.">
+                                    <label for="OUTSIDER_PWIN_DISCOUNT" title="Множитель p_win для аутсайдера. Значение 65% оставляет 65% от p_flip перед расчётом edge; это не прибавка к MIN_WIN_PROB.">
                                         Дисконт аутсайдера к Мин. P(Win) (%)
                                     </label>
                                     <input type="number" step="0.1" max="100" min="0" id="OUTSIDER_PWIN_DISCOUNT" value="65.0">
@@ -658,6 +801,12 @@
                                     </label>
                                     <input type="number" step="0.005" max="0.20" min="0.0" id="COMBINED_COST_BUFFER" value="0.020">
                                 </div>
+
+                                <div class="form-group">
+                                    <label for="DEAD_ZONE_WIDTH" title="Ширина мёртвой зоны вокруг порога FLIP_THRESHOLD. Значение 5% означает коридор ±5 процентных пунктов и уменьшает число пограничных входов.">Ширина мёртвой зоны (п.п.)</label>
+                                    <input type="number" step="0.5" min="0" max="25" id="DEAD_ZONE_WIDTH" value="5.0">
+                                </div>
+
                             </div>
                         </div>
 
@@ -676,7 +825,7 @@
                                 </div>
                                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                                     <div class="form-group">
-                                        <label for="FAVORITE_MIN_EDGE" title="Минимальный Edge (преимущество) для входа по фавориту.">Мин. Edge для фаворита (%)</label>
+                                        <label for="FAVORITE_MIN_EDGE" title="Минимальный net/gross edge для входа по фавориту после расчёта p_win и цены.">Мин. Edge для фаворита (%)</label>
                                         <input type="number" step="0.1" min="-10.0" max="100.0" id="FAVORITE_MIN_EDGE" value="-1.0">
                                     </div>
                                     <div class="form-group">
@@ -705,7 +854,7 @@
                                 </div>
                                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                                     <div class="form-group">
-                                        <label for="OUTS_MIN_EDGE" title="Мин. Edge (%) для входа на аутсайдера.">
+                                        <label for="OUTS_MIN_EDGE" title="Минимальный edge после применения outsider p_win multiplier для входа на аутсайдера.">
                                             Мин. Edge для аутсайдера (%)
                                         </label>
                                         <input type="number" step="0.1" id="OUTS_MIN_EDGE" value="4">
@@ -724,6 +873,29 @@
                         <div class="settings-section-card group-risk">
                             <div class="settings-section-header">
                                 <h4 class="settings-section-title">🛡️ Риск-менеджмент: Стоп-лосс и Тейк-профит</h4>
+                            </div>
+
+
+                            <p class="settings-subtitle">Лимиты ниже ограничивают новые входы; стоп-лосс и тейк-профит управляют уже открытыми позициями.</p>
+                            <div class="settings-section-card" style="margin: 0 0 1.25rem; padding: 0.85rem; border-color: rgba(245, 158, 11, 0.15);">
+                                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
+                                    <div class="form-group">
+                                        <label for="MAX_OPEN_POSITIONS" title="Жёсткий максимум одновременно открытых позиций.">Макс. открытых позиций</label>
+                                        <input type="number" step="1" min="1" max="1000" id="MAX_OPEN_POSITIONS" value="20">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="MAX_TOTAL_EXPOSURE_USDC" title="Максимальная суммарная стоимость открытых позиций в USDC.">Макс. общая экспозиция (USDC)</label>
+                                        <input type="number" step="0.1" min="0" id="MAX_TOTAL_EXPOSURE_USDC" value="50">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="MAX_SINGLE_ORDER_USDC" title="Максимальный размер одного ордера со стороны риск-менеджмента. Это не минимальный размер ордера Polymarket.">Макс. один ордер (USDC)</label>
+                                        <input type="number" step="0.01" min="0" id="MAX_SINGLE_ORDER_USDC" value="1">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="CONFIRM_THRESHOLD_USDC" title="Размер заявки, начиная с которого требуется дополнительное подтверждение/контроль риска.">Порог подтверждения (USDC)</label>
+                                        <input type="number" step="0.1" min="0" id="CONFIRM_THRESHOLD_USDC" value="5">
+                                    </div>
+                                </div>
                             </div>
 
                             <!-- Блок Стоп-лосс -->
@@ -760,10 +932,10 @@
                                         <input type="number" step="0.1" min="1.01" max="100.0" id="TAKE_PROFIT_MULTIPLIER" value="2.0">
                                     </div>
                                     <div class="form-group">
-                                        <label for="TAKE_PROFIT_ORDER_MODE" title="GTD places a resting limit order until market end; TRIGGERED waits for the bid target.">Take-profit order mode</label>
+                                        <label for="TAKE_PROFIT_ORDER_MODE" title="GTD оставляет лимитную заявку до конца рынка; TRIGGERED ждёт достижения целевой цены и отправляет закрытие после срабатывания.">Режим заявки тейк-профита</label>
                                         <select id="TAKE_PROFIT_ORDER_MODE" style="width: 100%; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; padding: 0.75rem 1rem; border-radius: 8px; outline: none;">
-                                            <option value="GTD">GTD - order until market end</option>
-                                            <option value="TRIGGERED">Triggered - wait for target</option>
+                                            <option value="GTD">GTD — заявка до конца рынка</option>
+                                            <option value="TRIGGERED">TRIGGERED — ждать целевую цену</option>
                                         </select>
                                     </div>
                                     <div class="form-group">
@@ -774,7 +946,90 @@
                             </div>
                         </div>
 
-                        <!-- 4. Управление ставками и ликвидностью -->
+                        <!-- 4. Исполнение ордеров -->
+                        <div class="settings-section-card group-execution">
+                            <div class="settings-section-header">
+                                <h4 class="settings-section-title">⚙️ Исполнение ордеров и PAPER-профиль</h4>
+                            </div>
+                            <p class="settings-subtitle">Эти параметры выбирают маршрут LIVE; PAPER-параметры ниже показывают, насколько симуляция повторяет боевое исполнение.</p>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                                <div class="form-group">
+                                    <label for="LIVE_ORDER_MODE" title="SMART_MAKER выбирает GTC_TTL для заявок от 5 токенов и FAK_RETRY для меньших; FAK_RETRY и FAK забирают доступную ликвидность сразу.">LIVE-маршрут ордера</label>
+                                    <select id="LIVE_ORDER_MODE" style="width: 100%; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; padding: 0.65rem 0.85rem; border-radius: 8px; outline: none;">
+                                        <option value="SMART_MAKER">SMART_MAKER — авто: maker / FAK_RETRY</option>
+                                        <option value="FAK_RETRY">FAK_RETRY — быстрый ордер с повторами</option>
+                                        <option value="FAK">FAK — быстрый ордер без повторов</option>
+                                        <option value="GTC_TTL">GTC_TTL — maker до TTL</option>
+                                        <option value="GTD">GTD — maker до конца рынка</option>
+                                        <option value="MAKER_TTL">MAKER_TTL — legacy alias GTC_TTL</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="LIVE_GTC_TTL_SECONDS" title="Сколько секунд живёт пассивная GTC-заявка до отмены.">TTL maker-заявки (сек)</label>
+                                    <input type="number" step="0.1" min="0.1" max="3600" id="LIVE_GTC_TTL_SECONDS" value="10">
+                                </div>
+                                <div class="form-group">
+                                    <label for="LIVE_FAK_RETRY_MAX_ATTEMPTS" title="Максимальное число попыток FAK_RETRY после временной ошибки или неполного исполнения.">Повторы FAK (шт.)</label>
+                                    <input type="number" step="1" min="1" max="10" id="LIVE_FAK_RETRY_MAX_ATTEMPTS" value="3">
+                                </div>
+                                <div class="form-group">
+                                    <label for="LIVE_FAK_RETRY_DELAY_SEC" title="Пауза между повторными FAK-заявками.">Пауза повтора FAK (сек)</label>
+                                    <input type="number" step="0.05" min="0" max="30" id="LIVE_FAK_RETRY_DELAY_SEC" value="0.75">
+                                </div>
+                                <div class="form-group">
+                                    <label for="LIVE_MAKER_REPRICE_ON_CROSS" title="Разрешает один раз обновить цену post-only maker-заявки, если свежий стакан пересёк исходную цену.">Перевыставлять maker при пересечении</label>
+                                    <select id="LIVE_MAKER_REPRICE_ON_CROSS" style="width: 100%; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; padding: 0.65rem 0.85rem; border-radius: 8px; outline: none;">
+                                        <option value="true">Да</option>
+                                        <option value="false">Нет</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="LIVE_MAKER_REPRICE_MAX_RETRIES" title="Ограничение повторных перевыставлений maker; worker дополнительно ограничивает значение одним retry.">Макс. перевыставлений (шт.)</label>
+                                    <input type="number" step="1" min="0" max="1" id="LIVE_MAKER_REPRICE_MAX_RETRIES" value="1">
+                                </div>
+                                <div class="form-group">
+                                    <label for="LIVE_MAKER_TICK_SIZE" title="Шаг цены при пассивном перевыставлении maker-заявки.">Шаг цены maker</label>
+                                    <input type="number" step="0.001" min="0.001" max="0.1" id="LIVE_MAKER_TICK_SIZE" value="0.01">
+                                </div>
+                                <div class="form-group settings-readonly">
+                                    <label for="PAPER_EXECUTION_PROFILE" title="Профиль симуляции PAPER. LIVE_PARITY учитывает задержку, проскальзывание, комиссии и минимум shares; переключение в UI не разрешено.">PAPER профиль (только чтение)</label>
+                                    <input type="text" id="PAPER_EXECUTION_PROFILE" value="LIVE_PARITY" disabled>
+                                </div>
+                                <div class="form-group">
+                                    <label for="PAPER_LIVE_DELAY_SEC" title="Смоделированная задержка между котировкой PAPER и отправкой LIVE.">Задержка PAPER → LIVE (сек)</label>
+                                    <input type="number" step="0.1" min="0" max="300" id="PAPER_LIVE_DELAY_SEC" value="2">
+                                </div>
+                                <div class="form-group">
+                                    <label for="PAPER_SLIPPAGE_PCT" title="Консервативное неблагоприятное проскальзывание PAPER в процентах.">Проскальзывание PAPER (%)</label>
+                                    <input type="number" step="0.01" min="0" max="100" id="PAPER_SLIPPAGE_PCT" value="0.5">
+                                </div>
+                                <div class="form-group">
+                                    <label for="PAPER_FEE_MODEL" title="Модель комиссии PAPER: POLYMARKET_PRICE_DEPENDENT повторяет price-dependent fee; FLAT_NOTIONAL использует фиксированную долю notional.">Модель комиссии PAPER</label>
+                                    <select id="PAPER_FEE_MODEL" style="width: 100%; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white; padding: 0.65rem 0.85rem; border-radius: 8px; outline: none;">
+                                        <option value="POLYMARKET_PRICE_DEPENDENT">POLYMARKET_PRICE_DEPENDENT</option>
+                                        <option value="FLAT_NOTIONAL">FLAT_NOTIONAL</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="PAPER_FEE_RATE" title="Параметр fee-rate для выбранной модели PAPER. Для price-dependent это коэффициент кривой комиссии, а не просто фиксированный процент.">Ставка комиссии PAPER</label>
+                                    <input type="number" step="0.001" min="0" max="1" id="PAPER_FEE_RATE" value="0.07">
+                                </div>
+                                <div class="form-group">
+                                    <label for="PAPER_FEE_EXPONENT" title="Степень fee-кривой PAPER; для CLOB V2 обычно приходит из fd.e.">Степень комиссии PAPER</label>
+                                    <input type="number" step="0.1" min="0" max="10" id="PAPER_FEE_EXPONENT" value="1">
+                                </div>
+                                <div class="form-group settings-readonly">
+                                    <label for="PAPER_MIN_ORDER_SHARES" title="Минимум outcome-токенов, который симуляция применяет к resting maker-ветке; малые FAK-заявки не должны блокироваться этим полем.">PAPER min shares (только чтение)</label>
+                                    <input type="number" step="0.1" id="PAPER_MIN_ORDER_SHARES" value="5" disabled>
+                                </div>
+                                <div class="form-group">
+                                    <label for="POLYMARKET_FEE_RATE" title="Комиссионный параметр Polymarket, используемый при расчёте ожидаемой стоимости.">Polymarket fee rate</label>
+                                    <input type="number" step="0.001" min="0" max="1" id="POLYMARKET_FEE_RATE" value="0.002">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 5. Управление ставками и ликвидностью -->
 
                         <div class="settings-section-card group-betting">
                             <div class="settings-section-header">
@@ -801,19 +1056,21 @@
                                 </div>
 
                                 <div class="form-group">
-                                    <label for="LIQUIDITY_FRACTION" title="Максимальная доля от 5-минутного объема торгов на рынке на одну ставку.">Макс. доля ликвидности на ставку</label>
+                                    <label for="MAX_BET_EDGE" title="Edge, при котором scaled-сайзинг достигает максимального размера ставки. Это не отдельный сигнал и не минимальный edge входа.">Edge для максимального сайзинга (%)</label>
+                                    <input type="number" step="0.1" min="0" max="100" id="MAX_BET_EDGE" value="100">
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="LIQUIDITY_FRACTION" title="Максимальная доля доступной ликвидности рынка, которую одна заявка может использовать.">Макс. доля ликвидности на ставку</label>
                                     <input type="number" step="0.01" id="LIQUIDITY_FRACTION" value="0.05">
                                 </div>
 
                                 <div class="form-group">
-                                    <label for="MAX_PRICE_DRIFT" title="Максимально допустимое проскальзывание цены.">Макс. дрифт цены (%)</label>
-                                    <input type="number" step="0.01" id="MAX_PRICE_DRIFT" value="0.03">
+                                    <label for="MAX_PRICE_DRIFT" title="Максимальное отклонение фактической цены исполнения от зафиксированной цены, в процентах. Хранится в backend как доля: 10% = 0.10.">Макс. дрифт цены (%)</label>
+                                    <input type="number" step="0.1" min="0" max="100" id="MAX_PRICE_DRIFT" value="10.0">
                                 </div>
 
-                                <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 10px; margin-top: 1.5rem;">
-                                    <input type="checkbox" id="BYPASS_BET_SIZE_CHECK" name="BYPASS_BET_SIZE_CHECK" style="width: 1.2rem; height: 1.2rem; accent-color: var(--poly-blue); cursor: pointer; margin: 0;">
-                                    <label for="BYPASS_BET_SIZE_CHECK" title="Режим отладки: игнорировать проверку минимального размера биржи." style="margin: 0; cursor: pointer;">Игнорировать ограничения размера ставки</label>
-                                </div>
+
                             </div>
                         </div>
 
@@ -867,7 +1124,7 @@
                                 </div>
 
                                 <div class="form-group">
-                                    <label for="MAX_SPREAD_PCT" title="Максимальный допустимый спред между ask и bid в процентах от mid price. Сделка отклоняется, если рынок неликвидный.">Максимальный спред (%)</label>
+                                    <label for="MAX_SPREAD_PCT" title="Максимальный спред между bid и выбранным ask, делённый на выбранный ask. Если доля выше порога, вход блокируется как неликвидный рынок.">Максимальный спред (%)</label>
                                     <input type="number" step="0.1" min="0" max="100" id="MAX_SPREAD_PCT" value="8.0">
                                 </div>
                             </div>
@@ -886,7 +1143,7 @@
 
                                 <!-- Mode Switcher -->
                                 <div class="form-group" style="margin-bottom: 1rem;">
-                                    <label style="font-weight: 600; display: block; margin-bottom: 0.5rem;">Режим MRF</label>
+                                    <label style="font-weight: 600; display: block; margin-bottom: 0.5rem;" title="OFF — не влияет на решения; SHADOW — считает и пишет фазу без блокировки; ACTIVE — применяет multiplier/veto к входам.">Режим MRF</label>
                                     <div class="radio-group" style="flex-wrap: wrap; gap: 1.5rem;">
                                         <label class="radio-option">
                                             <input type="radio" name="mrf_mode" value="OFF" id="mrf-mode-off" checked>
@@ -914,7 +1171,7 @@
                                         <input type="number" step="0.05" min="0.5" max="1" id="MARKET_REGIME_BREADTH_THRESHOLD" value="0.65">
                                     </div>
                                     <div class="form-group">
-                                        <label for="MARKET_REGIME_MIN_HISTORY" title="Минимальное количество 15-мин свечей (≈24ч = 96). Ниже — MRF пропускает.">Мин. история (свечи)</label>
+                                        <label for="MARKET_REGIME_MIN_HISTORY" title="Минимальная история для оценки. Backend применяет нижнюю границу 97 свечей (примерно 24 часа при 15-минутных свечах); меньшее значение будет зажато.">Мин. история (свечи)</label>
                                         <input type="number" step="1" min="20" max="500" id="MARKET_REGIME_MIN_HISTORY" value="97">
                                     </div>
                                     <div class="form-group">
@@ -922,8 +1179,24 @@
                                         <input type="number" step="0.05" min="0" max="1" id="MARKET_REGIME_UNKNOWN_MULTIPLIER" value="0.8">
                                     </div>
                                     <div class="form-group">
-                                        <label for="MARKET_REGIME_OUTSIDER_TREND_MULTIPLIER" title="Мультипликатор ставки на аутсайдера в TREND (0.0 = не менять).">Мультипликатор аутсайдера в TREND</label>
+                                        <label for="MARKET_REGIME_OUTSIDER_TREND_MULTIPLIER" title="Мультипликатор ставки на аутсайдера в TREND. Значение 0 полностью запрещает outsider в направленном рынке; 1 оставляет размер без изменения.">Мультипликатор аутсайдера в TREND</label>
                                         <input type="number" step="0.1" min="0" max="2" id="MARKET_REGIME_OUTSIDER_TREND_MULTIPLIER" value="0.0">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="MARKET_REGIME_VETO_THRESHOLD" title="MRF v3: порог отрицательного regime evidence для veto. Чем выше значение, тем чаще вход блокируется при подтверждённом неблагоприятном режиме.">Порог veto MRF v3</label>
+                                        <input type="number" step="0.01" min="0" max="1" id="MARKET_REGIME_VETO_THRESHOLD" value="0.15">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="MARKET_REGIME_EDGE_OVERRIDE_MARGIN" title="Минимальный запас edge, который может переопределить veto MRF v3.">Запас edge для override (%)</label>
+                                        <input type="number" step="0.1" min="0" max="100" id="MARKET_REGIME_EDGE_OVERRIDE_MARGIN" value="5.0">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="MARKET_REGIME_ASSET_WEIGHT" title="Вес asset-level evidence в объединённой оценке MRF v3.">Вес asset evidence</label>
+                                        <input type="number" step="0.05" min="0" max="1" id="MARKET_REGIME_ASSET_WEIGHT" value="0.70">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="MARKET_REGIME_GLOBAL_WEIGHT" title="Вес global/breadth evidence в объединённой оценке MRF v3.">Вес global evidence</label>
+                                        <input type="number" step="0.05" min="0" max="1" id="MARKET_REGIME_GLOBAL_WEIGHT" value="0.30">
                                     </div>
                                     <div class="form-group">
                                         <label for="MARKET_REGIME_FILTER_VERSION" title="Версия MRF для сопоставления телеметрии с экспериментами.">Версия MRF</label>
@@ -934,7 +1207,7 @@
                                 <!-- Live Status Panel v2 -->
                                 <div id="mrf-status-panel" class="mrf-status-card" style="display: none;">
                                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                                        <span style="font-weight: 600; color: #22d3ee;">Глобальный фаза:</span>
+                                        <span style="font-weight: 600; color: #22d3ee;">Глобальная фаза:</span>
                                         <span id="mrf-current-regime" class="mrf-regime-badge mrf-regime-UNKNOWN">—</span>
                                     </div>
                                     <div id="mrf-status-details" style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 0.5rem;"></div>
@@ -984,7 +1257,7 @@
     </div>
 
     <script src="{{ url_for('static', path='/js/utils.js') }}?v={{ static_version }}" defer></script>
-    <script src="{{ url_for('static', path='/js/trading.js') }}?v={{ static_version }}&cb=4" defer></script>
+    <script src="{{ url_for('static', path='/js/trading.js') }}?v={{ static_version }}&cb=5" defer></script>
     <script>
     const GATE_LABELS = {
       g1_model_loaded:   "G1: Модели загружены (LGBM + LogReg)",
