@@ -97,3 +97,37 @@ def test_weighted_shadow_records_score_without_changing_legacy_action():
     assert result.weighted_policy_mode == "WEIGHTED_SHADOW"
     assert result.weighted_selected_side == "BUY_YES"
     assert result.weighted_p_final_yes is not None
+
+
+def test_weighted_runtime_uses_half_spread_and_fee_schedule_role():
+    cfg = replace(
+        _weighted_cfg("WEIGHTED_ACTIVE"),
+        weighted_execution_role="MAKER",
+        weighted_maker_fee_rate=0.01,
+    )
+    result = evaluate_combined_entry(
+        crypto_sig=_signal(),
+        market_phase="mid_vol",
+        entry_requested_key="BTC_mid_vol",
+        entry_model_key="BTC_mid_vol",
+        entry_model_version=4,
+        entry_model_source="PHASE",
+        p_flip=0.20,
+        fresh_yes_price=0.55,
+        yes_ask=0.54,
+        no_ask=0.46,
+        cost_buffer=0.0,
+        time_left_sec=300.0,
+        cfg=cfg,
+        spread=0.04,
+        spread_cost=0.02,
+        weighted_maker_fee_rate=0.01,
+        weighted_taker_only=True,
+        weighted_fee_rate=0.07,
+    )
+
+    assert result.weighted_policy_mode == "WEIGHTED_ACTIVE"
+    assert result.weighted_execution_role == "TAKER"
+    assert result.weighted_spread_per_share == 0.02
+    assert result.weighted_maker_fee_rate == 0.01
+    assert result.weighted_taker_fee_per_share is not None

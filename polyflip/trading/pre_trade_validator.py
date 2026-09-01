@@ -158,22 +158,35 @@ async def validate_pre_trade(
     # path keeps its historical ROI-style edge for compatibility; weighted
     # active mode uses cost-aware expected value per share.
     if weighted_active:
+        weighted_details = decision_obj.decision_details or {}
         weighted_cost = estimate_trade_cost(
             buy_price,
-            fee_rate=decision_obj.decision_details.get(
+            fee_rate=weighted_details.get(
                 "weighted_fee_rate",
                 getattr(cfg, "weighted_fee_rate", 0.07),
             ),
-            maker_fee_rate=getattr(cfg, "weighted_maker_fee_rate", 0.0),
-            fee_exponent=decision_obj.decision_details.get(
+            maker_fee_rate=weighted_details.get(
+                "weighted_maker_fee_rate",
+                getattr(cfg, "weighted_maker_fee_rate", 0.0),
+            ),
+            fee_exponent=weighted_details.get(
                 "weighted_fee_exponent",
                 getattr(cfg, "weighted_fee_exponent", 1.0),
             ),
             slippage_rate=getattr(cfg, "weighted_slippage_rate", 0.005),
-            role=getattr(cfg, "weighted_execution_role", "TAKER"),
-            spread=fresh_spread,
-            latency_buffer=getattr(cfg, "weighted_latency_buffer", 0.0),
-            source=decision_obj.decision_details.get("weighted_fee_source") or "CONFIG_DEFAULT",
+            role=weighted_details.get(
+                "weighted_execution_role",
+                getattr(cfg, "weighted_execution_role", "TAKER"),
+            ),
+            # The decision uses a best ask and adds half of the observed
+            # spread as adverse-selection cost. Reuse that convention here
+            # rather than charging the full spread a second time.
+            spread=fresh_spread / 2.0,
+            latency_buffer=weighted_details.get(
+                "weighted_latency_buffer_per_share",
+                getattr(cfg, "weighted_latency_buffer", 0.0),
+            ),
+            source=weighted_details.get("weighted_fee_source") or "CONFIG_DEFAULT",
         )
         edge = compute_net_ev_per_share(p_win, buy_price, weighted_cost)
     else:

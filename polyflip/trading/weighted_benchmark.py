@@ -6,7 +6,7 @@ the benchmark cannot silently use a different EV definition.
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from math import log
 from typing import Any, Mapping, Optional, Sequence

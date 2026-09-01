@@ -584,6 +584,8 @@ async def decide_combined_mode(
     # unavailable, keep the explicit configured fallback and record its
     # provenance in decision_details.
     weighted_fee_rate = None
+    weighted_maker_fee_rate = None
+    weighted_taker_only = False
     weighted_fee_exponent = None
     weighted_fee_source = "CONFIG_DEFAULT"
     policy_mode = str(getattr(cfg, "trading_policy_mode", "LEGACY") or "LEGACY").upper()
@@ -607,6 +609,10 @@ async def decide_combined_mode(
                     )
                 if fee_schedule.get("fee_exponent") is not None:
                     weighted_fee_exponent = float(fee_schedule["fee_exponent"])
+                if fee_schedule.get("maker_fee_rate") is not None:
+                    weighted_maker_fee_rate = float(fee_schedule["maker_fee_rate"])
+                if fee_schedule.get("taker_only") is not None:
+                    weighted_taker_only = bool(fee_schedule["taker_only"])
         except (TypeError, ValueError, OverflowError) as exc:
             logger.debug(
                 "weighted_fee_schedule_parse_failed",
@@ -815,10 +821,13 @@ async def decide_combined_mode(
         underlying_price=und_price,
         time_left_sec=time_left_sec,
         fallback_reason=fallback_reason,
+        weighted_maker_fee_rate=weighted_maker_fee_rate,
+        weighted_taker_only=weighted_taker_only,
         entry_model_ece=entry_model_ece,
         flip_threshold=entry_flip_threshold,
         mrf_evidence=weighted_mrf_evidence,
-        spread=0.0,  # yes_best_ask/no_best_ask are executable asks, not midpoints
+        spread=fresh_spread,
+        spread_cost=fresh_spread / 2.0,  # ask already includes the other half
         weighted_fee_rate=weighted_fee_rate,
         weighted_fee_exponent=weighted_fee_exponent,
         weighted_fee_source=weighted_fee_source,
@@ -882,9 +891,16 @@ async def decide_combined_mode(
         "weighted_net_ev_per_share": comb_res.weighted_net_ev_per_share,
         "weighted_cost_per_share": comb_res.weighted_cost_per_share,
         "weighted_fee_rate": comb_res.weighted_fee_rate,
+        "weighted_maker_fee_rate": comb_res.weighted_maker_fee_rate,
+        "weighted_execution_role": comb_res.weighted_execution_role,
         "weighted_fee_exponent": comb_res.weighted_fee_exponent,
         "weighted_fee_per_share": comb_res.weighted_fee_per_share,
+        "weighted_maker_fee_per_share": comb_res.weighted_maker_fee_per_share,
+        "weighted_taker_fee_per_share": comb_res.weighted_taker_fee_per_share,
         "weighted_slippage_per_share": comb_res.weighted_slippage_per_share,
+        "weighted_spread_per_share": comb_res.weighted_spread_per_share,
+        "weighted_latency_buffer_per_share": comb_res.weighted_latency_buffer_per_share,
+        "weighted_expected_execution_price": comb_res.weighted_expected_execution_price,
         "weighted_missing_components": comb_res.weighted_missing_components,
         "weighted_selection_reason": comb_res.weighted_selection_reason,
         "weighted_fee_source": comb_res.weighted_fee_source,

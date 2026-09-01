@@ -166,6 +166,7 @@ class TradeCostEstimate:
     price: float
     role: str
     fee_rate: float
+    maker_fee_rate: float
     fee_exponent: float
     fee_per_share: float
     maker_fee_per_share: float
@@ -241,6 +242,7 @@ def estimate_trade_cost(
         price=price,
         role=role,
         fee_rate=fee_rate,
+        maker_fee_rate=maker_fee_rate,
         fee_exponent=fee_exponent,
         fee_per_share=round(fee, 8),
         maker_fee_per_share=round(maker_fee, 8),
@@ -434,6 +436,12 @@ class WeightedSelection:
     @property
     def net_ev_per_share(self) -> Optional[float]:
         return self.selected.net_ev_per_share if self.selected else None
+
+    @property
+    def best_quote(self) -> Optional[WeightedSideQuote]:
+        """Return the best available quote, including below-threshold skips."""
+        quotes = [quote for quote in (self.yes_quote, self.no_quote) if quote is not None]
+        return max(quotes, key=lambda quote: quote.net_ev_per_share) if quotes else None
 
     def as_dict(self) -> dict[str, Any]:
         return {

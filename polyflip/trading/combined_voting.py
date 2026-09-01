@@ -180,9 +180,16 @@ class CombinedEntryResult:
     weighted_net_ev_per_share: Optional[float] = None
     weighted_cost_per_share: Optional[float] = None
     weighted_fee_rate: Optional[float] = None
+    weighted_maker_fee_rate: Optional[float] = None
+    weighted_execution_role: Optional[str] = None
     weighted_fee_exponent: Optional[float] = None
     weighted_fee_per_share: Optional[float] = None
+    weighted_maker_fee_per_share: Optional[float] = None
+    weighted_taker_fee_per_share: Optional[float] = None
     weighted_slippage_per_share: Optional[float] = None
+    weighted_spread_per_share: Optional[float] = None
+    weighted_latency_buffer_per_share: Optional[float] = None
+    weighted_expected_execution_price: Optional[float] = None
     weighted_missing_components: Optional[str] = None
     weighted_selection_reason: Optional[str] = None
     weighted_fee_source: Optional[str] = None
@@ -239,9 +246,12 @@ def _build_weighted_selection(
     cfg: "TradingConfig",
     mrf_evidence: Optional[float] = None,
     fee_rate: Optional[float] = None,
+    maker_fee_rate: Optional[float] = None,
+    taker_only: bool = False,
     fee_exponent: Optional[float] = None,
     fee_source: str = "CONFIG_DEFAULT",
     spread: float = 0.0,
+    spread_cost: Optional[float] = None,
 ) -> WeightedSelection:
     """Build the shared weighted-policy result for active or shadow mode."""
     lgbm_available = bool(
@@ -261,7 +271,11 @@ def _build_weighted_selection(
             if fee_rate is not None
             else float(getattr(cfg, "weighted_fee_rate", 0.07))
         ),
-        maker_fee_rate=float(getattr(cfg, "weighted_maker_fee_rate", 0.0)),
+        maker_fee_rate=(
+            float(maker_fee_rate)
+            if maker_fee_rate is not None
+            else float(getattr(cfg, "weighted_maker_fee_rate", 0.0))
+        ),
         fee_exponent=(
             float(fee_exponent)
             if fee_exponent is not None
@@ -269,7 +283,11 @@ def _build_weighted_selection(
         ),
         slippage_rate=float(getattr(cfg, "weighted_slippage_rate", 0.005)),
         latency_buffer=float(getattr(cfg, "weighted_latency_buffer", 0.0)),
-        execution_role=str(getattr(cfg, "weighted_execution_role", "TAKER")),
+        execution_role=(
+            "TAKER"
+            if taker_only
+            else str(getattr(cfg, "weighted_execution_role", "TAKER"))
+        ),
         policy_id=str(getattr(cfg, "weighted_policy_id", "UNVERSIONED") or "UNVERSIONED")[:64],
     )
     return select_weighted_side(
@@ -286,7 +304,7 @@ def _build_weighted_selection(
         mrf_evidence=mrf_evidence,
         min_net_ev=0.0,
         fee_source=fee_source,
-        spread=spread,
+        spread=spread if spread_cost is None else spread_cost,
         mrf_extreme_veto_threshold=getattr(cfg, "weighted_mrf_extreme_veto_threshold", -1.0),
     )
 
@@ -299,6 +317,7 @@ def _weighted_result_fields(
     """Flatten weighted policy telemetry into ``CombinedEntryResult`` fields."""
     probability = selection.probability
     selected = selection.selected
+    quoted = selected or selection.best_quote
     return {
         "weighted_policy_mode": policy_mode,
         "weighted_p_market_yes": probability.p_market_yes,
@@ -320,14 +339,21 @@ def _weighted_result_fields(
         "weighted_yes_net_ev": selection.yes_quote.net_ev_per_share if selection.yes_quote else None,
         "weighted_no_net_ev": selection.no_quote.net_ev_per_share if selection.no_quote else None,
         "weighted_net_ev_per_share": selected.net_ev_per_share if selected else None,
-        "weighted_cost_per_share": selected.cost.total_per_share if selected else None,
-        "weighted_fee_rate": selected.cost.fee_rate if selected else None,
-        "weighted_fee_exponent": selected.cost.fee_exponent if selected else None,
-        "weighted_fee_per_share": selected.cost.fee_per_share if selected else None,
-        "weighted_slippage_per_share": selected.cost.slippage_per_share if selected else None,
+        "weighted_cost_per_share": quoted.cost.total_per_share if quoted else None,
+        "weighted_fee_rate": quoted.cost.fee_rate if quoted else None,
+        "weighted_maker_fee_rate": quoted.cost.maker_fee_rate if quoted else None,
+        "weighted_execution_role": quoted.cost.role if quoted else None,
+        "weighted_fee_exponent": quoted.cost.fee_exponent if quoted else None,
+        "weighted_fee_per_share": quoted.cost.fee_per_share if quoted else None,
+        "weighted_maker_fee_per_share": quoted.cost.maker_fee_per_share if quoted else None,
+        "weighted_taker_fee_per_share": quoted.cost.taker_fee_per_share if quoted else None,
+        "weighted_slippage_per_share": quoted.cost.slippage_per_share if quoted else None,
+        "weighted_spread_per_share": quoted.cost.spread_per_share if quoted else None,
+        "weighted_latency_buffer_per_share": quoted.cost.latency_buffer_per_share if quoted else None,
+        "weighted_expected_execution_price": quoted.cost.expected_execution_price if quoted else None,
         "weighted_missing_components": ",".join(probability.missing_components) or None,
         "weighted_selection_reason": selection.reason,
-        "weighted_fee_source": selected.cost.source if selected else None,
+        "weighted_fee_source": quoted.cost.source if quoted else None,
     }
 
 
@@ -346,6 +372,8 @@ def evaluate_combined_entry(
     cost_buffer: float = 0.02,
     volume_5min: float = 0.0,
     underlying_price: Optional[float] = None,
+    weighted_maker_fee_rate: Optional[float] = None,
+    weighted_taker_only: bool = False,
     fallback_reason: Optional[str] = None,
     time_left_sec: float = 0.0,
     entry_model_ece: float = 0.0,
@@ -355,6 +383,7 @@ def evaluate_combined_entry(
     weighted_fee_exponent: Optional[float] = None,
     weighted_fee_source: str = "CONFIG_DEFAULT",
     spread: Optional[float] = None,
+    spread_cost: Optional[float] = None,
 ) -> CombinedEntryResult:
     """Обёртка для переноса флагов LightGBM в результат."""
     result = _evaluate_combined_entry_inner(
@@ -378,9 +407,12 @@ def evaluate_combined_entry(
         flip_threshold=flip_threshold,
         mrf_evidence=mrf_evidence,
         weighted_fee_rate=weighted_fee_rate,
+        weighted_maker_fee_rate=weighted_maker_fee_rate,
+        weighted_taker_only=weighted_taker_only,
         weighted_fee_exponent=weighted_fee_exponent,
         weighted_fee_source=weighted_fee_source,
         spread=spread,
+        spread_cost=spread_cost,
     )
     policy_mode = str(getattr(cfg, "trading_policy_mode", "LEGACY") or "LEGACY").upper()
     if policy_mode in {"WEIGHTED_SHADOW", "WEIGHTED_ACTIVE"}:
@@ -396,9 +428,12 @@ def evaluate_combined_entry(
             cfg=cfg,
             mrf_evidence=mrf_evidence,
             fee_rate=weighted_fee_rate,
+            maker_fee_rate=weighted_maker_fee_rate,
+            taker_only=weighted_taker_only,
             fee_exponent=weighted_fee_exponent,
             fee_source=weighted_fee_source,
             spread=spread or 0.0,
+            spread_cost=spread_cost,
         )
         result = replace(result, **_weighted_result_fields(policy_mode, weighted_selection, str(getattr(cfg, "weighted_policy_id", "UNVERSIONED") or "UNVERSIONED")[:64]))
 
@@ -432,6 +467,8 @@ def _evaluate_combined_entry_inner(
     underlying_price: Optional[float] = None,
     fallback_reason: Optional[str] = None,
     time_left_sec: float = 0.0,
+    weighted_maker_fee_rate: Optional[float] = None,
+    weighted_taker_only: bool = False,
     entry_model_ece: float = 0.0,
     flip_threshold: Optional[float] = None,
     mrf_evidence: Optional[float] = None,
@@ -439,6 +476,7 @@ def _evaluate_combined_entry_inner(
     weighted_fee_exponent: Optional[float] = None,
     weighted_fee_source: str = "CONFIG_DEFAULT",
     spread: Optional[float] = None,
+    spread_cost: Optional[float] = None,
 ) -> CombinedEntryResult:
     """Внутренняя логика оценки."""
 
@@ -499,9 +537,12 @@ def _evaluate_combined_entry_inner(
             cfg=cfg,
             mrf_evidence=mrf_evidence,
             fee_rate=weighted_fee_rate,
+            maker_fee_rate=weighted_maker_fee_rate,
+            taker_only=weighted_taker_only,
             fee_exponent=weighted_fee_exponent,
             fee_source=weighted_fee_source,
             spread=spread or 0.0,
+            spread_cost=spread_cost,
         )
         if weighted_selection.selected is None:
             consensus = DirectionConsensus(
