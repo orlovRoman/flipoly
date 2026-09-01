@@ -16,6 +16,7 @@ import json
 
 import numpy as np
 
+from polyflip.trading.weighted_sizing import conservative_size, stepped_bet_size
 from polyflip.trading.weighted_policy import (
     BUY_NO,
     BUY_YES,
@@ -254,6 +255,11 @@ class BenchmarkConfig:
         (60.0, 600.0),
         (120.0, 900.0),
     )
+    sizing_mode: str = "FIXED"
+    sizing_standard_error: float = 0.0
+    sizing_kelly_fraction: float = 0.025
+    sizing_base_bet_usdc: float = 1.0
+    sizing_cap_usdc: float = 3.0
 
 
 @dataclass(frozen=True)
@@ -345,6 +351,7 @@ class BenchmarkReport:
     duplicate_rows_removed: int = 0
     dataset_fingerprint: str = ""
     stability: tuple[dict[str, Any], ...] = ()
+    sizing_steps: tuple[dict[str, Any], ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -365,6 +372,7 @@ class BenchmarkReport:
             "duplicate_rows_removed": self.duplicate_rows_removed,
             "dataset_fingerprint": self.dataset_fingerprint,
             "stability": [dict(item) for item in self.stability],
+            "sizing_steps": [dict(item) for item in self.sizing_steps],
         }
 
 
@@ -642,6 +650,11 @@ def evaluate_arm(
     time_left_range: Optional[tuple[float, float]] = None,
     time_left_role: Optional[str] = None,
     mrf_stake_gamma: float = 0.0,
+    sizing_mode: str = "FIXED",
+    sizing_standard_error: float = 0.0,
+    sizing_kelly_fraction: float = 0.025,
+    sizing_base_bet_usdc: float = 1.0,
+    sizing_cap_usdc: float = 3.0,
     stacker: Optional[StackerModel] = None,
     stacker_predictions: Optional[Mapping[int, float]] = None,
     evaluation_indices: Optional[Sequence[int]] = None,
@@ -767,13 +780,48 @@ def evaluate_arm(
             if observation.observed_cost_per_share is not None
             else quote.cost.total_per_share
         )
+        try:
+            base_stake = max(0.0, float(sizing_base_bet_usdc))
+        except (TypeError, ValueError, OverflowError):
+            base_stake = 1.0
+        mode = str(sizing_mode or "FIXED").strip().upper()
+        if mode == "LOWER_BOUND_KELLY":
+            sizing = conservative_size(
+                quote.p_win,
+                price=quote.ask,
+                cost_per_share=cost,
+                standard_error=sizing_standard_error,
+                fraction=sizing_kelly_fraction,
+                min_edge_lower=role_threshold,
+            )
+            size_multiplier = sizing.size_multiplier * base_stake
+        elif mode == "STEPPED_EDGE":
+            sizing = conservative_size(
+                quote.p_win,
+                price=quote.ask,
+                cost_per_share=cost,
+                standard_error=sizing_standard_error,
+                fraction=0.0,
+                min_edge_lower=-1.0,
+            )
+            stepped = stepped_bet_size(
+                sizing.edge_lower,
+                base_bet_usdc=1.0,
+                cap_usdc=sizing_cap_usdc,
+            )
+            size_multiplier = stepped * base_stake
+        else:
+            size_multiplier = base_stake
+        if size_multiplier <= 0.0:
+            continue
         raw_pnl = (1.0 if won else 0.0) - quote.ask - cost
         try:
             gamma = float(mrf_stake_gamma)
         except (TypeError, ValueError, OverflowError):
             gamma = 0.0
         evidence = float(observation.mrf_evidence or 0.0)
-        size_multiplier = max(0.5, min(1.25, 1.0 + gamma * evidence))
+        mrf_multiplier = max(0.5, min(1.25, 1.0 + gamma * evidence))
+        size_multiplier *= mrf_multiplier
         pnl = raw_pnl * size_multiplier
         metrics.evaluations.append(
             TradeEvaluation(
@@ -1053,6 +1101,11 @@ def parameter_sensitivity(
     ),
     deltas: Sequence[float] = (-0.20, -0.10, 0.10, 0.20),
     evaluation_indices: Optional[Sequence[int]] = None,
+    sizing_mode: str = "FIXED",
+    sizing_standard_error: float = 0.0,
+    sizing_kelly_fraction: float = 0.025,
+    sizing_base_bet_usdc: float = 1.0,
+    sizing_cap_usdc: float = 3.0,
 ) -> tuple[dict[str, Any], ...]:
     """Evaluate bounded parameter perturbations on one fixed OOT sample."""
     base = config or WeightedPolicyConfig()
@@ -1081,6 +1134,11 @@ def parameter_sensitivity(
                 arm,
                 config=replace(base, **{parameter: value}),
                 evaluation_indices=evaluation_indices,
+                sizing_mode=sizing_mode,
+                sizing_standard_error=sizing_standard_error,
+                sizing_kelly_fraction=sizing_kelly_fraction,
+                sizing_base_bet_usdc=sizing_base_bet_usdc,
+                sizing_cap_usdc=sizing_cap_usdc,
             )
             rows.append(
                 {
@@ -1106,6 +1164,11 @@ def stability_by_segment(
     arm: str = "FULL_WEIGHTED_MRF",
     config: WeightedPolicyConfig | None = None,
     evaluation_indices: Optional[Sequence[int]] = None,
+    sizing_mode: str = "FIXED",
+    sizing_standard_error: float = 0.0,
+    sizing_kelly_fraction: float = 0.025,
+    sizing_base_bet_usdc: float = 1.0,
+    sizing_cap_usdc: float = 3.0,
 ) -> tuple[dict[str, Any], ...]:
     """Report OOT net PnL by asset, role, horizon and execution role."""
     allowed = (
@@ -1149,6 +1212,11 @@ def stability_by_segment(
                 arm,
                 config=config,
                 evaluation_indices=indices,
+                sizing_mode=sizing_mode,
+                sizing_standard_error=sizing_standard_error,
+                sizing_kelly_fraction=sizing_kelly_fraction,
+                sizing_base_bet_usdc=sizing_base_bet_usdc,
+                sizing_cap_usdc=sizing_cap_usdc,
             )
             ci_low, ci_high = cluster_bootstrap_ci(
                 metrics.evaluations,
@@ -1169,6 +1237,58 @@ def stability_by_segment(
                 }
             )
     return tuple(rows)
+
+
+def evaluate_sizing_steps(
+    observations: Sequence[MarketObservation],
+    *,
+    arm: str = "FULL_WEIGHTED_MRF",
+    config: WeightedPolicyConfig | None = None,
+    levels: Sequence[float] = (1.0, 1.5, 2.0, 3.0),
+    min_net_ev: float = 0.0,
+    evaluation_indices: Optional[Sequence[int]] = None,
+    bootstrap_iterations: int = 1000,
+    bootstrap_seed: int = 20260901,
+) -> tuple[dict[str, Any], ...]:
+    """Compare fixed stake levels on one identical OOT sample."""
+    rows: list[dict[str, Any]] = []
+    for level in levels:
+        try:
+            stake = max(0.0, float(level))
+        except (TypeError, ValueError, OverflowError):
+            continue
+        metrics = evaluate_arm(
+            observations,
+            arm,
+            config=config,
+            min_net_ev=min_net_ev,
+            sizing_mode="FIXED",
+            sizing_base_bet_usdc=stake,
+            evaluation_indices=evaluation_indices,
+        )
+        ci_low, ci_high = cluster_bootstrap_ci(
+            metrics.evaluations,
+            iterations=bootstrap_iterations,
+            seed=bootstrap_seed,
+        )
+        rows.append(
+            {
+                "type": "SIZING_STEP",
+                "arm": arm.upper(),
+                "stake_usdc": stake,
+                "observations": metrics.observations,
+                "trades": metrics.trades,
+                "net_pnl": metrics.net_pnl,
+                "win_rate": metrics.win_rate,
+                "brier": metrics.brier,
+                "log_loss": metrics.log_loss,
+                "pnl_ci_low": ci_low,
+                "pnl_ci_high": ci_high,
+            }
+        )
+    return tuple(rows)
+
+
 
 
 def cluster_bootstrap_ci(
@@ -1344,6 +1464,13 @@ def benchmark(
         )
     except ValueError:
         hierarchical_model = None
+    sizing_kwargs = {
+        "sizing_mode": cfg.sizing_mode,
+        "sizing_standard_error": cfg.sizing_standard_error,
+        "sizing_kelly_fraction": cfg.sizing_kelly_fraction,
+        "sizing_base_bet_usdc": cfg.sizing_base_bet_usdc,
+        "sizing_cap_usdc": cfg.sizing_cap_usdc,
+    }
     results: list[ArmMetrics] = []
     for arm in arms:
         result = evaluate_arm(
@@ -1354,6 +1481,7 @@ def benchmark(
             stacker=stacker_model,
             stacker_predictions=oof if arm.upper() == "STACKER" else None,
             evaluation_indices=oot_indices,
+            **sizing_kwargs,
         )
         result.pnl_ci_low, result.pnl_ci_high = cluster_bootstrap_ci(
             result.evaluations,
@@ -1370,6 +1498,7 @@ def benchmark(
             evaluation_indices=oot_indices,
             stacker=stacker_model,
             stacker_predictions=oof,
+            **sizing_kwargs,
         )
         result.pnl_ci_low, result.pnl_ci_high = cluster_bootstrap_ci(
             result.evaluations,
@@ -1386,6 +1515,7 @@ def benchmark(
                 config=cfg.policy_config,
                 min_net_ev=float(threshold),
                 evaluation_indices=oot_indices,
+                **sizing_kwargs,
             )
             sensitivity.append(
                 {
@@ -1402,6 +1532,7 @@ def benchmark(
             arm="FULL_WEIGHTED_MRF",
             config=cfg.policy_config,
             evaluation_indices=oot_indices,
+            **sizing_kwargs,
         )
     )
     stability = stability_by_segment(
@@ -1409,6 +1540,16 @@ def benchmark(
         arm="FULL_WEIGHTED_MRF",
         config=cfg.policy_config,
         evaluation_indices=oot_indices,
+        **sizing_kwargs,
+    )
+    sizing_steps = evaluate_sizing_steps(
+        ordered,
+        arm="FULL_WEIGHTED_MRF",
+        config=cfg.policy_config,
+        min_net_ev=cfg.min_net_ev,
+        evaluation_indices=oot_indices,
+        bootstrap_iterations=cfg.bootstrap_iterations,
+        bootstrap_seed=cfg.bootstrap_seed,
     )
     return BenchmarkReport(
         generated_at=datetime.now(timezone.utc).isoformat(),
@@ -1422,6 +1563,7 @@ def benchmark(
         duplicate_rows_removed=max(0, raw_count - len(ordered)),
         dataset_fingerprint=dataset_fp,
         stability=stability,
+        sizing_steps=sizing_steps,
     )
 
 

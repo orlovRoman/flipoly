@@ -17,6 +17,7 @@ from polyflip.trading.weighted_benchmark import (
     cluster_bootstrap_ci,
     deduplicate_observations,
     evaluate_arm,
+    evaluate_sizing_steps,
     filter_fixed_horizons,
     fit_ridge_logistic_stacker,
     fit_hierarchical_stackers,
@@ -96,6 +97,7 @@ def test_stacker_is_bounded_and_benchmark_reports_cost_aware_arms():
     )
     assert result.resolved_observations == 16
     assert {item.arm for item in result.arms} >= {"MARKET_ONLY", "FULL_WEIGHTED_MRF"}
+    assert [item["stake_usdc"] for item in result.sizing_steps] == [1.0, 1.5, 2.0, 3.0]
 
 
 def test_evaluate_arm_uses_observed_cost_and_ci_is_reproducible():
@@ -426,6 +428,32 @@ def test_mapping_preserves_phase_fields_for_stability_reports():
     )
     assert item.phase == "STRONG_UP"
     assert item.asset_phase == "BTC_STRONG_UP"
+
+
+def test_sizing_step_report_uses_same_oot_sample_for_each_level():
+    rows = [
+        MarketObservation(
+            **{
+                **_row(index, index % 2 == 0).__dict__,
+                "yes_ask": 0.48,
+                "no_ask": 0.52,
+            }
+        )
+        for index in range(8)
+    ]
+    result = evaluate_sizing_steps(
+        rows,
+        config=WeightedPolicyConfig(fee_rate=0.0, slippage_rate=0.0),
+        levels=(1.0, 1.5, 2.0, 3.0),
+        evaluation_indices=(4, 5, 6, 7),
+        bootstrap_iterations=10,
+    )
+    assert [item["stake_usdc"] for item in result] == [1.0, 1.5, 2.0, 3.0]
+    assert {item["trades"] for item in result} == {4}
+    assert result[1]["net_pnl"] == result[0]["net_pnl"] * 1.5
+    assert all(item["pnl_ci_low"] is not None for item in result)
+
+
 
 
 def test_benchmark_fingerprint_binds_artifact_to_exact_dataset():
