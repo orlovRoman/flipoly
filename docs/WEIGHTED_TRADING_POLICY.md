@@ -7,17 +7,25 @@ LightGBM, and the optional market-regime evidence into calibrated inputs. It is
 implemented as a pure function so the same arithmetic can be used by live
 decisions, PAPER execution, shadow analysis, and future backtests.
 
-All probabilities use the YES axis:
+All probabilities use the YES axis. The market prior is normalized from both
+executable asks to remove the book overround:
 
 ```text
-p_market_yes = fresh YES mid-price
+p_market_yes = yes_ask / (yes_ask + no_ask)
 p_logreg_yes = P(flip) converted to P(YES wins) using the current favorite
 p_lgbm_yes   = LightGBM P(UP)
-p_final_yes  = weighted average of available inputs
+
+logit(p_final_yes) = logit(p_market_yes)
+  + beta_lr   * (logit(p_logreg_yes) - logit(p_market_yes))
+  + beta_lgbm * (logit(p_lgbm_yes)   - logit(p_market_yes))
+  + beta_mrf  * regime_evidence
+  + intercept
 ```
 
-Missing inputs are removed and the remaining weights are renormalized. The
-initial defaults are `0.90 / 0.05 / 0.05` for market / LogReg / LightGBM.
+The initial configured weights are `0.90 / 0.05 / 0.05` for market / LogReg /
+LightGBM. The market is the prior rather than another independent vote. If a
+model input is missing, its residual is zero and its weight is absorbed by the
+market; it is never reassigned to another model.
 
 These are rollout defaults, not learned optimal weights. The market quote is a
 strong prior and is intentionally given most of the mass until the two model
@@ -72,22 +80,27 @@ explicit compatibility callers.
 - `LEGACY`: unchanged hard-vote policy.
 - `WEIGHTED_SHADOW`: calculate and persist weighted telemetry, but keep the
   legacy action. This is the default validation stage.
-- `WEIGHTED_ACTIVE`: use the weighted side and net EV for the action. Existing
-  safety gates still apply: time/price bounds, spread guard, funding/risk veto,
-  operator kill switches, and execution validation.
+- `WEIGHTED_ACTIVE`: use the weighted side and per-share net EV for the action.
+  Legacy predictive gates (`MIN_WIN_PROB`, `FLIP_THRESHOLD`, consensus and
+  favorite/outsider edge thresholds) do not participate. Time/price bounds,
+  spread guard, funding/risk veto, operator switches, and execution validation
+  remain hard safety limits. The rollout stake is fixed by
+  `WEIGHTED_FIXED_BET_USDC` (default $1) until sizing is separately validated.
 
 The optional `WEIGHTED_MRF_BETA` applies signed MRF evidence as a bounded
 log-odds adjustment. A positive evidence value supports YES/UP; a negative
-value supports NO/DOWN. It is zero by default. When non-zero, the decision and
-the post-decision MRF gate share one preloaded candle snapshot.
+value supports NO/DOWN. It is zero by default. Evidence is still recorded at
+beta zero, while the legacy post-decision MRF veto/stake multiplier is not
+applied to `WEIGHTED_ACTIVE`.
 
 ## Key telemetry
 
 Each combined decision records the component probabilities, effective weights,
 missing components, selected side, YES/NO net EV, selected cost, fee source,
-and policy mode in `decision_details` / `lgbm_meta`. This makes it possible to
-compare the shadow counterfactual with the executed legacy result before
-switching to `WEIGHTED_ACTIVE`.
+additive log-odds contributions, `models_agree`, and policy mode in
+`decision_details` / `lgbm_meta`. This makes it possible to compare the shadow
+counterfactual with the executed legacy result before switching to
+`WEIGHTED_ACTIVE`.
 
 ## Validation checklist
 

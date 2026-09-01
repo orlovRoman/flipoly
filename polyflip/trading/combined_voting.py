@@ -32,6 +32,7 @@ from polyflip.trading.weighted_policy import (
     WeightedPolicyConfig,
     WeightedSelection,
     logreg_flip_to_yes_probability,
+    market_yes_probability,
     probability_for_side,
     select_weighted_side,
 )
@@ -156,6 +157,12 @@ class CombinedEntryResult:
     entry_model_ece: float = 0.0
     would_live_accept: Optional[bool] = None
     # Weighted policy telemetry.  These fields are also populated in shadow
+    weighted_market_contribution_logodds: Optional[float] = None
+    weighted_logreg_contribution_logodds: Optional[float] = None
+    weighted_lgbm_contribution_logodds: Optional[float] = None
+    weighted_mrf_contribution_logodds: Optional[float] = None
+    weighted_intercept_contribution_logodds: Optional[float] = None
+    weighted_models_agree: Optional[bool] = None
     # mode, while LEGACY behavior remains unchanged.
     weighted_policy_mode: str = "LEGACY"
     weighted_p_market_yes: Optional[float] = None
@@ -247,21 +254,28 @@ def _build_weighted_selection(
         logreg_weight=float(getattr(cfg, "weighted_logreg_weight", 0.05)),
         lgbm_weight=float(getattr(cfg, "weighted_lgbm_weight", 0.05)),
         mrf_beta=float(getattr(cfg, "weighted_mrf_beta", 0.0)),
+        intercept=float(getattr(cfg, "weighted_intercept", 0.0)),
         fee_rate=(
             float(fee_rate)
             if fee_rate is not None
             else float(getattr(cfg, "weighted_fee_rate", 0.07))
         ),
+        maker_fee_rate=float(getattr(cfg, "weighted_maker_fee_rate", 0.0)),
         fee_exponent=(
             float(fee_exponent)
             if fee_exponent is not None
             else float(getattr(cfg, "weighted_fee_exponent", 1.0))
         ),
         slippage_rate=float(getattr(cfg, "weighted_slippage_rate", 0.005)),
+        latency_buffer=float(getattr(cfg, "weighted_latency_buffer", 0.0)),
         execution_role=str(getattr(cfg, "weighted_execution_role", "TAKER")),
     )
     return select_weighted_side(
-        p_market_yes=fresh_yes_price,
+        p_market_yes=market_yes_probability(
+            yes_ask=yes_ask,
+            no_ask=no_ask,
+            fallback_yes=fresh_yes_price,
+        ),
         p_logreg_yes=logreg_flip_to_yes_probability(p_flip, fresh_yes_price),
         p_lgbm_yes=p_lgbm_yes,
         yes_ask=yes_ask,
@@ -290,6 +304,12 @@ def _weighted_result_fields(
         "weighted_market_weight": probability.market_weight,
         "weighted_logreg_weight": probability.logreg_weight,
         "weighted_lgbm_weight": probability.lgbm_weight,
+        "weighted_market_contribution_logodds": probability.market_contribution_logodds,
+        "weighted_logreg_contribution_logodds": probability.logreg_contribution_logodds,
+        "weighted_lgbm_contribution_logodds": probability.lgbm_contribution_logodds,
+        "weighted_mrf_contribution_logodds": probability.mrf_adjustment_logodds,
+        "weighted_intercept_contribution_logodds": probability.intercept_contribution_logodds,
+        "weighted_models_agree": probability.models_agree,
         "weighted_mrf_evidence": probability.mrf_evidence,
         "weighted_selected_side": selected.side if selected else None,
         "weighted_yes_net_ev": selection.yes_quote.net_ev_per_share if selection.yes_quote else None,
@@ -836,7 +856,7 @@ def _evaluate_combined_entry_inner(
         try:
             spread_value = abs(float(spread))
             max_spread_pct = float(getattr(cfg, "max_spread_pct", 0.0))
-            spread_ratio = spread_value / max(fresh_yes_price, 1e-9)
+            spread_ratio = spread_value / max(candidate_ask, 1e-9)
         except (TypeError, ValueError, OverflowError):
             spread_value = 0.0
             max_spread_pct = 0.0
@@ -845,7 +865,7 @@ def _evaluate_combined_entry_inner(
             return CombinedEntryResult(
                 action="SKIP",
                 reason=(
-                    f"Spread {spread_value:.4f} / mid {fresh_yes_price:.4f} "
+                    f"Spread {spread_value:.4f} / selected ask {candidate_ask:.4f} "
                     f"= {spread_ratio:.4f} > max {max_spread_pct:.4f}"
                 ),
                 direction_status=dir_status_for_result,
@@ -942,7 +962,7 @@ def _evaluate_combined_entry_inner(
         )
 
     min_win_prob_cfg = getattr(cfg, "min_win_prob", 0.51)
-    if p_candidate_win < min_win_prob_cfg:
+    if not weighted_active and p_candidate_win < min_win_prob_cfg:
         return CombinedEntryResult(
             action="SKIP",
             reason=f"Candidate win prob {p_candidate_win:.4f} < min {min_win_prob_cfg:.4f}",
@@ -1147,7 +1167,11 @@ def _evaluate_combined_entry_inner(
         net_edge = weighted_selection.selected.net_ev_per_share
     else:
         net_edge = round(gross_edge - cost_buffer, 4)
-    min_net_edge = cfg.get_min_edge(is_outsider)
+    min_net_edge = (
+        cfg.get_weighted_min_net_ev(is_outsider)
+        if weighted_active
+        else cfg.get_min_edge(is_outsider)
+    )
 
     if net_edge < min_net_edge:
         return CombinedEntryResult(
@@ -1193,8 +1217,11 @@ def _evaluate_combined_entry_inner(
         )
 
     # 7. Расчет размера ставки
-    from polyflip.trading.decision_logic import _resolve_final_bet
-    bet_size = _resolve_final_bet(net_edge, volume_5min, cfg, is_outsider)
+    if weighted_active:
+        bet_size = float(getattr(cfg, "weighted_fixed_bet_usdc", 1.0))
+    else:
+        from polyflip.trading.decision_logic import _resolve_final_bet
+        bet_size = _resolve_final_bet(net_edge, volume_5min, cfg, is_outsider)
 
     bypass_bet = cfg.bypass_bet_size_check
     if bet_size <= 0 and not bypass_bet:

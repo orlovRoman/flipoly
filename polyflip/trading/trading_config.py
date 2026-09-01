@@ -25,6 +25,25 @@ def _parse_int(val, default: int) -> int:
         return default
 
 
+def _parse_bounded_float(
+    raw: dict[str, str],
+    key: str,
+    default: float,
+    lower: float,
+    upper: float,
+) -> float:
+    value = parse_float_setting(raw, key, default)
+    if not isfinite(value) or not lower <= value <= upper:
+        logger.warning(
+            "invalid_bounded_float_setting",
+            key=key,
+            value=value,
+            fallback=default,
+        )
+        return float(default)
+    return value
+
+
 @dataclass(frozen=True)
 class TradingConfig:
     trading_enabled: bool
@@ -85,10 +104,17 @@ class TradingConfig:
     weighted_logreg_weight: float = 0.05
     weighted_lgbm_weight: float = 0.05
     weighted_mrf_beta: float = 0.0
+    weighted_intercept: float = 0.0
     weighted_fee_rate: float = 0.07
+    weighted_maker_fee_rate: float = 0.0
     weighted_fee_exponent: float = 1.0
     weighted_slippage_rate: float = 0.005
+    weighted_latency_buffer: float = 0.0
     weighted_execution_role: str = "TAKER"
+    weighted_min_net_ev_favorite: float = 0.03
+    weighted_min_net_ev_outsider: float = 0.03
+    weighted_fixed_bet_usdc: float = 1.0
+    weighted_mrf_extreme_veto_threshold: float = -1.0
     # ── Market Regime Filter (MRF-T09) ──────────────────────
     mrf_mode: str = "OFF"                 # OFF|SHADOW|ACTIVE
     mrf_version: int = 1
@@ -105,6 +131,10 @@ class TradingConfig:
     def get_min_edge(self, is_outsider: bool) -> float:
         """Единый источник правды для минимального Edge."""
         return self.outs_min_edge if is_outsider else self.favorite_min_edge
+
+    def get_weighted_min_net_ev(self, is_outsider: bool) -> float:
+        """Minimum expected USDC profit per binary share."""
+        return self.weighted_min_net_ev_outsider if is_outsider else self.weighted_min_net_ev_favorite
 
     def is_time_valid(self, time_left_sec: float, is_outsider: bool) -> tuple[bool, str]:
         if time_left_sec <= 0:
@@ -308,24 +338,21 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         ),
         enable_ece_correction=_parse_bool(raw.get("ENABLE_ECE_CORRECTION"), getattr(settings, "ENABLE_ECE_CORRECTION", True)),
         trading_policy_mode=trading_policy_mode,
-        weighted_market_weight=parse_float_setting(
-            raw, "WEIGHTED_MARKET_WEIGHT", getattr(settings, "WEIGHTED_MARKET_WEIGHT", 0.90)
-        ),
-        weighted_logreg_weight=parse_float_setting(
-            raw, "WEIGHTED_LOGREG_WEIGHT", getattr(settings, "WEIGHTED_LOGREG_WEIGHT", 0.05)
-        ),
-        weighted_lgbm_weight=parse_float_setting(
-            raw, "WEIGHTED_LGBM_WEIGHT", getattr(settings, "WEIGHTED_LGBM_WEIGHT", 0.05)
-        ),
+        weighted_market_weight=_parse_bounded_float(raw, "WEIGHTED_MARKET_WEIGHT", getattr(settings, "WEIGHTED_MARKET_WEIGHT", 0.90), 0.0, 1.0),
+        weighted_logreg_weight=_parse_bounded_float(raw, "WEIGHTED_LOGREG_WEIGHT", getattr(settings, "WEIGHTED_LOGREG_WEIGHT", 0.05), 0.0, 1.0),
+        weighted_lgbm_weight=_parse_bounded_float(raw, "WEIGHTED_LGBM_WEIGHT", getattr(settings, "WEIGHTED_LGBM_WEIGHT", 0.05), 0.0, 1.0),
         weighted_mrf_beta=weighted_mrf_beta,
-       weighted_fee_rate=parse_float_setting(
-           raw, "WEIGHTED_FEE_RATE", getattr(settings, "WEIGHTED_FEE_RATE", 0.07)
-       ),
+        weighted_intercept=_parse_bounded_float(raw, "WEIGHTED_INTERCEPT", getattr(settings, "WEIGHTED_INTERCEPT", 0.0), -5.0, 5.0),
+        weighted_fee_rate=_parse_bounded_float(raw, "WEIGHTED_FEE_RATE", getattr(settings, "WEIGHTED_FEE_RATE", 0.07), 0.0, 1.0),
+        weighted_maker_fee_rate=_parse_bounded_float(raw, "WEIGHTED_MAKER_FEE_RATE", getattr(settings, "WEIGHTED_MAKER_FEE_RATE", 0.0), 0.0, 1.0),
         weighted_fee_exponent=weighted_fee_exponent,
-        weighted_slippage_rate=parse_float_setting(
-           raw, "WEIGHTED_SLIPPAGE_RATE", getattr(settings, "WEIGHTED_SLIPPAGE_RATE", 0.005)
-       ),
+        weighted_slippage_rate=_parse_bounded_float(raw, "WEIGHTED_SLIPPAGE_RATE", getattr(settings, "WEIGHTED_SLIPPAGE_RATE", 0.005), 0.0, 1.0),
+        weighted_latency_buffer=_parse_bounded_float(raw, "WEIGHTED_LATENCY_BUFFER", getattr(settings, "WEIGHTED_LATENCY_BUFFER", 0.0), 0.0, 1.0),
         weighted_execution_role=weighted_execution_role,
+        weighted_min_net_ev_favorite=_parse_bounded_float(raw, "WEIGHTED_MIN_NET_EV_FAVORITE", getattr(settings, "WEIGHTED_MIN_NET_EV_FAVORITE", 0.03), 0.0, 1.0),
+        weighted_min_net_ev_outsider=_parse_bounded_float(raw, "WEIGHTED_MIN_NET_EV_OUTSIDER", getattr(settings, "WEIGHTED_MIN_NET_EV_OUTSIDER", 0.03), 0.0, 1.0),
+        weighted_fixed_bet_usdc=_parse_bounded_float(raw, "WEIGHTED_FIXED_BET_USDC", getattr(settings, "WEIGHTED_FIXED_BET_USDC", 1.0), 0.01, 1000.0),
+        weighted_mrf_extreme_veto_threshold=_parse_bounded_float(raw, "WEIGHTED_MRF_EXTREME_VETO_THRESHOLD", getattr(settings, "WEIGHTED_MRF_EXTREME_VETO_THRESHOLD", -1.0), -1.0, 0.0),
         # ── Market Regime Filter (MRF-T09) ──────────────────────
         mrf_mode=(
             raw.get("MARKET_REGIME_FILTER_MODE", "OFF").strip().upper()

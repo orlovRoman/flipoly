@@ -1,4 +1,4 @@
-"""Pure weighted policy for combining market and model probabilities.
+"""Pure weighted trading policy for combining market and model probabilities.
 
 The legacy decision path historically treated LogReg and LightGBM as hard
 votes.  This module keeps the new policy deliberately small and side-effect
@@ -55,6 +55,31 @@ def probability_for_side(p_yes: Optional[float], side: str) -> Optional[float]:
     raise ValueError(f"unsupported side: {side}")
 
 
+def market_yes_probability(
+    *,
+    yes_ask: Optional[float],
+    no_ask: Optional[float],
+    fallback_yes: Optional[float] = None,
+) -> Optional[float]:
+    """Build a normalized YES prior from both executable sides of the book.
+
+    YES and NO asks normally sum to more than one because both include the
+    spread. Normalizing the pair removes that overround and is more stable
+    than treating a single side as the market probability.
+    """
+    yes = clamp_probability(yes_ask)
+    no = clamp_probability(no_ask)
+    if (
+        yes is not None
+        and no is not None
+        and 0.0 < yes < 1.0
+        and 0.0 < no < 1.0
+        and yes + no > 0.0
+    ):
+        return round(yes / (yes + no), 8)
+    return clamp_probability(fallback_yes)
+
+
 def logit(probability: float, epsilon: float = 1e-6) -> float:
     p = clamp_probability(probability, 0.5)
     assert p is not None
@@ -72,33 +97,64 @@ def sigmoid(value: float) -> float:
 class WeightedPolicyConfig:
     """Runtime knobs for the weighted policy.
 
-    The initial rollout uses a direct probability blend.  ``mrf_beta`` is a
-    small log-odds adjustment supplied by the regime classifier; zero keeps
-    the policy independent of MRF until the regime evidence is validated.
+    The configured 90/5/5 weights are applied in log-odds space. This is
+    equivalent to using the market as the prior plus bounded residual
+    corrections from LogReg and LightGBM.
     """
 
     market_weight: float = 0.90
     logreg_weight: float = 0.05
     lgbm_weight: float = 0.05
     mrf_beta: float = 0.0
+    intercept: float = 0.0
     fee_rate: float = 0.07
+    maker_fee_rate: float = 0.0
     fee_exponent: float = 1.0
     slippage_rate: float = 0.005
+    latency_buffer: float = 0.0
     execution_role: str = "TAKER"
 
     def normalized_weights(self, available: set[str]) -> dict[str, float]:
+        """Keep the market as prior and absorb missing model weight into it."""
         configured = {
             "market": _finite_nonnegative(self.market_weight),
             "logreg": _finite_nonnegative(self.logreg_weight),
             "lgbm": _finite_nonnegative(self.lgbm_weight),
         }
-        total = sum(configured[name] for name in available)
-        if total <= 0.0:
+        total = sum(configured.values())
+        if total <= 0.0 or "market" not in available:
             return {name: 0.0 for name in configured}
+        normalized = {name: value / total for name, value in configured.items()}
+        logreg_weight = normalized["logreg"] if "logreg" in available else 0.0
+        lgbm_weight = normalized["lgbm"] if "lgbm" in available else 0.0
         return {
-            name: (configured[name] / total if name in available else 0.0)
-            for name in configured
+            "market": max(0.0, 1.0 - logreg_weight - lgbm_weight),
+            "logreg": logreg_weight,
+            "lgbm": lgbm_weight,
         }
+
+
+@dataclass(frozen=True)
+class ProbabilityInputs:
+    """Canonical, already-extracted scorer inputs for one market snapshot."""
+
+    p_market_yes: Optional[float]
+    p_logreg_yes: Optional[float]
+    p_lgbm_yes: Optional[float]
+    ece: float = 0.0
+    asset: Optional[str] = None
+    phase: Optional[str] = None
+    regime: Optional[str] = None
+    role: Optional[str] = None
+    time_left_sec: Optional[float] = None
+
+    @property
+    def models_agree(self) -> Optional[bool]:
+        p_lr = clamp_probability(self.p_logreg_yes)
+        p_lgbm = clamp_probability(self.p_lgbm_yes)
+        if p_lr is None or p_lgbm is None:
+            return None
+        return (p_lr >= 0.5) == (p_lgbm >= 0.5)
 
 
 @dataclass(frozen=True)
@@ -110,10 +166,13 @@ class TradeCostEstimate:
     fee_rate: float
     fee_exponent: float
     fee_per_share: float
+    maker_fee_per_share: float
+    taker_fee_per_share: float
     slippage_per_share: float
     spread_per_share: float
     latency_buffer_per_share: float
     total_per_share: float
+    expected_execution_price: float
     source: str = "CONFIG_DEFAULT"
 
     def as_dict(self) -> dict[str, Any]:
@@ -142,6 +201,7 @@ def estimate_trade_cost(
     price: float,
     *,
     fee_rate: float = 0.07,
+    maker_fee_rate: float = 0.0,
     fee_exponent: float = 1.0,
     slippage_rate: float = 0.005,
     role: str = "TAKER",
@@ -161,15 +221,18 @@ def estimate_trade_cost(
     if role not in {"MAKER", "TAKER"}:
         role = "TAKER"
     fee_rate = _finite_nonnegative(fee_rate)
+    maker_fee_rate = _finite_nonnegative(maker_fee_rate)
     fee_exponent = _finite_nonnegative(fee_exponent, 1.0)
     slippage_rate = _finite_nonnegative(slippage_rate)
     spread_per_share = _finite_nonnegative(spread)
     latency_per_share = _finite_nonnegative(latency_buffer)
-    fee = (
-        0.0
-        if role == "MAKER"
-        else polymarket_taker_fee_per_share(price, fee_rate, fee_exponent)
+    taker_fee = polymarket_taker_fee_per_share(
+        price, fee_rate, fee_exponent
     )
+    maker_fee = polymarket_taker_fee_per_share(
+        price, maker_fee_rate, fee_exponent
+    )
+    fee = maker_fee if role == "MAKER" else taker_fee
     slippage = price * slippage_rate
     total = fee + slippage + spread_per_share + latency_per_share
     return TradeCostEstimate(
@@ -178,12 +241,28 @@ def estimate_trade_cost(
         fee_rate=fee_rate,
         fee_exponent=fee_exponent,
         fee_per_share=round(fee, 8),
+        maker_fee_per_share=round(maker_fee, 8),
+        taker_fee_per_share=round(taker_fee, 8),
         slippage_per_share=round(slippage, 8),
         spread_per_share=round(spread_per_share, 8),
         latency_buffer_per_share=round(latency_per_share, 8),
         total_per_share=round(total, 8),
+        expected_execution_price=round(price + slippage + spread_per_share + latency_per_share, 8),
         source=source,
     )
+
+
+def compute_net_ev_per_share(
+    p_win: float,
+    ask: float,
+    costs: TradeCostEstimate,
+) -> float:
+    """Return expected USDC profit for one binary share."""
+    probability = clamp_probability(p_win)
+    price = clamp_probability(ask)
+    if probability is None or price is None:
+        raise ValueError("p_win and ask must be finite probabilities")
+    return round(probability - price - costs.total_per_share, 8)
 
 
 @dataclass(frozen=True)
@@ -197,15 +276,22 @@ class WeightedProbability:
     lgbm_weight: float
     mrf_evidence: float
     mrf_adjustment_logodds: float
+    market_contribution_logodds: float
+    logreg_contribution_logodds: float
+    lgbm_contribution_logodds: float
+    intercept_contribution_logodds: float
+    models_agree: Optional[bool]
     missing_components: tuple[str, ...]
 
     @property
     def contributions(self) -> dict[str, float]:
-        """Return effective probability contributions for telemetry."""
+        """Return additive log-odds contributions for telemetry."""
         return {
-            "market": round((self.p_market_yes or 0.0) * self.market_weight, 8),
-            "logreg": round((self.p_logreg_yes or 0.0) * self.logreg_weight, 8),
-            "lgbm": round((self.p_lgbm_yes or 0.0) * self.lgbm_weight, 8),
+            "market": self.market_contribution_logodds,
+            "logreg": self.logreg_contribution_logodds,
+            "lgbm": self.lgbm_contribution_logodds,
+            "mrf": self.mrf_adjustment_logodds,
+            "intercept": self.intercept_contribution_logodds,
         }
 
     def as_dict(self) -> dict[str, Any]:
@@ -223,45 +309,65 @@ def score_weighted_probability(
     config: WeightedPolicyConfig,
     mrf_evidence: Optional[float] = None,
 ) -> WeightedProbability:
-    """Combine available probability sources and optionally apply MRF odds.
-
-    Missing inputs are removed and the remaining weights are renormalized.  A
-    missing LightGBM signal therefore reduces model influence without making
-    the market ineligible by itself.
-    """
-    market = clamp_probability(p_market_yes)
-    logreg = clamp_probability(p_logreg_yes)
-    lgbm = clamp_probability(p_lgbm_yes)
+    """Apply the regularized market-prior residual formula in log-odds."""
+    inputs = ProbabilityInputs(
+        p_market_yes=p_market_yes,
+        p_logreg_yes=p_logreg_yes,
+        p_lgbm_yes=p_lgbm_yes,
+    )
+    market = clamp_probability(inputs.p_market_yes)
+    logreg = clamp_probability(inputs.p_logreg_yes)
+    lgbm = clamp_probability(inputs.p_lgbm_yes)
     values = {"market": market, "logreg": logreg, "lgbm": lgbm}
     available = {name for name, value in values.items() if value is not None}
     weights = config.normalized_weights(available)
-    configured_weight_total = sum(weights.values())
-    if not available or configured_weight_total <= 0.0:
-        # No model or market quote means no actionable information.  Returning
-        # 0.5 lets the caller record a deterministic SKIP reason.  The same
-        # fail-closed value is used when all configured weights for the
-        # available components are zero.
-        base = 0.5
-    else:
-        base = sum(float(values[name]) * weights[name] for name in available)
 
-    if mrf_evidence is None:
-        evidence = 0.5
-    else:
-        try:
-            evidence = clamp_probability((float(mrf_evidence) + 1.0) / 2.0, 0.5)
-        except (TypeError, ValueError, OverflowError):
-            evidence = 0.5
-    assert evidence is not None
-    signed_evidence = (evidence * 2.0) - 1.0
+    try:
+        signed_evidence = float(mrf_evidence) if mrf_evidence is not None else 0.0
+    except (TypeError, ValueError, OverflowError):
+        signed_evidence = 0.0
+    if not isfinite(signed_evidence):
+        signed_evidence = 0.0
+    signed_evidence = max(-1.0, min(1.0, signed_evidence))
     try:
         beta = float(config.mrf_beta)
     except (TypeError, ValueError, OverflowError):
         beta = 0.0
     if not isfinite(beta):
         beta = 0.0
-    adjustment = beta * max(-1.0, min(1.0, signed_evidence))
-    final = sigmoid(logit(base) + adjustment) if adjustment else base
+    try:
+        intercept = float(config.intercept)
+    except (TypeError, ValueError, OverflowError):
+        intercept = 0.0
+    if not isfinite(intercept):
+        intercept = 0.0
+    adjustment = beta * signed_evidence
+
+    if market is None or sum(weights.values()) <= 0.0:
+        market_contribution = 0.0
+        logreg_contribution = 0.0
+        lgbm_contribution = 0.0
+        final = 0.5
+    else:
+        market_logit = logit(market)
+        market_contribution = market_logit
+        logreg_contribution = (
+            weights["logreg"] * (logit(logreg) - market_logit)
+            if logreg is not None and weights["logreg"] > 0.0
+            else 0.0
+        )
+        lgbm_contribution = (
+            weights["lgbm"] * (logit(lgbm) - market_logit)
+            if lgbm is not None and weights["lgbm"] > 0.0
+            else 0.0
+        )
+        final = sigmoid(
+            market_contribution
+            + logreg_contribution
+            + lgbm_contribution
+            + adjustment
+            + intercept
+        )
     missing = tuple(name for name in ("market", "logreg", "lgbm") if name not in available)
     return WeightedProbability(
         p_market_yes=market,
@@ -273,6 +379,11 @@ def score_weighted_probability(
         lgbm_weight=round(weights["lgbm"], 8),
         mrf_evidence=round(signed_evidence, 8),
         mrf_adjustment_logodds=round(adjustment, 8),
+        market_contribution_logodds=round(market_contribution, 8),
+        logreg_contribution_logodds=round(logreg_contribution, 8),
+        lgbm_contribution_logodds=round(lgbm_contribution, 8),
+        intercept_contribution_logodds=round(intercept, 8),
+        models_agree=inputs.models_agree,
         missing_components=missing,
     )
 
@@ -288,8 +399,8 @@ class WeightedSideQuote:
 
     @property
     def net_edge(self) -> float:
-        """Expected value normalized by stake price (ROI-like edge)."""
-        return self.net_ev_per_share / self.ask if self.ask > 0.0 else -1.0
+        """Compatibility alias; edge is always per-share USDC in this policy."""
+        return self.net_ev_per_share
 
     def as_dict(self) -> dict[str, Any]:
         result = asdict(self)
@@ -349,14 +460,16 @@ def _make_side_quote(
     cost = estimate_trade_cost(
         ask,
         fee_rate=config.fee_rate,
+        maker_fee_rate=config.maker_fee_rate,
         fee_exponent=config.fee_exponent,
         slippage_rate=config.slippage_rate,
         role=config.execution_role,
         spread=spread,
+        latency_buffer=config.latency_buffer,
         source=source,
     )
     gross_ev = p_win - ask
-    net_ev = gross_ev - cost.total_per_share
+    net_ev = compute_net_ev_per_share(p_win, ask, cost)
     return WeightedSideQuote(
         side=side,
         ask=round(ask, 8),

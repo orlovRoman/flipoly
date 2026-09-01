@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from polyflip.db.models import MarketSnapshot
 from polyflip.trading.weighted_policy import (
     WeightedPolicyConfig,
+    market_yes_probability,
     WeightedSideQuote,
     select_weighted_side,
 )
@@ -94,7 +95,10 @@ def _market_mid_price(
             # fallback is only for old artifacts that persisted asks but not
             # a midpoint or bid.
             mid = (yes_ask + (1.0 - no_ask)) / 2.0
-    return float(np.clip(mid, 0.001, 0.999))
+    normalized = market_yes_probability(
+        yes_ask=yes_ask, no_ask=no_ask, fallback_yes=mid,
+    )
+    return float(np.clip(normalized if normalized is not None else 0.5, 0.001, 0.999))
 
 
 def _normalize_score_series(
@@ -476,7 +480,7 @@ def compute_oof_polymarket_backtest(
                 weighted_candidate.ask,
                 weighted_candidate.p_win,
                 weighted_candidate.gross_ev_per_share,
-                weighted_candidate.net_edge,
+                weighted_candidate.net_ev_per_share,
             )
             price_cap = (
                 outsider_max_price

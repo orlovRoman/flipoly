@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from polyflip.crypto.predictor import CryptoSignal
 from polyflip.trading.combined_voting import evaluate_combined_entry
 from polyflip.trading.trading_config import parse_trading_settings
@@ -65,9 +67,26 @@ def test_weighted_active_replaces_hard_direction_consensus():
     assert result.weighted_policy_mode == "WEIGHTED_ACTIVE"
     assert result.weighted_selected_side == "BUY_YES"
     assert result.direction_status == "WEIGHTED_LGBM_USED"
-    # 0.90 * market(0.55) + 0.05 * LogReg(0.80) + 0.05 * LGBM(0.80).
-    assert result.weighted_p_final_yes == 0.575
+    # Market prior is normalized from asks: 0.54 / (0.54 + 0.46).
+    # LogReg and LGBM then add 0.05 log-odds residuals from that prior.
+    assert result.weighted_p_final_yes == 0.57026632
     assert result.weighted_cost_per_share == 0.0
+
+
+def test_weighted_active_ignores_legacy_probability_edge_and_sizing_gates():
+    cfg = replace(
+        _weighted_cfg("WEIGHTED_ACTIVE"),
+        min_win_prob=0.99,
+        favorite_min_edge=0.99,
+        outs_min_edge=0.99,
+        bet_sizing_mode="edge_scaled",
+        weighted_min_net_ev_favorite=0.02,
+        weighted_fixed_bet_usdc=1.0,
+    )
+    result = _evaluate(cfg)
+
+    assert result.action == "BUY_YES"
+    assert result.bet_size_usdc == 1.0
 
 
 def test_weighted_shadow_records_score_without_changing_legacy_action():

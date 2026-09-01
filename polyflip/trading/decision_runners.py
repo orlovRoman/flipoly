@@ -767,23 +767,16 @@ async def decide_combined_mode(
             if isinstance(val, (int, float)) and not isinstance(val, bool):
                 entry_model_ece = float(val)
 
-    # A non-zero weighted MRF coefficient needs regime evidence before the
-    # side is selected.  Preload the same snapshot that the post-decision MRF
-    # gate will consume, so the two stages cannot disagree because of a new
-    # candle arriving between reads.  With beta=0 the existing post-decision
-    # MRF path remains unchanged and no extra query is made.
+    # Preload regime evidence for weighted telemetry even when beta is zero.
+    # WEIGHTED_ACTIVE consumes it as a soft score input, never as the legacy
+    # stake multiplier/veto below.
     weighted_mrf_evidence = None
     preloaded_mrf_snapshot = None
     preloaded_mrf_audit = None
     preloaded_mrf_failure_reason = None
-    try:
-        weighted_mrf_beta = float(getattr(cfg, "weighted_mrf_beta", 0.0))
-    except (TypeError, ValueError, OverflowError):
-        weighted_mrf_beta = 0.0
     if (
         policy_mode in {"WEIGHTED_SHADOW", "WEIGHTED_ACTIVE"}
         and cfg.mrf_mode != "OFF"
-        and weighted_mrf_beta != 0.0
     ):
         (
             preloaded_mrf_snapshot,
@@ -875,6 +868,12 @@ async def decide_combined_mode(
         "weighted_logreg_weight": comb_res.weighted_logreg_weight,
         "weighted_lgbm_weight": comb_res.weighted_lgbm_weight,
         "weighted_mrf_evidence": comb_res.weighted_mrf_evidence,
+        "weighted_market_contribution_logodds": comb_res.weighted_market_contribution_logodds,
+        "weighted_logreg_contribution_logodds": comb_res.weighted_logreg_contribution_logodds,
+        "weighted_lgbm_contribution_logodds": comb_res.weighted_lgbm_contribution_logodds,
+        "weighted_mrf_contribution_logodds": comb_res.weighted_mrf_contribution_logodds,
+        "weighted_intercept_contribution_logodds": comb_res.weighted_intercept_contribution_logodds,
+        "weighted_models_agree": comb_res.weighted_models_agree,
         "weighted_selected_side": comb_res.weighted_selected_side,
         "weighted_yes_net_ev": comb_res.weighted_yes_net_ev,
         "weighted_no_net_ev": comb_res.weighted_no_net_ev,
@@ -1013,7 +1012,11 @@ async def decide_combined_mode(
         (comb_res.candidate_side == "BUY_NO" and fresh_yes_price >= 0.50)
         or (comb_res.candidate_side == "BUY_YES" and fresh_yes_price < 0.50)
     ) if comb_res.candidate_side else False
-    min_edge_val = cfg.get_min_edge(is_outsider=is_outsider)
+    min_edge_val = (
+        cfg.get_weighted_min_net_ev(is_outsider)
+        if policy_mode == "WEIGHTED_ACTIVE"
+        else cfg.get_min_edge(is_outsider=is_outsider)
+    )
 
     g1_loaded = bool(entry_model is not None and (lgbm_applied or comb_res.entry_status not in ("MODEL_NOT_FOUND", "MODEL_NOT_LOADED")))
     g2_fetched = True
@@ -1028,7 +1031,11 @@ async def decide_combined_mode(
         g3_dir = bool(comb_res.entry_status not in ("LOGREG_ABSTAIN", "MODEL_NOT_FOUND") and comb_res.candidate_side in ("BUY_YES", "BUY_NO"))
 
     g4_consensus = bool(comb_res.candidate_side in ("BUY_YES", "BUY_NO") and comb_res.entry_status != "CONSENSUS_FAILED")
-    g5_win_prob = bool(comb_res.p_candidate_win is not None and comb_res.p_candidate_win >= getattr(cfg, "min_win_prob", 0.51) and comb_res.entry_status != "LOW_WIN_PROB")
+    g5_win_prob = bool(
+        comb_res.p_candidate_win is not None
+        and (policy_mode == "WEIGHTED_ACTIVE" or comb_res.p_candidate_win >= getattr(cfg, "min_win_prob", 0.51))
+        and comb_res.entry_status != "LOW_WIN_PROB"
+    )
     g6_price_time = bool(comb_res.entry_status not in ("INVALID_TIME", "OUTSIDER_DISABLED", "FAVORITE_DISABLED", "PRICE_OUT_OF_BOUNDS"))
     g7_net_edge = bool(comb_res.net_edge is not None and comb_res.entry_status != "INSUFFICIENT_NET_EDGE" and comb_res.net_edge >= min_edge_val)
     g7_crypto_confirm = g7_net_edge if lgbm_applied else None
@@ -1053,7 +1060,11 @@ async def decide_combined_mode(
     mrf_failure_reason = None
     mrf_pre_outcome_reason = None
 
-    if comb_res.action in ("BUY_YES", "BUY_NO") and cfg.mrf_mode != "OFF":
+    if (
+        comb_res.action in ("BUY_YES", "BUY_NO")
+        and cfg.mrf_mode != "OFF"
+        and policy_mode != "WEIGHTED_ACTIVE"
+    ):
         mrf_adjusted_action, mrf_adjusted_bet, mrf_audit, mrf_outcome, mrf_pre_outcome_reason = await _apply_mrf_filter(
             db_session=db_session,
             cfg=cfg,
