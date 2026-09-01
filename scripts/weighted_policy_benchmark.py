@@ -108,7 +108,16 @@ async def _fetch_funnel_rows(connection, days: int) -> list[dict[str, Any]]:
     )
     yes_ask = f"COALESCE({quote_yes}, {candidate_yes})"
     no_ask = f"COALESCE({quote_no}, {candidate_no})"
-    p_market = f(["p_market_yes", "weighted_p_market_yes"])
+    p_market_raw = f(["p_market_yes", "weighted_p_market_yes"])
+    market_fallback = (
+        "CASE "
+        f"WHEN {yes_ask} IS NOT NULL AND {no_ask} IS NOT NULL "
+        f"THEN {yes_ask} / NULLIF(({yes_ask} + {no_ask}), 0) "
+        f"WHEN {yes_ask} IS NOT NULL THEN {yes_ask} "
+        f"WHEN {no_ask} IS NOT NULL THEN 1.0 - {no_ask} "
+        "ELSE NULL END"
+    )
+    p_market = f"COALESCE({p_market_raw}, {market_fallback})"
     p_logreg = f(["p_logreg_yes", "weighted_p_logreg_yes", "p_logreg_win"])
     p_lgbm = f(["p_lgbm_yes", "weighted_p_lgbm_yes"])
     mrf = f(["weighted_mrf_evidence", "mrf_regime_evidence"])
@@ -117,6 +126,10 @@ async def _fetch_funnel_rows(connection, days: int) -> list[dict[str, Any]]:
               f"WHEN {f(['candidate_ask'])} < 0.5 THEN 'OUTSIDER' "
               f"WHEN {f(['candidate_ask'])} IS NOT NULL THEN 'FAVORITE' ELSE NULL END")
     horizon_key = f"COALESCE(CAST({horizon} AS TEXT), '')"
+    actionable_order = (
+        f"CASE WHEN {f(['candidate_side'])} IN ('BUY_YES', 'BUY_NO') "
+        f"AND {f(['candidate_ask'])} IS NOT NULL THEN 0 ELSE 1 END"
+    )
     query = text(
         f"SELECT DISTINCT ON (f.market_id, {horizon_key}) "
         f"{f(['market_id'])} AS market_id, {f(['created_at'])} AS timestamp, "
@@ -132,7 +145,7 @@ async def _fetch_funnel_rows(connection, days: int) -> list[dict[str, Any]]:
         + outcome_join
         + " LEFT JOIN live_markets lm ON lm.market_id = f.market_id "
         "WHERE f.created_at >= now() - (:days * interval '1 day') "
-        f"ORDER BY f.market_id, {horizon_key}, f.created_at ASC, f.id ASC"
+        f"ORDER BY f.market_id, {horizon_key}, {actionable_order}, f.created_at ASC, f.id ASC"
     )
     result = await connection.execute(query, {"days": max(1, int(days))})
     return [dict(row._mapping) for row in result.fetchall()]
