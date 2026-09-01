@@ -291,6 +291,7 @@ class CombinedEntryResult:
     weighted_yes_net_ev: Optional[float] = None
     weighted_no_net_ev: Optional[float] = None
     weighted_net_ev_per_share: Optional[float] = None
+    weighted_min_net_ev: Optional[float] = None
     weighted_cost_per_share: Optional[float] = None
     weighted_fee_rate: Optional[float] = None
     weighted_maker_fee_rate: Optional[float] = None
@@ -525,6 +526,11 @@ def _weighted_result_fields(
         "weighted_yes_net_ev": selection.yes_quote.net_ev_per_share if selection.yes_quote else None,
         "weighted_no_net_ev": selection.no_quote.net_ev_per_share if selection.no_quote else None,
         "weighted_net_ev_per_share": selected.net_ev_per_share if selected else None,
+        "weighted_min_net_ev": (
+            _weighted_min_net_ev(cfg, quoted.ask < 0.50)
+            if quoted is not None
+            else None
+        ),
         "weighted_cost_per_share": quoted.cost.total_per_share if quoted else None,
         "weighted_fee_rate": quoted.cost.fee_rate if quoted else None,
         "weighted_maker_fee_rate": quoted.cost.maker_fee_rate if quoted else None,

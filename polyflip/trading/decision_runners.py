@@ -889,6 +889,7 @@ async def decide_combined_mode(
         "weighted_yes_net_ev": comb_res.weighted_yes_net_ev,
         "weighted_no_net_ev": comb_res.weighted_no_net_ev,
         "weighted_net_ev_per_share": comb_res.weighted_net_ev_per_share,
+        "weighted_min_net_ev": comb_res.weighted_min_net_ev,
         "weighted_cost_per_share": comb_res.weighted_cost_per_share,
         "weighted_fee_rate": comb_res.weighted_fee_rate,
         "weighted_maker_fee_rate": comb_res.weighted_maker_fee_rate,

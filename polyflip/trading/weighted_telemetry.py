@@ -35,6 +35,7 @@ WEIGHTED_TELEMETRY_FIELDS: tuple[str, ...] = (
     "weighted_yes_net_ev",
     "weighted_no_net_ev",
     "weighted_net_ev_per_share",
+    "weighted_min_net_ev",
     "weighted_cost_per_share",
     "weighted_fee_rate",
     "weighted_maker_fee_rate",

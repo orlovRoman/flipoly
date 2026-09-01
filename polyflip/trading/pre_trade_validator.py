@@ -139,18 +139,25 @@ async def validate_pre_trade(
         )
     p_win = decision_obj.p_win_effective
 
+    weighted_details = decision_obj.decision_details or {}
     weighted_active = bool(
-        decision_obj.decision_details
-        and decision_obj.decision_details.get("weighted_policy_mode") == "WEIGHTED_ACTIVE"
+        weighted_details.get("weighted_policy_mode") == "WEIGHTED_ACTIVE"
     )
     if asset_mode == TRADING_MODE_COMBINED:
         # Определяем: аутсайдер (price < 0.5) или фаворит
         is_outsider = buy_price < 0.5
-        current_min_edge = (
-            cfg.get_weighted_min_net_ev(is_outsider)
-            if weighted_active
-            else cfg.get_min_edge(is_outsider=is_outsider)
-        )
+        if weighted_active:
+            try:
+                current_min_edge = float(
+                    weighted_details.get(
+                        "weighted_min_net_ev",
+                        cfg.get_weighted_min_net_ev(is_outsider),
+                    )
+                )
+            except (TypeError, ValueError, OverflowError):
+                current_min_edge = cfg.get_weighted_min_net_ev(is_outsider)
+        else:
+            current_min_edge = cfg.get_min_edge(is_outsider=is_outsider)
     else:
         current_min_edge = asset_min_edge
     
@@ -158,7 +165,6 @@ async def validate_pre_trade(
     # path keeps its historical ROI-style edge for compatibility; weighted
     # active mode uses cost-aware expected value per share.
     if weighted_active:
-        weighted_details = decision_obj.decision_details or {}
         weighted_cost = estimate_trade_cost(
             buy_price,
             fee_rate=weighted_details.get(
