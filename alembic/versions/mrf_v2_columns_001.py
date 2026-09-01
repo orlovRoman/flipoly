@@ -1,4 +1,4 @@
-"""add mrf columns to decision_funnel_log
+﻿"""add mrf columns to decision_funnel_log
 
 Revision ID: mrf_v2_columns_001
 Revises: 20260820_ai_job_owner_token
