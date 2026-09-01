@@ -11,8 +11,8 @@ JS = ROOT / "polyflip" / "static" / "js" / "optimizer.js"
 
 def test_stage9_banner_and_read_only_sections_are_present():
     html = HTML.read_text(encoding="utf-8")
-    assert "STANDARD" in html
-    assert "RESEARCH: LIVE-активация отключена" in html
+    assert "RESEARCH / PAPER" in html
+    assert "RESEARCH/PAPER: LIVE-активация отключена" in html
     for section in ("runs", "timeline", "candidates", "shadow", "deployments", "permissions", "errors", "audit"):
         assert f'id="tab-{section}"' in html
 
@@ -26,6 +26,6 @@ def test_optimizer_requests_use_api_base_and_auth_headers():
 
 def test_stage9_has_no_visible_live_mutation_controls():
     html = HTML.read_text(encoding="utf-8")
-    assert "READ-ONLY: создание отключено" in html
+    assert "LIVE-активация отключена" in html
     assert "Аварийный откат (Rollback)" not in html
     assert "Утвердить и Активировать в LIVE" not in html

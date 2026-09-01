@@ -32,10 +32,12 @@ async def test_funnel_stats_pct_calculation():
     mock_db.execute.side_effect = [
         MagicMock(**{"one.return_value": mock_row}),
         MagicMock(**{"all.return_value": []}),
+        MagicMock(**{"one.return_value": MagicMock(total=100, applied=0, not_applied=0, blocked=0)}),
     ]
     res = await get_funnel_stats(hours=24, asset=None, db=mock_db)
     assert res["by_gate"]["g4_no_flip"]["pct"] == 40.0
     assert res["by_gate"]["g1_model_loaded"]["pct"] == 0.0
+    assert res["mrf"]["evaluated"] == 100
 
 @pytest.mark.asyncio
 async def test_funnel_detail_empty():

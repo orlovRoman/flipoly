@@ -113,6 +113,8 @@ class WeightedPolicyConfig:
     slippage_rate: float = 0.005
     latency_buffer: float = 0.0
     execution_role: str = "TAKER"
+    policy_id: str = "UNVERSIONED"
+    mrf_extreme_veto_threshold: float = -1.0
 
     def normalized_weights(self, available: set[str]) -> dict[str, float]:
         """Keep the market as prior and absorb missing model weight into it."""
@@ -492,6 +494,7 @@ def select_weighted_side(
     min_net_ev: float = 0.0,
     fee_source: str = "CONFIG_DEFAULT",
     spread: float = 0.0,
+    mrf_extreme_veto_threshold: Optional[float] = None,
 ) -> WeightedSelection:
     """Select the side with the highest positive cost-aware expected value.
 
@@ -515,6 +518,19 @@ def select_weighted_side(
     quotes = [quote for quote in (yes_quote, no_quote) if quote is not None]
     if not quotes:
         return WeightedSelection(probability, None, yes_quote, no_quote, "NO_VALID_ASK")
+    if mrf_extreme_veto_threshold is not None:
+        try:
+            veto_threshold = float(mrf_extreme_veto_threshold)
+        except (TypeError, ValueError, OverflowError):
+            veto_threshold = -1.0
+        if isfinite(veto_threshold):
+            veto_threshold = max(-1.0, min(0.0, veto_threshold))
+            # -1.0 is the explicit disabled sentinel; any higher threshold
+            # enables a veto for strongly negative MRF evidence.
+            if veto_threshold > -1.0 and probability.mrf_evidence <= veto_threshold:
+                return WeightedSelection(
+                    probability, None, yes_quote, no_quote, "MRF_EXTREME_VETO"
+                )
     if (
         probability.market_weight
         + probability.logreg_weight

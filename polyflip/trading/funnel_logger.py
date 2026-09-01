@@ -6,12 +6,13 @@ FunnelLogger — записывает один DecisionFunnelLog на кажды
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polyflip.db.models import DecisionFunnelLog
+from polyflip.trading.weighted_telemetry import weighted_telemetry_from_details
 
 logger = structlog.get_logger(__name__)
 
@@ -114,6 +115,7 @@ async def log_funnel(
     # Итог
     final_action: str = "SKIP",
     skip_reason: Optional[str] = None,
+    **weighted_fields: Any,
 ) -> None:
     try:
         row = DecisionFunnelLog(
@@ -203,6 +205,7 @@ async def log_funnel(
             mrf_final_action=mrf_final_action,
             mrf_final_bet=mrf_final_bet,
 
+            **weighted_telemetry_from_details(weighted_fields),
             final_action=final_action,
             skip_reason=skip_reason[:256] if skip_reason else None,
         )

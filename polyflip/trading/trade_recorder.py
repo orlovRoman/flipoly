@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
 from polyflip.db.models import LiveMarket, TradeHistory, SlippageLog
+from polyflip.trading.weighted_telemetry import weighted_telemetry_from_details
 from polyflip.trading.trading_config import TradingConfig
 from polyflip.trading.decision_logic import TradeDecision
 from polyflip.trading.pre_trade_validator import PreTradeValidation
@@ -82,6 +83,7 @@ async def save_or_update_skipped_trade(
 ):
     """Сохраняет запись о пропуске сделки в БД или обновляет её причину."""
     details = decision_details or {}
+    weighted_details = weighted_telemetry_from_details(details)
     dir_status = details.get("direction_status")
     dir_model_key = details.get("direction_model_key")
     dir_model_ver = details.get("direction_model_version")
@@ -117,6 +119,10 @@ async def save_or_update_skipped_trade(
             (market_role and existing_skipped.market_role != market_role) or
             ((existing_skipped.ai_lab_overlay_ids or []) != overlay_ids)
         )
+        weighted_changed = any(
+            getattr(existing_skipped, key, None) != value
+            for key, value in weighted_details.items()
+        )
         direction_attribution_changed = (
             dir_val is not None and existing_skipped.direction_value != dir_val
         )
@@ -134,7 +140,7 @@ async def save_or_update_skipped_trade(
             or direction_attribution_changed
             or direction_model_changed
         )
-        if decision_changed or attribution_changed:
+        if decision_changed or attribution_changed or weighted_changed:
             existing_skipped.error_msg = reason
             existing_skipped.predicted_flip_prob = p_flip_val
             existing_skipped.model_version = model_version
@@ -170,6 +176,8 @@ async def save_or_update_skipped_trade(
             existing_skipped.would_live_accept = details.get("would_live_accept")
             existing_skipped.p_flip_raw = details.get("p_flip_raw")
             existing_skipped.entry_model_ece = details.get("entry_model_ece")
+            for key, value in weighted_details.items():
+                setattr(existing_skipped, key, value)
             if details.get("decision_run_id"):
                 existing_skipped.decision_run_id = details.get("decision_run_id")
             existing_skipped.ai_lab_overlay_ids = overlay_ids or None
@@ -215,6 +223,8 @@ async def save_or_update_skipped_trade(
             ai_lab_overlay_ids=overlay_ids,
             created_at=start_time
         )
+        for key, value in weighted_details.items():
+            setattr(history, key, value)
         db_session.add(history)
 
     # Make newly persisted SHADOW telemetry visible immediately.
@@ -289,6 +299,7 @@ async def execute_and_record(
     p_flip_effective = decision_obj.decision_details.get("p_flip_effective") if decision_obj.decision_details else None
 
     details = decision_obj.decision_details or {}
+    weighted_details = weighted_telemetry_from_details(details)
     dir_status = details.get("direction_status")
     dir_model_key = details.get("direction_model_key")
     dir_model_ver = details.get("direction_model_version")
@@ -356,6 +367,8 @@ async def execute_and_record(
         p_flip_raw=details.get("p_flip_raw"),
         entry_model_ece=details.get("entry_model_ece"),
     )
+    for key, value in weighted_details.items():
+        setattr(history, key, value)
     
     if cfg.stop_loss_enabled:
         is_outsider = (

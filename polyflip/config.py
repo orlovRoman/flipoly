@@ -66,6 +66,26 @@ class Settings(BaseSettings):
     CRYPTO_MIN_EDGE: float = 0.05
     COMBINED_NONE_BET_MULTIPLIER: float = 0.0
 
+    # Weighted trading policy.  LEGACY preserves the current hard-vote
+    # behavior; shadow/active are explicit rollout switches.
+    TRADING_POLICY_MODE: str = "LEGACY"
+    WEIGHTED_POLICY_ID: str = "UNVERSIONED"
+    WEIGHTED_MARKET_WEIGHT: float = 0.90
+    WEIGHTED_LOGREG_WEIGHT: float = 0.05
+    WEIGHTED_LGBM_WEIGHT: float = 0.05
+    WEIGHTED_MRF_BETA: float = 0.0
+    WEIGHTED_INTERCEPT: float = 0.0
+    WEIGHTED_FEE_RATE: float = 0.07
+    WEIGHTED_MAKER_FEE_RATE: float = 0.0
+    WEIGHTED_FEE_EXPONENT: float = 1.0
+    WEIGHTED_SLIPPAGE_RATE: float = 0.005
+    WEIGHTED_LATENCY_BUFFER: float = 0.0
+    WEIGHTED_EXECUTION_ROLE: str = "TAKER"
+    WEIGHTED_MIN_NET_EV_FAVORITE: float = 0.03
+    WEIGHTED_MIN_NET_EV_OUTSIDER: float = 0.03
+    WEIGHTED_FIXED_BET_USDC: float = 1.0
+    WEIGHTED_MRF_EXTREME_VETO_THRESHOLD: float = -1.0
+
     # AI Lab LLM & Autonomous Loop (Phase 10)
     OPENAI_API_KEY: str = ""
     AI_LAB_LLM_PROVIDER: str = "openai"
