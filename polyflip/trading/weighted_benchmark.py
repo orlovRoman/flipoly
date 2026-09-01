@@ -47,6 +47,16 @@ def _probability(value: Any) -> Optional[float]:
     return clamp_probability(value)
 
 
+def _optional_float(value: Any) -> Optional[float]:
+    if value is None or value == "":
+        return None
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return result if np.isfinite(result) else None
+
+
 def _evidence(value: Any) -> Optional[float]:
     try:
         result = float(value)
@@ -114,6 +124,7 @@ class MarketObservation:
     observed_cost_per_share: Optional[float] = None
     group: Optional[str] = None
     horizon: str = ""
+    time_left_sec: Optional[float] = None
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> "MarketObservation":
@@ -155,15 +166,9 @@ class MarketObservation:
             ),
             p_legacy_yes=_probability(raw.get("p_legacy_yes")),
             mrf_evidence=_evidence(raw_evidence),
-            spread=max(0.0, float(raw.get("spread", 0.0) or 0.0)),
-            fee_rate=(
-                float(raw["fee_rate"]) if raw.get("fee_rate") is not None else None
-            ),
-            fee_exponent=(
-                float(raw["fee_exponent"])
-                if raw.get("fee_exponent") is not None
-                else None
-            ),
+            spread=max(0.0, _optional_float(raw.get("spread", 0.0)) or 0.0),
+            fee_rate=_optional_float(raw.get("fee_rate")),
+            fee_exponent=_optional_float(raw.get("fee_exponent")),
             fee_source=str(raw.get("fee_source", "CONFIG_DEFAULT") or "CONFIG_DEFAULT"),
             execution_role=str(raw.get("execution_role", "TAKER") or "TAKER").upper(),
             market_role=(
@@ -177,12 +182,15 @@ class MarketObservation:
                 else None
             ),
             observed_cost_per_share=(
-                max(0.0, float(observed_cost))
-                if observed_cost is not None
+                max(0.0, _optional_float(observed_cost))
+                if _optional_float(observed_cost) is not None
                 else None
             ),
             group=str(raw.get("group", raw.get("asset", "")) or ""),
             horizon=normalize_horizon(raw.get("horizon", raw.get("market_horizon", ""))),
+            time_left_sec=_optional_float(
+                raw.get("time_left_sec", raw.get("time_to_close_sec"))
+            ),
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -205,6 +213,13 @@ class BenchmarkConfig:
     candidate_min_net_ev: tuple[float, ...] = (0.0, 0.01, 0.02, 0.03, 0.05)
     hierarchical_min_segment_rows: int = 300
     hierarchical_shrinkage: float = 300.0
+    candidate_price_caps: tuple[float, ...] = (0.20, 0.25, 0.30, 0.35, 0.40)
+    candidate_favorite_price_caps: tuple[float, ...] = (0.75, 0.80, 0.85, 0.90)
+    candidate_time_windows: tuple[tuple[float, float], ...] = (
+        (30.0, 300.0),
+        (60.0, 600.0),
+        (120.0, 900.0),
+    )
 
 
 @dataclass(frozen=True)
@@ -250,6 +265,7 @@ class TradeEvaluation:
     pnl: float
     cost_per_share: float
     group: str
+    size_multiplier: float = 1.0
 
 
 @dataclass
@@ -494,15 +510,15 @@ def _inputs(
         return observation.p_market_yes, observation.p_logreg_yes, None, None
     if arm == "MARKET_LGBM":
         return observation.p_market_yes, None, observation.p_lgbm_yes, None
-    if arm in {"FULL_WEIGHTED_MRF", "WEIGHTED"}:
+    if arm in {"FULL_WEIGHTED", "FULL_WEIGHTED_MRF", "WEIGHTED"}:
         return (
             observation.p_market_yes,
             observation.p_logreg_yes,
             observation.p_lgbm_yes,
             None,
         )
-    if arm == "OUTSIDER_AGREE":
-        if observation.market_role != "OUTSIDER":
+    if arm in {"OUTSIDER_AGREE", "OUTSIDER_AGREE_ONLY"}:
+        if _observation_role(observation) != "OUTSIDER":
             return None, None, None, None
         if observation.p_logreg_yes is None or observation.p_lgbm_yes is None:
             return None, None, None, None
@@ -539,12 +555,55 @@ def _arm_config(base: WeightedPolicyConfig, arm: str) -> WeightedPolicyConfig:
     return base
 
 
+def _observation_role(observation: MarketObservation) -> str:
+    explicit = str(observation.market_role or "").strip().upper()
+    if _is_outsider_role(explicit):
+        return "OUTSIDER"
+    if explicit:
+        return "FAVORITE" if explicit in {"FAVORITE", "FAV"} else explicit
+    return "UNKNOWN"
+
+
+def _quote_role(ask: float) -> str:
+    return "OUTSIDER" if float(ask) < 0.50 else "FAVORITE"
+
+
+@dataclass(frozen=True)
+class ParameterTuneResult:
+    parameter: str
+    selected: Any
+    stable_folds: int
+    minimum_stable_folds: int
+    candidates: tuple[dict[str, Any], ...]
+
+    @property
+    def stable(self) -> bool:
+        return self.stable_folds >= self.minimum_stable_folds
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "parameter": self.parameter,
+            "selected": self.selected,
+            "stable_folds": self.stable_folds,
+            "minimum_stable_folds": self.minimum_stable_folds,
+            "stable": self.stable,
+            "candidates": [dict(item) for item in self.candidates],
+        }
+
+
 def evaluate_arm(
     observations: Sequence[MarketObservation],
     arm: str,
     *,
     config: WeightedPolicyConfig | None = None,
     min_net_ev: float = 0.0,
+    min_net_ev_favorite: Optional[float] = None,
+    min_net_ev_outsider: Optional[float] = None,
+    outsider_max_price: Optional[float] = None,
+    favorite_max_price: Optional[float] = None,
+    time_left_range: Optional[tuple[float, float]] = None,
+    time_left_role: Optional[str] = None,
+    mrf_stake_gamma: float = 0.0,
     stacker: Optional[StackerModel] = None,
     stacker_predictions: Optional[Mapping[int, float]] = None,
     evaluation_indices: Optional[Sequence[int]] = None,
@@ -564,6 +623,20 @@ def evaluate_arm(
             continue
         if observation.outcome_yes is None:
             continue
+        observation_role = _observation_role(observation)
+        if time_left_range is not None and (
+            time_left_role is None
+            or observation_role == str(time_left_role).strip().upper()
+        ):
+            if observation.time_left_sec is not None:
+                lower, upper = time_left_range
+                if (
+                    float(observation.time_left_sec) < float(lower)
+                    or float(observation.time_left_sec) > float(upper)
+                ):
+                    continue
+            elif time_left_role is None:
+                continue
         metrics.observations += 1
         if arm_name == "STACKER" and stacker_predictions is not None:
             p = stacker_predictions.get(index)
@@ -587,7 +660,7 @@ def evaluate_arm(
                 config=policy,
                 mrf_evidence=(
                     observation.mrf_evidence
-                    if arm_name in {"FULL_WEIGHTED_MRF", "WEIGHTED", "OUTSIDER_AGREE"}
+                    if arm_name in {"FULL_WEIGHTED_MRF", "WEIGHTED", "OUTSIDER_AGREE", "OUTSIDER_AGREE_ONLY"}
                     else None
                 ),
             )
@@ -597,8 +670,13 @@ def evaluate_arm(
         logloss.append(-log(max(1e-12, p_final if observation.outcome_yes else 1.0 - p_final)))
         mrf = (
             observation.mrf_evidence
-            if arm_name in {"FULL_WEIGHTED_MRF", "WEIGHTED", "OUTSIDER_AGREE"}
+            if arm_name in {"FULL_WEIGHTED_MRF", "WEIGHTED", "OUTSIDER_AGREE", "OUTSIDER_AGREE_ONLY"}
             else None
+        )
+        selector_min = (
+            0.0
+            if min_net_ev_favorite is not None or min_net_ev_outsider is not None
+            else min_net_ev
         )
         selected = select_weighted_side(
             p_market_yes=p_market if p_direct is None else p_final,
@@ -608,7 +686,7 @@ def evaluate_arm(
             no_ask=observation.no_ask,
             config=policy,
             mrf_evidence=mrf,
-            min_net_ev=min_net_ev,
+            min_net_ev=selector_min,
             fee_source=observation.fee_source,
             spread=observation.spread,
             mrf_extreme_veto_threshold=policy.mrf_extreme_veto_threshold,
@@ -616,13 +694,49 @@ def evaluate_arm(
         if selected.selected is None:
             continue
         quote = selected.selected
+        quote_role = _quote_role(quote.ask)
+        role_threshold = max(
+            float(min_net_ev),
+            float(
+                min_net_ev_outsider
+                if quote_role == "OUTSIDER" and min_net_ev_outsider is not None
+                else min_net_ev_favorite
+                if quote_role == "FAVORITE" and min_net_ev_favorite is not None
+                else 0.0
+            ),
+        )
+        if quote.net_ev_per_share < role_threshold:
+            continue
+        if quote_role == "OUTSIDER" and outsider_max_price is not None and quote.ask > float(outsider_max_price):
+            continue
+        if quote_role == "FAVORITE" and favorite_max_price is not None and quote.ask > float(favorite_max_price):
+            continue
+        if time_left_range is not None and (
+            time_left_role is None
+            or quote_role == str(time_left_role).strip().upper()
+        ):
+            if observation.time_left_sec is None:
+                continue
+            lower, upper = time_left_range
+            if (
+                float(observation.time_left_sec) < float(lower)
+                or float(observation.time_left_sec) > float(upper)
+            ):
+                continue
         won = observation.outcome_yes if quote.side == BUY_YES else not observation.outcome_yes
         cost = (
             observation.observed_cost_per_share
             if observation.observed_cost_per_share is not None
             else quote.cost.total_per_share
         )
-        pnl = (1.0 if won else 0.0) - quote.ask - cost
+        raw_pnl = (1.0 if won else 0.0) - quote.ask - cost
+        try:
+            gamma = float(mrf_stake_gamma)
+        except (TypeError, ValueError, OverflowError):
+            gamma = 0.0
+        evidence = float(observation.mrf_evidence or 0.0)
+        size_multiplier = max(0.5, min(1.25, 1.0 + gamma * evidence))
+        pnl = raw_pnl * size_multiplier
         metrics.evaluations.append(
             TradeEvaluation(
                 market_id=observation.market_id,
@@ -633,19 +747,257 @@ def evaluate_arm(
                 p_win=quote.p_win,
                 outcome_yes=observation.outcome_yes,
                 pnl=round(pnl, 10),
-                cost_per_share=round(cost, 10),
+                cost_per_share=round(cost * size_multiplier, 10),
                 group=observation.group or observation.asset or observation.market_id,
+                size_multiplier=round(size_multiplier, 10),
             )
         )
         metrics.trades += 1
         metrics.wins += int(won)
         metrics.net_pnl += pnl
-        metrics.total_cost += cost
+        metrics.total_cost += cost * size_multiplier
     metrics.net_pnl = round(metrics.net_pnl, 10)
     metrics.total_cost = round(metrics.total_cost, 10)
     metrics.brier = round(float(np.mean(brier)), 10) if brier else None
     metrics.log_loss = round(float(np.mean(logloss)), 10) if logloss else None
     return metrics
+
+
+def _tuning_indices(
+    folds: Optional[Sequence[PurgedFold]],
+    evaluation_indices: Optional[Sequence[int]],
+) -> tuple[tuple[int, ...], ...]:
+    if folds:
+        return tuple(tuple(fold.test_indices) for fold in folds)
+    if evaluation_indices is None:
+        return ((),)
+    return (tuple(int(index) for index in evaluation_indices),)
+
+
+def _select_tuning_candidate(
+    parameter: str,
+    candidates: list[dict[str, Any]],
+    *,
+    minimum_stable_folds: int,
+) -> ParameterTuneResult:
+    if not candidates:
+        return ParameterTuneResult(
+            parameter=parameter,
+            selected=None,
+            stable_folds=0,
+            minimum_stable_folds=minimum_stable_folds,
+            candidates=(),
+        )
+    selected = max(
+        candidates,
+        key=lambda item: (
+            bool(item["stable_folds"] >= minimum_stable_folds),
+            float(item["net_pnl"]),
+            int(item["stable_folds"]),
+            -int(item["trades"]),
+        ),
+    )
+    return ParameterTuneResult(
+        parameter=parameter,
+        selected=selected["value"],
+        stable_folds=int(selected["stable_folds"]),
+        minimum_stable_folds=minimum_stable_folds,
+        candidates=tuple(candidates),
+    )
+
+
+def optimize_min_net_ev(
+    observations: Sequence[MarketObservation],
+    *,
+    role: str,
+    arm: str = "FULL_WEIGHTED_MRF",
+    candidate_values: Sequence[float] = (0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08),
+    config: WeightedPolicyConfig | None = None,
+    folds: Optional[Sequence[PurgedFold]] = None,
+    evaluation_indices: Optional[Sequence[int]] = None,
+    minimum_stable_folds: int = 3,
+) -> ParameterTuneResult:
+    target = str(role).strip().upper()
+    if target not in {"FAVORITE", "OUTSIDER"}:
+        raise ValueError("role must be FAVORITE or OUTSIDER")
+    candidates: list[dict[str, Any]] = []
+    for value in candidate_values:
+        fold_metrics = [
+            evaluate_arm(
+                observations,
+                arm,
+                config=config,
+                min_net_ev_favorite=float(value) if target == "FAVORITE" else None,
+                min_net_ev_outsider=float(value) if target == "OUTSIDER" else None,
+                evaluation_indices=indices or None,
+            )
+            for indices in _tuning_indices(folds, evaluation_indices)
+        ]
+        candidates.append(
+            {
+                "value": float(value),
+                "net_pnl": round(sum(item.net_pnl for item in fold_metrics), 10),
+                "trades": sum(item.trades for item in fold_metrics),
+                "stable_folds": sum(1 for item in fold_metrics if item.net_pnl > 0.0),
+                "folds": len(fold_metrics),
+            }
+        )
+    return _select_tuning_candidate(
+        "min_net_ev_" + target.lower(),
+        candidates,
+        minimum_stable_folds=minimum_stable_folds,
+    )
+
+
+def optimize_price_cap(
+    observations: Sequence[MarketObservation],
+    *,
+    role: str,
+    arm: str = "FULL_WEIGHTED_MRF",
+    candidate_values: Sequence[float] = (0.20, 0.25, 0.30, 0.35, 0.40),
+    config: WeightedPolicyConfig | None = None,
+    folds: Optional[Sequence[PurgedFold]] = None,
+    evaluation_indices: Optional[Sequence[int]] = None,
+    minimum_stable_folds: int = 3,
+) -> ParameterTuneResult:
+    target = str(role).strip().upper()
+    if target not in {"FAVORITE", "OUTSIDER"}:
+        raise ValueError("role must be FAVORITE or OUTSIDER")
+    candidates: list[dict[str, Any]] = []
+    for value in candidate_values:
+        fold_metrics = [
+            evaluate_arm(
+                observations,
+                arm,
+                config=config,
+                outsider_max_price=float(value) if target == "OUTSIDER" else None,
+                favorite_max_price=float(value) if target == "FAVORITE" else None,
+                evaluation_indices=indices or None,
+            )
+            for indices in _tuning_indices(folds, evaluation_indices)
+        ]
+        candidates.append(
+            {
+                "value": float(value),
+                "net_pnl": round(sum(item.net_pnl for item in fold_metrics), 10),
+                "trades": sum(item.trades for item in fold_metrics),
+                "stable_folds": sum(1 for item in fold_metrics if item.net_pnl > 0.0),
+                "folds": len(fold_metrics),
+            }
+        )
+    return _select_tuning_candidate(
+        ("outsider" if target == "OUTSIDER" else "favorite") + "_max_price",
+        candidates,
+        minimum_stable_folds=minimum_stable_folds,
+    )
+
+
+def optimize_time_window(
+    observations: Sequence[MarketObservation],
+    *,
+    role: str,
+    windows: Sequence[tuple[float, float]],
+    arm: str = "FULL_WEIGHTED_MRF",
+    config: WeightedPolicyConfig | None = None,
+    folds: Optional[Sequence[PurgedFold]] = None,
+    evaluation_indices: Optional[Sequence[int]] = None,
+    minimum_stable_folds: int = 3,
+) -> ParameterTuneResult:
+    target = str(role).strip().upper()
+    if target not in {"FAVORITE", "OUTSIDER"}:
+        raise ValueError("role must be FAVORITE or OUTSIDER")
+    candidates: list[dict[str, Any]] = []
+    for lower, upper in windows:
+        fold_metrics = [
+            evaluate_arm(
+                observations,
+                arm,
+                config=config,
+                time_left_range=(float(lower), float(upper)),
+                time_left_role=target,
+                evaluation_indices=indices or None,
+            )
+            for indices in _tuning_indices(folds, evaluation_indices)
+        ]
+        candidates.append(
+            {
+                "value": [float(lower), float(upper)],
+                "net_pnl": round(sum(item.net_pnl for item in fold_metrics), 10),
+                "trades": sum(item.trades for item in fold_metrics),
+                "stable_folds": sum(1 for item in fold_metrics if item.net_pnl > 0.0),
+                "folds": len(fold_metrics),
+            }
+        )
+    return _select_tuning_candidate(
+        "time_left_" + target.lower(),
+        candidates,
+        minimum_stable_folds=minimum_stable_folds,
+    )
+
+
+def compare_mrf_application(
+    observations: Sequence[MarketObservation],
+    *,
+    config: WeightedPolicyConfig | None = None,
+    folds: Optional[Sequence[PurgedFold]] = None,
+    evaluation_indices: Optional[Sequence[int]] = None,
+    beta: float = 0.25,
+    gamma: float = 0.25,
+) -> dict[str, Any]:
+    probability_config = replace(config or WeightedPolicyConfig(), mrf_beta=float(beta))
+    probability_metrics = [
+        evaluate_arm(
+            observations,
+            "FULL_WEIGHTED_MRF",
+            config=probability_config,
+            evaluation_indices=indices or None,
+        )
+        for indices in _tuning_indices(folds, evaluation_indices)
+    ]
+    probability = ArmMetrics(arm="FULL_WEIGHTED_MRF")
+    for item in probability_metrics:
+        probability.observations += item.observations
+        probability.trades += item.trades
+        probability.wins += item.wins
+        probability.net_pnl += item.net_pnl
+        probability.total_cost += item.total_cost
+        probability.evaluations.extend(item.evaluations)
+    probability.net_pnl = round(probability.net_pnl, 10)
+    probability.total_cost = round(probability.total_cost, 10)
+    stake_metrics = [
+        evaluate_arm(
+            observations,
+            "FULL_WEIGHTED",
+            config=config,
+            mrf_stake_gamma=float(gamma),
+            evaluation_indices=indices or None,
+        )
+        for indices in _tuning_indices(folds, evaluation_indices)
+    ]
+    stake = ArmMetrics(arm="FULL_WEIGHTED")
+    for item in stake_metrics:
+        stake.observations += item.observations
+        stake.trades += item.trades
+        stake.wins += item.wins
+        stake.net_pnl += item.net_pnl
+        stake.total_cost += item.total_cost
+        stake.evaluations.extend(item.evaluations)
+    stake.net_pnl = round(stake.net_pnl, 10)
+    stake.total_cost = round(stake.total_cost, 10)
+    return {
+        "probability_adjustment": probability.as_dict(),
+        "stake_adjustment": stake.as_dict(),
+        "probability_net_pnl": probability.net_pnl,
+        "stake_net_pnl": stake.net_pnl,
+        "selected": (
+            "probability_adjustment"
+            if probability.net_pnl >= stake.net_pnl
+            else "stake_adjustment"
+        ),
+        "folds": len(probability_metrics),
+        "probability_stable_folds": sum(1 for item in probability_metrics if item.net_pnl > 0.0),
+        "stake_stable_folds": sum(1 for item in stake_metrics if item.net_pnl > 0.0),
+    }
 
 
 def cluster_bootstrap_ci(
@@ -684,6 +1036,7 @@ def benchmark(
         "LEGACY",
         "MARKET_LOGREG",
         "MARKET_LGBM",
+        "FULL_WEIGHTED",
         "FULL_WEIGHTED_MRF",
         "OUTSIDER_AGREE",
     ),

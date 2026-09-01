@@ -21,6 +21,10 @@ from polyflip.trading.weighted_benchmark import (
     fit_ridge_logistic_stacker,
     fit_hierarchical_stackers,
     observation_segment_key,
+    optimize_min_net_ev,
+    optimize_price_cap,
+    optimize_time_window,
+    compare_mrf_application,
     purged_walk_forward_folds,
 )
 from polyflip.trading.weighted_policy import WeightedPolicyConfig
@@ -267,3 +271,78 @@ def test_fixed_horizon_filter_accepts_aliases_and_excludes_other_windows():
     ]
     filtered = filter_fixed_horizons(rows)
     assert [item.horizon for item in filtered] == ["10", "5min"]
+
+
+def test_tuning_helpers_use_oot_folds_and_role_specific_constraints():
+    rows = [
+        MarketObservation(
+            **{
+                **_row(index, True).__dict__,
+                "market_id": f"tune-{index}",
+                "market_role": "FAVORITE",
+                "time_left_sec": 60.0 + index * 30.0,
+            }
+        )
+        for index in range(12)
+    ]
+    folds = purged_walk_forward_folds(
+        rows,
+        train_min_rows=4,
+        test_size=2,
+        purge_gap=0,
+    )
+    threshold = optimize_min_net_ev(
+        rows,
+        role="FAVORITE",
+        candidate_values=(0.01, 0.03),
+        folds=folds,
+        minimum_stable_folds=1,
+    )
+    cap = optimize_price_cap(
+        rows,
+        role="FAVORITE",
+        candidate_values=(0.75, 0.90),
+        folds=folds,
+        minimum_stable_folds=1,
+    )
+    window = optimize_time_window(
+        rows,
+        role="FAVORITE",
+        windows=((30.0, 300.0), (60.0, 600.0)),
+        folds=folds,
+        minimum_stable_folds=1,
+    )
+    assert threshold.parameter == "min_net_ev_favorite"
+    assert threshold.selected in {0.01, 0.03}
+    assert cap.parameter == "favorite_max_price"
+    assert cap.selected in {0.75, 0.90}
+    assert window.parameter == "time_left_favorite"
+    assert window.selected in ([30.0, 300.0], [60.0, 600.0])
+    assert threshold.candidates[0]["folds"] == len(folds)
+
+
+def test_mrf_application_comparison_reports_both_methods():
+    rows = [_row(index, index % 2 == 0) for index in range(8)]
+    folds = purged_walk_forward_folds(rows, train_min_rows=4, test_size=2)
+    comparison = compare_mrf_application(rows, folds=folds, beta=0.2, gamma=0.2)
+    assert comparison["selected"] in {"probability_adjustment", "stake_adjustment"}
+    assert comparison["folds"] == len(folds)
+    assert comparison["probability_adjustment"]["arm"] == "FULL_WEIGHTED_MRF"
+    assert comparison["stake_adjustment"]["arm"] == "FULL_WEIGHTED"
+
+
+def test_observation_mapping_tolerates_invalid_time_and_preserves_horizon():
+    item = MarketObservation.from_mapping(
+        {
+            "market_id": "m-invalid-time",
+            "timestamp": "2026-01-01T00:00:00Z",
+            "asset": "BTC",
+            "yes_ask": "0.6",
+            "no_ask": "0.4",
+            "outcome_yes": "YES",
+            "horizon": "5min",
+            "time_left_sec": "unknown",
+        }
+    )
+    assert item.horizon == "5M"
+    assert item.time_left_sec is None
