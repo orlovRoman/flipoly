@@ -26,6 +26,8 @@ from polyflip.trading.weighted_benchmark import (
     optimize_time_window,
     compare_mrf_application,
     create_policy_artifact_from_benchmark,
+    parameter_sensitivity,
+    stability_by_segment,
     fingerprint_observations,
     purged_walk_forward_folds,
 )
@@ -348,6 +350,82 @@ def test_observation_mapping_tolerates_invalid_time_and_preserves_horizon():
     )
     assert item.horizon == "5M"
     assert item.time_left_sec is None
+
+
+def test_parameter_sensitivity_uses_fixed_oot_indices_and_records_shifts():
+    rows = [
+        MarketObservation(
+            **{
+                **_row(index, index % 2 == 0).__dict__,
+                "market_role": "OUTSIDER" if index % 2 else "FAVORITE",
+                "phase": "SIDEWAYS" if index % 2 else "STRONG_UP",
+            }
+        )
+        for index in range(8)
+    ]
+    result = parameter_sensitivity(
+        rows,
+        config=WeightedPolicyConfig(fee_rate=0.01),
+        parameters=("market_weight", "mrf_beta"),
+        deltas=(-0.10, 0.10),
+        evaluation_indices=(4, 5, 6, 7),
+    )
+    assert len(result) == 4
+    assert {item["parameter"] for item in result} == {"market_weight", "mrf_beta"}
+    assert {item["delta"] for item in result} == {-0.1, 0.1}
+    assert all(item["trades"] >= 0 for item in result)
+
+
+def test_stability_report_splits_required_dimensions_and_adds_ci():
+    rows = [
+        MarketObservation(
+            **{
+                **_row(index, index % 2 == 0).__dict__,
+                "asset": "BTC" if index < 4 else "ETH",
+                "market_role": "OUTSIDER" if index % 2 else "FAVORITE",
+                "phase": "SIDEWAYS" if index % 2 else "STRONG_UP",
+                "asset_phase": "BTC_SIDEWAYS" if index < 4 else "ETH_STRONG_UP",
+                "horizon": "10M" if index % 2 else "5M",
+                "execution_role": "MAKER" if index % 2 else "TAKER",
+            }
+        )
+        for index in range(8)
+    ]
+    result = stability_by_segment(
+        rows,
+        arm="FULL_WEIGHTED_MRF",
+        config=WeightedPolicyConfig(fee_rate=0.0, slippage_rate=0.0),
+        evaluation_indices=range(4, 8),
+    )
+    dimensions = {item["dimension"] for item in result}
+    assert dimensions == {
+        "asset",
+        "market_role",
+        "phase",
+        "asset_phase",
+        "horizon",
+        "execution_role",
+        "week",
+    }
+    assert all("pnl_ci_low" in item and "pnl_ci_high" in item for item in result)
+    assert all(item["observations"] > 0 for item in result)
+
+
+def test_mapping_preserves_phase_fields_for_stability_reports():
+    item = MarketObservation.from_mapping(
+        {
+            "market_id": "m-phase",
+            "timestamp": "2026-01-01T00:00:00Z",
+            "asset": "BTC",
+            "yes_ask": 0.6,
+            "no_ask": 0.4,
+            "outcome_yes": "YES",
+            "market_phase": "strong_up",
+            "mrf_asset_phase": "btc_strong_up",
+        }
+    )
+    assert item.phase == "STRONG_UP"
+    assert item.asset_phase == "BTC_STRONG_UP"
 
 
 def test_benchmark_fingerprint_binds_artifact_to_exact_dataset():

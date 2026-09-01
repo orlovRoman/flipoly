@@ -124,6 +124,8 @@ class MarketObservation:
     execution_role: str = "TAKER"
     market_role: Optional[str] = None
     strategy_type: Optional[str] = None
+    phase: Optional[str] = None
+    asset_phase: Optional[str] = None
     observed_cost_per_share: Optional[float] = None
     group: Optional[str] = None
     horizon: str = ""
@@ -183,6 +185,35 @@ class MarketObservation:
                 str(raw["strategy_type"]).upper()
                 if raw.get("strategy_type") is not None
                 else None
+            ),
+            phase=(
+                str(
+                    raw.get(
+                        "phase",
+                        raw.get(
+                            "market_phase",
+                            raw.get("mrf_phase", raw.get("entry_model_phase")),
+                        ),
+                    )
+                ).upper()
+                if raw.get(
+                    "phase",
+                    raw.get(
+                        "market_phase",
+                        raw.get("mrf_phase", raw.get("entry_model_phase")),
+                    ),
+                )
+                is not None
+                else None
+            ),
+            asset_phase=(
+                str(raw["asset_phase"]).upper()
+                if raw.get("asset_phase") is not None
+                else (
+                    str(raw["mrf_asset_phase"]).upper()
+                    if raw.get("mrf_asset_phase") is not None
+                    else None
+                )
             ),
             observed_cost_per_share=(
                 max(0.0, _optional_float(observed_cost))
@@ -313,6 +344,7 @@ class BenchmarkReport:
     hierarchical_stacker: Optional["HierarchicalStacker"] = None
     duplicate_rows_removed: int = 0
     dataset_fingerprint: str = ""
+    stability: tuple[dict[str, Any], ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -332,6 +364,7 @@ class BenchmarkReport:
             "hierarchical_stacker": self.hierarchical_stacker.as_dict() if self.hierarchical_stacker else None,
             "duplicate_rows_removed": self.duplicate_rows_removed,
             "dataset_fingerprint": self.dataset_fingerprint,
+            "stability": [dict(item) for item in self.stability],
         }
 
 
@@ -1005,6 +1038,139 @@ def compare_mrf_application(
     }
 
 
+def parameter_sensitivity(
+    observations: Sequence[MarketObservation],
+    *,
+    arm: str = "FULL_WEIGHTED_MRF",
+    config: WeightedPolicyConfig | None = None,
+    parameters: Sequence[str] = (
+        "market_weight",
+        "logreg_weight",
+        "lgbm_weight",
+        "mrf_beta",
+        "fee_rate",
+        "slippage_rate",
+    ),
+    deltas: Sequence[float] = (-0.20, -0.10, 0.10, 0.20),
+    evaluation_indices: Optional[Sequence[int]] = None,
+) -> tuple[dict[str, Any], ...]:
+    """Evaluate bounded parameter perturbations on one fixed OOT sample."""
+    base = config or WeightedPolicyConfig()
+    rows: list[dict[str, Any]] = []
+    for parameter in parameters:
+        if not hasattr(base, parameter):
+            continue
+        try:
+            baseline = float(getattr(base, parameter))
+        except (TypeError, ValueError, OverflowError):
+            continue
+        for delta in deltas:
+            try:
+                perturbation = float(delta)
+            except (TypeError, ValueError, OverflowError):
+                continue
+            value = baseline * (1.0 + perturbation)
+            if parameter.endswith("_weight"):
+                value = max(0.0, min(1.0, value))
+            elif parameter == "mrf_beta":
+                value = max(-2.0, min(2.0, value))
+            else:
+                value = max(0.0, value)
+            metrics = evaluate_arm(
+                observations,
+                arm,
+                config=replace(base, **{parameter: value}),
+                evaluation_indices=evaluation_indices,
+            )
+            rows.append(
+                {
+                    "type": "PARAMETER_SENSITIVITY",
+                    "arm": arm.upper(),
+                    "parameter": parameter,
+                    "delta": perturbation,
+                    "baseline": baseline,
+                    "value": value,
+                    "trades": metrics.trades,
+                    "net_pnl": metrics.net_pnl,
+                    "win_rate": metrics.win_rate,
+                    "brier": metrics.brier,
+                    "log_loss": metrics.log_loss,
+                }
+            )
+    return tuple(rows)
+
+
+def stability_by_segment(
+    observations: Sequence[MarketObservation],
+    *,
+    arm: str = "FULL_WEIGHTED_MRF",
+    config: WeightedPolicyConfig | None = None,
+    evaluation_indices: Optional[Sequence[int]] = None,
+) -> tuple[dict[str, Any], ...]:
+    """Report OOT net PnL by asset, role, horizon and execution role."""
+    allowed = (
+        {int(index) for index in evaluation_indices}
+        if evaluation_indices is not None
+        else set(range(len(observations)))
+    )
+    dimensions = (
+        "asset",
+        "market_role",
+        "phase",
+        "asset_phase",
+        "horizon",
+        "execution_role",
+        "week",
+    )
+    rows: list[dict[str, Any]] = []
+    for dimension in dimensions:
+        groups: dict[str, list[int]] = {}
+        for index, item in enumerate(observations):
+            if index not in allowed:
+                continue
+            if dimension == "asset":
+                key = item.asset.strip().upper() or "UNKNOWN"
+            elif dimension == "market_role":
+                key = _observation_role(item)
+            elif dimension == "phase":
+                key = str(item.phase or "UNKNOWN").strip().upper() or "UNKNOWN"
+            elif dimension == "asset_phase":
+                key = str(item.asset_phase or "UNKNOWN").strip().upper() or "UNKNOWN"
+            elif dimension == "horizon":
+                key = normalize_horizon(item.horizon) or "UNKNOWN"
+            elif dimension == "week":
+                key = item.timestamp.strftime("%G-W%V")
+            else:
+                key = str(item.execution_role or "UNKNOWN").strip().upper() or "UNKNOWN"
+            groups.setdefault(key, []).append(index)
+        for key, indices in sorted(groups.items()):
+            metrics = evaluate_arm(
+                observations,
+                arm,
+                config=config,
+                evaluation_indices=indices,
+            )
+            ci_low, ci_high = cluster_bootstrap_ci(
+                metrics.evaluations,
+                iterations=1000,
+                seed=20260901,
+            )
+            rows.append(
+                {
+                    "dimension": dimension,
+                    "segment": key,
+                    "arm": arm.upper(),
+                    "observations": metrics.observations,
+                    "trades": metrics.trades,
+                    "net_pnl": metrics.net_pnl,
+                    "win_rate": metrics.win_rate,
+                    "pnl_ci_low": ci_low,
+                    "pnl_ci_high": ci_high,
+                }
+            )
+    return tuple(rows)
+
+
 def cluster_bootstrap_ci(
     evaluations: Sequence[TradeEvaluation],
     *,
@@ -1230,6 +1396,20 @@ def benchmark(
                     "win_rate": result.win_rate,
                 }
             )
+    sensitivity.extend(
+        parameter_sensitivity(
+            ordered,
+            arm="FULL_WEIGHTED_MRF",
+            config=cfg.policy_config,
+            evaluation_indices=oot_indices,
+        )
+    )
+    stability = stability_by_segment(
+        ordered,
+        arm="FULL_WEIGHTED_MRF",
+        config=cfg.policy_config,
+        evaluation_indices=oot_indices,
+    )
     return BenchmarkReport(
         generated_at=datetime.now(timezone.utc).isoformat(),
         observations=len(ordered),
@@ -1241,7 +1421,10 @@ def benchmark(
         hierarchical_stacker=hierarchical_model,
         duplicate_rows_removed=max(0, raw_count - len(ordered)),
         dataset_fingerprint=dataset_fp,
+        stability=stability,
     )
+
+
 @dataclass(frozen=True)
 class HierarchicalStacker:
     global_model: StackerModel
