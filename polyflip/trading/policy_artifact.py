@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
@@ -95,6 +95,25 @@ def save_policy_artifact(path: str | Path, artifact: PolicyArtifact) -> None:
         json.dumps(artifact.as_dict(), ensure_ascii=False, sort_keys=True, indent=2) + "\n",
         encoding="utf-8",
     )
+
+
+def weighted_policy_config_from_artifact(
+    artifact: PolicyArtifact,
+    *,
+    fallback: Optional[WeightedPolicyConfig] = None,
+) -> WeightedPolicyConfig:
+    """Convert an immutable artifact config into runtime policy settings."""
+    base = fallback or WeightedPolicyConfig()
+    allowed = {item.name for item in fields(WeightedPolicyConfig)}
+    values = {item.name: getattr(base, item.name) for item in fields(WeightedPolicyConfig)}
+    for key, value in artifact.policy_config.items():
+        if key not in allowed:
+            continue
+        if value is not None and not isinstance(value, (str, int, float, bool)):
+            continue
+        values[key] = value
+    values["policy_id"] = artifact.artifact_id[:64]
+    return replace(base, **values)
 
 
 def load_policy_artifact(path: str | Path) -> PolicyArtifact:

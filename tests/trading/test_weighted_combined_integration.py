@@ -2,7 +2,9 @@ from dataclasses import replace
 
 from polyflip.crypto.predictor import CryptoSignal
 from polyflip.trading.combined_voting import evaluate_combined_entry
+from polyflip.trading.policy_artifact import create_policy_artifact, save_policy_artifact
 from polyflip.trading.trading_config import parse_trading_settings
+from polyflip.trading.weighted_policy import WeightedPolicyConfig
 
 
 def _signal() -> CryptoSignal:
@@ -131,3 +133,53 @@ def test_weighted_runtime_uses_half_spread_and_fee_schedule_role():
     assert result.weighted_spread_per_share == 0.02
     assert result.weighted_maker_fee_rate == 0.01
     assert result.weighted_taker_fee_per_share is not None
+
+
+def test_weighted_active_loads_policy_artifact_and_lower_bound_sizing(tmp_path):
+    artifact = create_policy_artifact(
+        version="runtime-v1",
+        created_at="2026-01-01T00:00:00+00:00",
+        training_window={"rows": 100, "fingerprint": "fixture"},
+        stacker=None,
+        policy_config=WeightedPolicyConfig(
+            market_weight=0.75,
+            logreg_weight=0.15,
+            lgbm_weight=0.10,
+            fee_rate=0.0,
+            slippage_rate=0.0,
+        ),
+        thresholds={"min_net_ev_favorite": 0.0},
+    )
+    artifact_path = tmp_path / "weighted-policy.json"
+    save_policy_artifact(artifact_path, artifact)
+    cfg = replace(
+        _weighted_cfg("WEIGHTED_ACTIVE"),
+        weighted_policy_artifact_path=str(artifact_path),
+        weighted_sizing_mode="LOWER_BOUND_KELLY",
+        weighted_standard_error=0.0,
+        weighted_kelly_fraction=1.0,
+        weighted_min_net_ev_favorite=0.0,
+        weighted_fixed_bet_usdc=1.0,
+        weighted_size_cap_usdc=3.0,
+    )
+
+    result = _evaluate(cfg)
+
+    assert result.action == "BUY_YES"
+    assert result.weighted_policy_id == artifact.artifact_id
+    assert result.weighted_market_weight == 0.75
+    assert result.weighted_edge_lower_bound is not None
+    assert 0.0 < result.weighted_size_multiplier <= 1.0
+    assert result.bet_size_usdc == result.weighted_size_multiplier
+
+
+def test_weighted_active_rejects_missing_policy_artifact(tmp_path):
+    cfg = replace(
+        _weighted_cfg("WEIGHTED_ACTIVE"),
+        weighted_policy_artifact_path=str(tmp_path / "missing-policy.json"),
+    )
+
+    result = _evaluate(cfg)
+
+    assert result.action == "SKIP"
+    assert "POLICY_ARTIFACT_INVALID" in result.reason

@@ -217,8 +217,18 @@ async def validate_pre_trade(
         )
         
     # Рассчитываем новую ставку (если не фикс)
+    # Weighted mode keeps the fixed stake by default.  When the policy
+    # explicitly enables lower-bound Kelly, reuse the multiplier calculated
+    # by the decision stage so pre-trade validation cannot silently resize it.
     if weighted_active:
-        actual_bet_size = float(getattr(cfg, "weighted_fixed_bet_usdc", 1.0))
+        fixed_bet = max(0.01, float(getattr(cfg, "weighted_fixed_bet_usdc", 1.0)))
+        multiplier = weighted_details.get("weighted_size_multiplier", 1.0)
+        try:
+            multiplier = float(multiplier)
+        except (TypeError, ValueError, OverflowError):
+            multiplier = 1.0
+        multiplier = max(0.0, min(1.0, multiplier))
+        actual_bet_size = fixed_bet * multiplier
     elif cfg.bet_sizing_mode == "fixed":
         # P1.12: Запретить уменьшение fixed ставки. Игнорируем decision_obj.bet_size_usdc
         actual_bet_size = cfg.bet_size

@@ -8,6 +8,7 @@ from polyflip.trading.policy_artifact import (
     create_policy_artifact,
     load_policy_artifact,
     save_policy_artifact,
+    weighted_policy_config_from_artifact,
 )
 from polyflip.trading.weighted_benchmark import (
     BenchmarkConfig,
@@ -129,6 +130,31 @@ def test_artifact_is_immutable_and_sizing_uses_lower_bound(tmp_path):
         standard_error=0.01,
     )
     assert decision.p_lower < decision.p_estimate
+
+
+def test_artifact_config_is_immutable_and_overrides_runtime_fallback():
+    artifact = create_policy_artifact(
+        version="test-config-v1",
+        created_at="2026-01-01T00:00:00+00:00",
+        training_window={"rows": 10},
+        stacker=None,
+        policy_config=WeightedPolicyConfig(
+            market_weight=0.75,
+            logreg_weight=0.15,
+            lgbm_weight=0.10,
+            fee_rate=0.02,
+        ),
+        thresholds={"min_net_ev_favorite": 0.04},
+    )
+    loaded = artifact
+    runtime = weighted_policy_config_from_artifact(
+        loaded,
+        fallback=WeightedPolicyConfig(market_weight=0.90, fee_rate=0.07),
+    )
+    assert runtime.policy_id == artifact.artifact_id
+    assert runtime.market_weight == 0.75
+    assert runtime.logreg_weight == 0.15
+    assert runtime.fee_rate == 0.02
 
 
 def test_activation_gate_requires_plan_evidence():

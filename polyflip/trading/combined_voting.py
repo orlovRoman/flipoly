@@ -20,6 +20,7 @@ COMBINED-режим принятия решений:
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from functools import lru_cache
 from typing import Literal, Optional, Any, TYPE_CHECKING, cast
 import structlog
 
@@ -34,12 +35,101 @@ from polyflip.trading.weighted_policy import (
     logreg_flip_to_yes_probability,
     market_yes_probability,
     probability_for_side,
+    score_weighted_probability,
     select_weighted_side,
 )
+from polyflip.trading.policy_artifact import (
+    PolicyArtifact,
+    load_policy_artifact,
+    weighted_policy_config_from_artifact,
+)
+from polyflip.trading.weighted_sizing import conservative_size
 
 logger = structlog.get_logger(__name__)
 
 ActionType = Literal["BUY_YES", "BUY_NO", "SKIP"]
+
+
+@lru_cache(maxsize=8)
+def _cached_weighted_artifact(path: str) -> Optional[PolicyArtifact]:
+    if not path:
+        return None
+    try:
+        return load_policy_artifact(path)
+    except (OSError, ValueError, TypeError) as exc:
+        logger.error("weighted_policy_artifact_invalid", path=path, error=str(exc))
+        return None
+
+
+def _weighted_artifact(cfg: "TradingConfig") -> Optional[PolicyArtifact]:
+    path = str(getattr(cfg, "weighted_policy_artifact_path", "") or "").strip()
+    return _cached_weighted_artifact(path) if path else None
+
+
+def _weighted_policy_id(cfg: "TradingConfig") -> str:
+    artifact = _weighted_artifact(cfg)
+    if artifact is not None:
+        return artifact.artifact_id[:64]
+    return str(getattr(cfg, "weighted_policy_id", "UNVERSIONED") or "UNVERSIONED")[:64]
+
+
+def _weighted_min_net_ev(cfg: "TradingConfig", is_outsider: bool) -> float:
+    fallback = float(cfg.get_weighted_min_net_ev(is_outsider))
+    artifact = _weighted_artifact(cfg)
+    if artifact is None:
+        return fallback
+    keys = (
+        ("min_net_ev_outsider", "min_net_ev")
+        if is_outsider
+        else ("min_net_ev_favorite", "min_net_ev")
+    )
+    for key in keys:
+        try:
+            value = float(artifact.thresholds.get(key))
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if 0.0 <= value <= 1.0:
+            return value
+    return fallback
+
+
+def _weighted_sizing_fields(
+    cfg: "TradingConfig",
+    selection: WeightedSelection,
+    fresh_yes_price: float,
+) -> dict[str, Any]:
+    selected = selection.selected
+    if selected is None:
+        return {
+            "weighted_edge_lower_bound": None,
+            "weighted_size_multiplier": 0.0,
+        }
+    mode = str(getattr(cfg, "weighted_sizing_mode", "FIXED") or "FIXED").upper()
+    if mode != "LOWER_BOUND_KELLY":
+        return {
+            "weighted_edge_lower_bound": selected.net_ev_per_share,
+            "weighted_size_multiplier": 1.0,
+        }
+    is_outsider = (
+        (selected.side == "BUY_YES" and fresh_yes_price < 0.50)
+        or (selected.side == "BUY_NO" and fresh_yes_price >= 0.50)
+    )
+    sizing = conservative_size(
+        selected.p_win,
+        price=selected.ask,
+        cost_per_share=selected.cost.total_per_share,
+        standard_error=getattr(cfg, "weighted_standard_error", 0.0),
+        fraction=getattr(cfg, "weighted_kelly_fraction", 0.025),
+        min_edge_lower=_weighted_min_net_ev(cfg, is_outsider),
+    )
+    fixed_bet = max(0.01, float(getattr(cfg, "weighted_fixed_bet_usdc", 1.0)))
+    cap = max(fixed_bet, float(getattr(cfg, "weighted_size_cap_usdc", fixed_bet)))
+    multiplier = min(1.0, max(0.0, sizing.size_multiplier), cap / fixed_bet)
+    return {
+        "weighted_edge_lower_bound": round(sizing.edge_lower, 8),
+        "weighted_size_multiplier": round(multiplier, 8),
+    }
+
 
 _LOGREG_ABSTAIN_BAND: float = 0.05
 
@@ -190,6 +280,8 @@ class CombinedEntryResult:
     weighted_spread_per_share: Optional[float] = None
     weighted_latency_buffer_per_share: Optional[float] = None
     weighted_expected_execution_price: Optional[float] = None
+    weighted_edge_lower_bound: Optional[float] = None
+    weighted_size_multiplier: Optional[float] = None
     weighted_missing_components: Optional[str] = None
     weighted_selection_reason: Optional[str] = None
     weighted_fee_source: Optional[str] = None
@@ -283,20 +375,73 @@ def _build_weighted_selection(
         ),
         slippage_rate=float(getattr(cfg, "weighted_slippage_rate", 0.005)),
         latency_buffer=float(getattr(cfg, "weighted_latency_buffer", 0.0)),
+        mrf_extreme_veto_threshold=float(
+            getattr(cfg, "weighted_mrf_extreme_veto_threshold", -1.0)
+        ),
         execution_role=(
             "TAKER"
             if taker_only
             else str(getattr(cfg, "weighted_execution_role", "TAKER"))
         ),
-        policy_id=str(getattr(cfg, "weighted_policy_id", "UNVERSIONED") or "UNVERSIONED")[:64],
+        policy_id=_weighted_policy_id(cfg),
     )
+    p_market_yes = market_yes_probability(
+        yes_ask=yes_ask,
+        no_ask=no_ask,
+        fallback_yes=fresh_yes_price,
+    )
+    p_logreg_yes = logreg_flip_to_yes_probability(p_flip, fresh_yes_price)
+    artifact_path = str(
+        getattr(cfg, "weighted_policy_artifact_path", "") or ""
+    ).strip()
+    artifact = _weighted_artifact(cfg)
+    if artifact is not None:
+        policy_cfg = weighted_policy_config_from_artifact(
+            artifact,
+            fallback=policy_cfg,
+        )
+        policy_cfg = replace(
+            policy_cfg,
+            fee_rate=(
+                float(fee_rate)
+                if fee_rate is not None
+                else policy_cfg.fee_rate
+            ),
+            maker_fee_rate=(
+                float(maker_fee_rate)
+                if maker_fee_rate is not None
+                else policy_cfg.maker_fee_rate
+            ),
+            fee_exponent=(
+                float(fee_exponent)
+                if fee_exponent is not None
+                else policy_cfg.fee_exponent
+            ),
+            execution_role=(
+                "TAKER"
+                if taker_only
+                else policy_cfg.execution_role
+            ),
+            policy_id=artifact.artifact_id[:64],
+        )
+    if artifact_path and artifact is None:
+        probability = score_weighted_probability(
+            p_market_yes=p_market_yes,
+            p_logreg_yes=p_logreg_yes,
+            p_lgbm_yes=p_lgbm_yes,
+            config=policy_cfg,
+            mrf_evidence=mrf_evidence,
+        )
+        return WeightedSelection(
+            probability,
+            None,
+            None,
+            None,
+            "POLICY_ARTIFACT_INVALID",
+        )
     return select_weighted_side(
-        p_market_yes=market_yes_probability(
-            yes_ask=yes_ask,
-            no_ask=no_ask,
-            fallback_yes=fresh_yes_price,
-        ),
-        p_logreg_yes=logreg_flip_to_yes_probability(p_flip, fresh_yes_price),
+        p_market_yes=p_market_yes,
+        p_logreg_yes=p_logreg_yes,
         p_lgbm_yes=p_lgbm_yes,
         yes_ask=yes_ask,
         no_ask=no_ask,
@@ -305,7 +450,7 @@ def _build_weighted_selection(
         min_net_ev=0.0,
         fee_source=fee_source,
         spread=spread if spread_cost is None else spread_cost,
-        mrf_extreme_veto_threshold=getattr(cfg, "weighted_mrf_extreme_veto_threshold", -1.0),
+        mrf_extreme_veto_threshold=policy_cfg.mrf_extreme_veto_threshold,
     )
 
 
@@ -313,6 +458,9 @@ def _weighted_result_fields(
     policy_mode: str,
     selection: WeightedSelection,
     policy_id: str,
+    *,
+    cfg: "TradingConfig",
+    fresh_yes_price: float,
 ) -> dict[str, Any]:
     """Flatten weighted policy telemetry into ``CombinedEntryResult`` fields."""
     probability = selection.probability
@@ -354,6 +502,7 @@ def _weighted_result_fields(
         "weighted_missing_components": ",".join(probability.missing_components) or None,
         "weighted_selection_reason": selection.reason,
         "weighted_fee_source": quoted.cost.source if quoted else None,
+        **_weighted_sizing_fields(cfg, selection, fresh_yes_price),
     }
 
 
@@ -435,7 +584,16 @@ def evaluate_combined_entry(
             spread=spread or 0.0,
             spread_cost=spread_cost,
         )
-        result = replace(result, **_weighted_result_fields(policy_mode, weighted_selection, str(getattr(cfg, "weighted_policy_id", "UNVERSIONED") or "UNVERSIONED")[:64]))
+        result = replace(
+            result,
+            **_weighted_result_fields(
+                policy_mode,
+                weighted_selection,
+                _weighted_policy_id(cfg),
+                cfg=cfg,
+                fresh_yes_price=fresh_yes_price,
+            ),
+        )
 
     if crypto_sig:
         result = replace(
@@ -1239,7 +1397,7 @@ def _evaluate_combined_entry_inner(
     else:
         net_edge = round(gross_edge - cost_buffer, 4)
     min_net_edge = (
-        cfg.get_weighted_min_net_ev(is_outsider)
+        _weighted_min_net_ev(cfg, is_outsider)
         if weighted_active
         else cfg.get_min_edge(is_outsider)
     )
@@ -1289,7 +1447,15 @@ def _evaluate_combined_entry_inner(
 
     # 7. Расчет размера ставки
     if weighted_active:
-        bet_size = float(getattr(cfg, "weighted_fixed_bet_usdc", 1.0))
+        sizing_fields = _weighted_sizing_fields(
+            cfg,
+            weighted_selection,
+            fresh_yes_price,
+        )
+        fixed_bet = float(getattr(cfg, "weighted_fixed_bet_usdc", 1.0))
+        bet_size = fixed_bet * float(
+            sizing_fields.get("weighted_size_multiplier", 1.0)
+        )
     else:
         from polyflip.trading.decision_logic import _resolve_final_bet
         bet_size = _resolve_final_bet(net_edge, volume_5min, cfg, is_outsider)

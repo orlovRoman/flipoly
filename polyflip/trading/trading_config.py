@@ -116,6 +116,11 @@ class TradingConfig:
     weighted_min_net_ev_outsider: float = 0.03
     weighted_fixed_bet_usdc: float = 1.0
     weighted_mrf_extreme_veto_threshold: float = -1.0
+    weighted_policy_artifact_path: str = ""
+    weighted_sizing_mode: str = "FIXED"
+    weighted_standard_error: float = 0.0
+    weighted_kelly_fraction: float = 0.025
+    weighted_size_cap_usdc: float = 3.0
     # ── Market Regime Filter (MRF-T09) ──────────────────────
     mrf_mode: str = "OFF"                 # OFF|SHADOW|ACTIVE
     mrf_version: int = 1
@@ -256,6 +261,40 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         )
         weighted_execution_role = "TAKER"
 
+    weighted_sizing_mode = str(
+        raw.get("WEIGHTED_SIZING_MODE", getattr(settings, "WEIGHTED_SIZING_MODE", "FIXED"))
+        or "FIXED"
+    ).strip().upper()
+    if weighted_sizing_mode not in {"FIXED", "LOWER_BOUND_KELLY"}:
+        logger.warning(
+            "invalid_weighted_sizing_mode",
+            value=weighted_sizing_mode,
+            fallback="FIXED",
+        )
+        weighted_sizing_mode = "FIXED"
+
+    weighted_standard_error = _parse_bounded_float(
+        raw,
+        "WEIGHTED_STANDARD_ERROR",
+        getattr(settings, "WEIGHTED_STANDARD_ERROR", 0.0),
+        0.0,
+        0.5,
+    )
+    weighted_kelly_fraction = _parse_bounded_float(
+        raw,
+        "WEIGHTED_KELLY_FRACTION",
+        getattr(settings, "WEIGHTED_KELLY_FRACTION", 0.025),
+        0.0,
+        1.0,
+    )
+    weighted_size_cap_usdc = _parse_bounded_float(
+        raw,
+        "WEIGHTED_SIZE_CAP_USDC",
+        getattr(settings, "WEIGHTED_SIZE_CAP_USDC", 3.0),
+        0.01,
+        1000.0,
+    )
+
     weighted_mrf_beta = parse_float_setting(
         raw, "WEIGHTED_MRF_BETA", getattr(settings, "WEIGHTED_MRF_BETA", 0.0)
     )
@@ -355,6 +394,17 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         weighted_min_net_ev_outsider=_parse_bounded_float(raw, "WEIGHTED_MIN_NET_EV_OUTSIDER", getattr(settings, "WEIGHTED_MIN_NET_EV_OUTSIDER", 0.03), 0.0, 1.0),
         weighted_fixed_bet_usdc=_parse_bounded_float(raw, "WEIGHTED_FIXED_BET_USDC", getattr(settings, "WEIGHTED_FIXED_BET_USDC", 1.0), 0.01, 1000.0),
         weighted_mrf_extreme_veto_threshold=_parse_bounded_float(raw, "WEIGHTED_MRF_EXTREME_VETO_THRESHOLD", getattr(settings, "WEIGHTED_MRF_EXTREME_VETO_THRESHOLD", -1.0), -1.0, 0.0),
+        weighted_policy_artifact_path=str(
+            raw.get(
+                "WEIGHTED_POLICY_ARTIFACT_PATH",
+                getattr(settings, "WEIGHTED_POLICY_ARTIFACT_PATH", ""),
+            )
+            or ""
+        ).strip(),
+        weighted_sizing_mode=weighted_sizing_mode,
+        weighted_standard_error=weighted_standard_error,
+        weighted_kelly_fraction=weighted_kelly_fraction,
+        weighted_size_cap_usdc=weighted_size_cap_usdc,
         # ── Market Regime Filter (MRF-T09) ──────────────────────
         mrf_mode=(
             raw.get("MARKET_REGIME_FILTER_MODE", "OFF").strip().upper()
