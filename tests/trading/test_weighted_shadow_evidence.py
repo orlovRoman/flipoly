@@ -68,6 +68,22 @@ def test_shadow_summary_reports_counts_quality_and_all_arm_coverage():
     assert result["telemetry"]["arm_coverage"]["FULL_WEIGHTED_MRF"] == 2
 
 
+def test_shadow_legacy_brier_converts_candidate_probability_for_buy_no():
+    result = summarize_shadow_rows(
+        [
+            {
+                "market_id": "legacy-no",
+                "created_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
+                "outcome_yes": "NO",
+                "candidate_side": "BUY_NO",
+                "p_logreg_yes": None,
+                "p_logreg_win": 0.80,
+            }
+        ]
+    )
+    assert result["legacy_brier"] == 0.04
+
+
 def test_live_summary_measures_expected_realized_price_drag():
     result = summarize_live_rows(
         [

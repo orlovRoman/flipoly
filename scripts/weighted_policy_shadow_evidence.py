@@ -86,6 +86,21 @@ def _bool(value: Any) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _legacy_probability_yes(row: Mapping[str, Any]) -> Optional[float]:
+    """Return legacy LogReg probability on the canonical YES axis."""
+    explicit = _float(row.get("p_legacy_yes"))
+    if explicit is not None:
+        return explicit
+    explicit = _float(row.get("p_logreg_yes"))
+    if explicit is not None:
+        return explicit
+    candidate_win = _float(row.get("p_logreg_win"))
+    side = _side(row.get("candidate_side"))
+    if candidate_win is None or side is None:
+        return None
+    return candidate_win if side == "BUY_YES" else 1.0 - candidate_win
+
+
 def _payload(row: Mapping[str, Any]) -> dict[str, Any]:
     raw = row.get("weighted_benchmark_json")
     if isinstance(raw, Mapping):
@@ -233,9 +248,7 @@ def summarize_shadow_rows(rows: list[Mapping[str, Any]]) -> dict[str, Any]:
                 if probability is None:
                     probability = _float(row.get("p_market_yes"))
             elif name == "LEGACY":
-                probability = _float(row.get("p_legacy_yes"))
-                if probability is None:
-                    probability = _float(row.get("p_logreg_yes"))
+                probability = _legacy_probability_yes(row)
             elif name == "FULL_WEIGHTED_MRF":
                 probability = _float(row.get("weighted_p_final_yes"))
             else:
@@ -366,10 +379,13 @@ async def _columns(connection, table_name: str) -> set[str]:
 
 
 def _expr(columns: set[str], alias: str, names: Iterable[str], fallback: str = "NULL") -> str:
-    for name in names:
-        if name in columns:
-            return f"{alias}.{name}"
-    return fallback
+    """Build a NULL-tolerant compatibility expression for exported columns."""
+    expressions = [f"{alias}.{name}" for name in names if name in columns]
+    if not expressions:
+        return fallback
+    if fallback == "NULL":
+        return expressions[0] if len(expressions) == 1 else f"COALESCE({', '.join(expressions)})"
+    return f"COALESCE({', '.join((*expressions, fallback))})"
 
 
 async def _fetch_shadow_rows(
@@ -406,7 +422,8 @@ async def _fetch_shadow_rows(
         f(["candidate_ask"]) + " AS candidate_ask",
         f(["final_action"]) + " AS final_action",
         f(["p_market_yes", "weighted_p_market_yes"]) + " AS p_market_yes",
-        f(["p_logreg_yes", "weighted_p_logreg_yes", "p_logreg_win"]) + " AS p_logreg_yes",
+        f(["p_logreg_yes", "weighted_p_logreg_yes"]) + " AS p_logreg_yes",
+        f(["p_logreg_win", "p_candidate_win"]) + " AS p_logreg_win",
         f(["p_lgbm_yes", "weighted_p_lgbm_yes"]) + " AS p_lgbm_yes",
         f(["weighted_p_market_yes"]) + " AS weighted_p_market_yes",
         f(["weighted_p_final_yes"]) + " AS weighted_p_final_yes",

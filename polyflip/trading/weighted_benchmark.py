@@ -207,15 +207,12 @@ class MarketObservation:
             yes_ask=_probability(yes_ask),
             no_ask=_probability(no_ask),
             outcome_yes=_outcome_yes(
-                raw.get(
-                    "outcome_yes",
-                    raw.get("final_outcome", raw.get("settlement_outcome")),
-                )
+                _first_present(raw, "outcome_yes", "final_outcome", "settlement_outcome")
             ),
             p_market_yes=_probability(p_market),
             p_logreg_yes=p_logreg,
             p_lgbm_yes=_probability(
-                raw.get("p_lgbm_yes", raw.get("weighted_p_lgbm_yes"))
+                _first_present(raw, "p_lgbm_yes", "weighted_p_lgbm_yes")
             ),
             p_legacy_yes=_probability(raw.get("p_legacy_yes")),
             mrf_evidence=_evidence(raw_evidence),
