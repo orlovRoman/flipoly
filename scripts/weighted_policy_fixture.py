@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -40,10 +41,19 @@ def main() -> int:
             f"fixture needs {size} resolved rows, found {len(resolved)}"
         )
     selected = resolved[:size]
+    legacy_lines = "\n".join(
+        f"{item.market_id}|{item.timestamp.isoformat()}|{item.legacy_action or 'SKIP'}"
+        for item in selected
+    )
     payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "fixture_size_requested": size,
         "fixture_size": len(selected),
+        # This digest makes the captured legacy decisions an explicit
+        # regression contract without changing the runtime decision path.
+        "legacy_decision_fingerprint": hashlib.sha256(
+            legacy_lines.encode("utf-8")
+        ).hexdigest(),
         "observations": [item.as_dict() for item in selected],
     }
     destination = Path(args.output)

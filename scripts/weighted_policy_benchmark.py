@@ -75,12 +75,16 @@ async def _fetch_funnel_rows(connection, days: int) -> list[dict[str, Any]]:
     outcome_join = ""
     quote_yes = "NULL"
     quote_no = "NULL"
+    quote_bid_yes = "NULL"
+    quote_bid_no = "NULL"
     spread = "0.0"
     if "market_id" in snapshots:
         snapshot_time = _expr(snapshots, "q", ["recorded_at", "market_timestamp"])
         quote_columns = [
             f"{s(['poly_up_best_ask'])} AS snapshot_yes_ask",
             f"{s(['poly_down_best_ask'])} AS snapshot_no_ask",
+            f"{s(['poly_up_best_bid'])} AS snapshot_yes_bid",
+            f"{s(['poly_down_best_bid'])} AS snapshot_no_bid",
             f"{s(['spread'])} AS snapshot_spread",
         ]
         quote_join = (
@@ -94,6 +98,8 @@ async def _fetch_funnel_rows(connection, days: int) -> list[dict[str, Any]]:
         quote_join += " LIMIT 1) quote ON TRUE"
         quote_yes = "quote.snapshot_yes_ask"
         quote_no = "quote.snapshot_no_ask"
+        quote_bid_yes = "quote.snapshot_yes_bid"
+        quote_bid_no = "quote.snapshot_no_bid"
         spread = "COALESCE(quote.snapshot_spread, 0.0)"
         if "final_outcome" in snapshots:
             outcome_time = _expr(snapshots, "o", ["recorded_at", "market_timestamp"])
@@ -160,10 +166,25 @@ async def _fetch_funnel_rows(connection, days: int) -> list[dict[str, Any]]:
         f"CASE WHEN {f(['candidate_side'])} IN ('BUY_YES', 'BUY_NO') "
         f"AND {f(['candidate_ask'])} IS NOT NULL THEN 0 ELSE 1 END"
     )
+    # Select one canonical funnel row per market/horizon before touching the
+    # snapshot table. The previous query performed both LATERAL lookups for
+    # every raw funnel event, making a 30-day baseline unbounded on a busy
+    # database while producing the same canonical DISTINCT ON result.
+    ranked_funnel = (
+        "FROM (SELECT DISTINCT ON (f.market_id, "
+        + horizon_key
+        + ") f.* FROM decision_funnel_log f "
+        "WHERE f.created_at >= now() - (:days * interval '1 day') "
+        "ORDER BY f.market_id, "
+        + horizon_key
+        + ", "
+        + actionable_order
+        + ", f.created_at ASC, f.id ASC) f "
+    )
     query = text(
-        f"SELECT DISTINCT ON (f.market_id, {horizon_key}) "
-        f"{f(['market_id'])} AS market_id, {f(['created_at'])} AS timestamp, "
+        f"SELECT {f(['market_id'])} AS market_id, {f(['created_at'])} AS timestamp, "
         f"{f(['asset'])} AS asset, {yes_ask} AS yes_ask, {no_ask} AS no_ask, "
+        f"{quote_bid_yes} AS yes_bid, {quote_bid_no} AS no_bid, "
         f"{final_expr} AS outcome_yes, {p_market} AS p_market_yes, "
         f"{p_logreg} AS p_logreg_yes, {p_logreg_win} AS p_logreg_win, "
         f"{p_lgbm} AS p_lgbm_yes, "
@@ -172,16 +193,15 @@ async def _fetch_funnel_rows(connection, days: int) -> list[dict[str, Any]]:
         f"{fee_source} AS fee_source, {execution_role} AS execution_role, "
         f"{observed_cost} AS observed_cost_per_share, {phase} AS phase, "
         f"{asset_phase} AS asset_phase, {time_left} AS time_left_sec, "
-        f"{group} AS \"group\", {horizon} AS horizon, "
+        f'{group} AS "group", {horizon} AS horizon, '
         f"{f(['candidate_side'])} AS candidate_side, "
         f"{f(['strategy_type'])} AS strategy_type, "
         f"{f(['final_action'])} AS legacy_action, "
         f"{f(['candidate_ask'])} AS legacy_ask "
-        "FROM decision_funnel_log f "
+        + ranked_funnel
         + quote_join
         + outcome_join
         + " LEFT JOIN live_markets lm ON lm.market_id = f.market_id "
-        "WHERE f.created_at >= now() - (:days * interval '1 day') "
         f"ORDER BY f.market_id, {horizon_key}, {actionable_order}, f.created_at ASC, f.id ASC"
     )
     result = await connection.execute(query, {"days": max(1, int(days))})
