@@ -18,6 +18,7 @@ from polyflip.trading.weighted_benchmark import (
     deduplicate_observations,
     evaluate_arm,
     estimate_oof_standard_error,
+    _effective_sizing_standard_error,
     evaluate_sizing_steps,
     filter_fixed_horizons,
     fit_ridge_logistic_stacker,
@@ -837,6 +838,13 @@ def test_evaluate_arm_applies_configured_mrf_gamma_only_in_stake_mode():
 
     assert probability.evaluations[0].size_multiplier == 1.0
     assert stake.evaluations[0].size_multiplier == 1.25
+
+
+def test_benchmark_sizing_prefers_oof_uncertainty_without_override():
+    assert _effective_sizing_standard_error(0.0, 0.12) == 0.12
+    assert _effective_sizing_standard_error(None, 0.12) == 0.12
+    assert _effective_sizing_standard_error(0.03, 0.12) == 0.03
+    assert _effective_sizing_standard_error(0.0, None) == 0.0
 
 
 def test_oof_standard_error_is_reproducible_and_bounded():

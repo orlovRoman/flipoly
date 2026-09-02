@@ -1530,6 +1530,30 @@ def estimate_oof_standard_error(
 
 
 
+def _effective_sizing_standard_error(
+    configured: Optional[float],
+    oof_estimate: Optional[float],
+) -> float:
+    """Prefer an explicit positive override, otherwise use OOF uncertainty."""
+    try:
+        configured_value = float(configured) if configured is not None else None
+    except (TypeError, ValueError, OverflowError):
+        configured_value = None
+    if (
+        configured_value is not None
+        and np.isfinite(configured_value)
+        and configured_value > 0.0
+    ):
+        return min(0.5, configured_value)
+    try:
+        oof_value = float(oof_estimate) if oof_estimate is not None else None
+    except (TypeError, ValueError, OverflowError):
+        oof_value = None
+    if oof_value is not None and np.isfinite(oof_value) and oof_value >= 0.0:
+        return min(0.5, oof_value)
+    return 0.0
+
+
 def parameter_sensitivity(
     observations: Sequence[MarketObservation],
     *,
@@ -2071,9 +2095,13 @@ def benchmark(
                 )
             ),
         )
+    effective_sizing_standard_error = _effective_sizing_standard_error(
+        cfg.sizing_standard_error,
+        oof_standard_error,
+    )
     sizing_kwargs = {
         "sizing_mode": cfg.sizing_mode,
-        "sizing_standard_error": cfg.sizing_standard_error,
+        "sizing_standard_error": effective_sizing_standard_error,
         "sizing_kelly_fraction": cfg.sizing_kelly_fraction,
         "sizing_base_bet_usdc": cfg.sizing_base_bet_usdc,
         "sizing_cap_usdc": cfg.sizing_cap_usdc,
