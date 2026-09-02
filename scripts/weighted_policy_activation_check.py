@@ -37,6 +37,11 @@ def main() -> int:
     parser.add_argument("--min-brier-improvement", type=float, default=0.002)
     parser.add_argument("--max-execution-drag", type=float, default=0.02)
     parser.add_argument("--max-calibration-error", type=float, default=0.05)
+    parser.add_argument(
+        "--require-live-validation",
+        action="store_true",
+        help="enforce T57 minimum LIVE fills and execution/calibration limits",
+    )
     parser.add_argument("--artifact")
     parser.add_argument(
         "--evidence",
@@ -83,6 +88,7 @@ def main() -> int:
         min_brier_improvement=args.min_brier_improvement,
         max_execution_drag=args.max_execution_drag,
         max_calibration_error=args.max_calibration_error,
+        require_live_validation=args.require_live_validation,
     )
     payload = {
         "eligible": gate.eligible,

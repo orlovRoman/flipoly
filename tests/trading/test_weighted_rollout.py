@@ -288,8 +288,52 @@ def test_activation_gate_rejects_missing_quality_evidence():
     assert not gate.eligible
     assert "BRIER_EVIDENCE_MISSING" in gate.reasons
     assert "PNL_COMPARISON_MISSING" in gate.reasons
-    assert "EXECUTION_DRAG_MISSING" in gate.reasons
-    assert "CALIBRATION_ERROR_MISSING" in gate.reasons
+    assert "EXECUTION_DRAG_MISSING" not in gate.reasons
+    assert "CALIBRATION_ERROR_MISSING" not in gate.reasons
+
+
+def test_activation_gate_allows_first_fixed_bet_before_live_validation():
+    gate = activation_gate(
+        ActivationEvidence(
+            shadow_days=14,
+            shadow_resolved_markets=1000,
+            shadow_candidate_trades=300,
+            repeat_oot_reports=1,
+            live_fills=0,
+            pnl_ci_lower=0.01,
+            weighted_brier=0.10,
+            market_brier=0.103,
+            legacy_brier=0.104,
+            weighted_net_pnl=10.0,
+            market_net_pnl=5.0,
+            legacy_net_pnl=4.0,
+        )
+    )
+    assert gate.eligible
+
+
+def test_activation_gate_requires_t57_live_validation_when_requested():
+    gate = activation_gate(
+        ActivationEvidence(
+            shadow_days=14,
+            shadow_resolved_markets=1000,
+            shadow_candidate_trades=300,
+            repeat_oot_reports=1,
+            live_fills=299,
+            pnl_ci_lower=0.01,
+            weighted_brier=0.10,
+            market_brier=0.103,
+            legacy_brier=0.104,
+            weighted_net_pnl=10.0,
+            market_net_pnl=5.0,
+            legacy_net_pnl=4.0,
+            execution_drag=0.005,
+            calibration_error=0.02,
+        ),
+        require_live_validation=True,
+    )
+    assert not gate.eligible
+    assert "LIVE_FILLS_BELOW_MINIMUM" in gate.reasons
 
 
 def test_deduplicate_keeps_one_row_per_market_and_horizon():

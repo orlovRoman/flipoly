@@ -104,10 +104,15 @@ python scripts/weighted_policy_activation_check.py \
 
 The evidence collector is read-only. It derives counts, all-arm telemetry,
 Brier/PnL/cluster-CI, calibration error and LIVE expected-vs-realized price
-drag from the database. The command exits with status 2 until every minimum
-and quality comparison is met. A positive point estimate is not enough when
-the bootstrap lower bound is non-positive. repeat_oot_reports must be
-provided for each independently saved OOT report.
+drag from the database. The pre-live command exits with status 2 until the
+SHADOW/OOT quality conditions are met; live fills are intentionally not
+required yet. A positive point estimate is not enough when the bootstrap lower
+bound is non-positive. repeat_oot_reports must be provided for each
+independently saved OOT report.
+
+After the fixed $1 ACTIVE period has accumulated at least 300 fills, run the
+same check with --require-live-validation. That second gate enforces the T57
+fill count, execution-drag limit and calibration-error limit.
 
 ## 6. Rollout rules
 

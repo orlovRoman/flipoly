@@ -173,6 +173,7 @@ def activation_gate(
     min_candidate_trades: int = 300,
     min_repeat_oot_reports: int = 1,
     min_live_fills: int = 300,
+    require_live_validation: bool = False,
     min_brier_improvement: float = 0.002,
     max_execution_drag: float = 0.02,
     max_calibration_error: float = 0.05,
@@ -187,7 +188,7 @@ def activation_gate(
         reasons.append("SHADOW_CANDIDATE_TRADES_BELOW_MINIMUM")
     if evidence.repeat_oot_reports < min_repeat_oot_reports:
         reasons.append("REPEAT_OOT_REPORTS_BELOW_MINIMUM")
-    if evidence.live_fills < min_live_fills:
+    if require_live_validation and evidence.live_fills < min_live_fills:
         reasons.append("LIVE_FILLS_BELOW_MINIMUM")
 
     if evidence.pnl_ci_lower is None:
@@ -233,20 +234,21 @@ def activation_gate(
             if weighted_pnl <= legacy_pnl:
                 reasons.append("PNL_NOT_BETTER_THAN_LEGACY")
 
-    if evidence.execution_drag is None:
-        reasons.append("EXECUTION_DRAG_MISSING")
-    elif (
-        not isfinite(float(evidence.execution_drag))
-        or float(evidence.execution_drag) > float(max_execution_drag)
-    ):
-        reasons.append("EXECUTION_DRAG_ABOVE_LIMIT")
+    if require_live_validation:
+        if evidence.execution_drag is None:
+            reasons.append("EXECUTION_DRAG_MISSING")
+        elif (
+            not isfinite(float(evidence.execution_drag))
+            or float(evidence.execution_drag) > float(max_execution_drag)
+        ):
+            reasons.append("EXECUTION_DRAG_ABOVE_LIMIT")
 
-    if evidence.calibration_error is None:
-        reasons.append("CALIBRATION_ERROR_MISSING")
-    elif (
-        not isfinite(float(evidence.calibration_error))
-        or abs(float(evidence.calibration_error)) > float(max_calibration_error)
-    ):
-        reasons.append("CALIBRATION_ERROR_ABOVE_LIMIT")
+        if evidence.calibration_error is None:
+            reasons.append("CALIBRATION_ERROR_MISSING")
+        elif (
+            not isfinite(float(evidence.calibration_error))
+            or abs(float(evidence.calibration_error)) > float(max_calibration_error)
+        ):
+            reasons.append("CALIBRATION_ERROR_ABOVE_LIMIT")
 
     return ActivationGate(eligible=not reasons, reasons=tuple(reasons))
