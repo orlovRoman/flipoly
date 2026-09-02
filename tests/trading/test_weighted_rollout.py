@@ -75,6 +75,19 @@ def test_mapping_preserves_signed_mrf_evidence():
     assert item.outcome_yes is True
 
 
+def test_stacker_training_clamps_direct_mrf_evidence_like_runtime():
+    from polyflip.trading.weighted_benchmark import _stacker_features
+
+    high = _stacker_features(
+        MarketObservation(**{**_row(0).__dict__, "mrf_evidence": 3.0})
+    )
+    low = _stacker_features(
+        MarketObservation(**{**_row(1).__dict__, "mrf_evidence": -3.0})
+    )
+    assert high is not None and high[4] == 1.0
+    assert low is not None and low[4] == -1.0
+
+
 def test_walk_forward_folds_have_purge_gap():
     rows = [_row(i, i % 2 == 0) for i in range(12)]
     folds = purged_walk_forward_folds(rows, train_min_rows=4, test_size=3, purge_gap=2)

@@ -535,12 +535,13 @@ def _stacker_features(observation: MarketObservation) -> Optional[tuple[float, .
         if observation.p_lgbm_yes is not None
         else 0.0
     )
+    signed_evidence = _evidence(observation.mrf_evidence) or 0.0
     return (
         1.0,
         market_logit,
         logreg_residual,
         lgbm_residual,
-        float(observation.mrf_evidence or 0.0),
+        signed_evidence,
         role_outsider,
         models_agree,
         role_outsider * models_agree,
