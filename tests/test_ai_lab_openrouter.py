@@ -204,4 +204,3 @@ async def test_external_client_routes_go_messages_model(monkeypatch):
     assert fake.request[0] == "https://opencode.ai/zen/go/v1/messages"
     assert fake.request[1]["anthropic-version"] == "2023-06-01"
     assert fake.request[2]["model"] == "minimax-m3"
-
