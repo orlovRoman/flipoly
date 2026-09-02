@@ -784,7 +784,7 @@ def evaluate_arm(
     favorite_max_price: Optional[float] = None,
     time_left_range: Optional[tuple[float, float]] = None,
     time_left_role: Optional[str] = None,
-    mrf_stake_gamma: float = 0.0,
+    mrf_stake_gamma: Optional[float] = None,
     sizing_mode: str = "FIXED",
     sizing_standard_error: float = 0.0,
     sizing_kelly_fraction: float = 0.025,
@@ -1040,7 +1040,17 @@ def evaluate_arm(
             continue
         raw_pnl = (1.0 if won else 0.0) - quote.ask - cost
         try:
-            gamma = float(mrf_stake_gamma)
+            if mrf_stake_gamma is None:
+                application = str(base.mrf_application or "PROBABILITY").strip().upper()
+                gamma = (
+                    float(base.mrf_sizing_gamma)
+                    if application in {"STAKE", "STAKE_ADJUSTMENT"}
+                    else 0.0
+                )
+            else:
+                # Explicit gamma is used by compare_mrf_application() to
+                # evaluate the stake-adjustment counterfactual.
+                gamma = float(mrf_stake_gamma)
         except (TypeError, ValueError, OverflowError):
             gamma = 0.0
         evidence = float(observation.mrf_evidence or 0.0)

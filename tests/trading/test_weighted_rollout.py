@@ -805,6 +805,40 @@ def test_mapping_preserves_phase_fields_for_stability_reports():
     assert item.asset_phase == "BTC_STRONG_UP"
 
 
+def test_evaluate_arm_applies_configured_mrf_gamma_only_in_stake_mode():
+    row = MarketObservation(
+        **{
+            **_row(0).__dict__,
+            "yes_ask": 0.48,
+            "no_ask": 0.52,
+            "mrf_evidence": 1.0,
+        }
+    )
+    probability = evaluate_arm(
+        [row],
+        "FULL_WEIGHTED_MRF",
+        config=WeightedPolicyConfig(
+            fee_rate=0.0,
+            slippage_rate=0.0,
+            mrf_application="PROBABILITY",
+            mrf_sizing_gamma=1.0,
+        ),
+    )
+    stake = evaluate_arm(
+        [row],
+        "FULL_WEIGHTED_MRF",
+        config=WeightedPolicyConfig(
+            fee_rate=0.0,
+            slippage_rate=0.0,
+            mrf_application="STAKE",
+            mrf_sizing_gamma=1.0,
+        ),
+    )
+
+    assert probability.evaluations[0].size_multiplier == 1.0
+    assert stake.evaluations[0].size_multiplier == 1.25
+
+
 def test_oof_standard_error_is_reproducible_and_bounded():
     rows = [_row(index, index % 2 == 0) for index in range(8)]
     estimate = estimate_oof_standard_error(
