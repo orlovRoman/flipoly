@@ -143,7 +143,11 @@ def weighted_policy_config_from_artifact(
             parsed_coefficients = tuple(float(value) for value in coefficients)
         except (TypeError, ValueError, OverflowError):
             parsed_coefficients = ()
-        if tuple(str(value) for value in names) == expected_names and len(parsed_coefficients) == len(expected_names):
+        if (
+            tuple(str(value) for value in names) == expected_names
+            and len(parsed_coefficients) == len(expected_names)
+            and abs(parsed_coefficients[1] - 1.0) <= 1e-6
+        ):
             values["stacker_feature_names"] = expected_names
             values["stacker_coefficients"] = parsed_coefficients
 

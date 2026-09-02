@@ -263,7 +263,7 @@ def test_weighted_active_applies_stacker_coefficients_from_artifact(tmp_path):
     )
     stacker = StackerModel(
         feature_names=feature_names,
-        coefficients=(1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+        coefficients=(1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
         training_rows=100,
         ridge_lambda=1.0,
         coefficient_bound=5.0,
@@ -290,5 +290,5 @@ def test_weighted_active_applies_stacker_coefficients_from_artifact(tmp_path):
     result = _evaluate(cfg)
 
     assert result.action == "BUY_YES"
-    assert result.weighted_p_final_yes == 0.73105858
+    assert result.weighted_p_final_yes == 0.76139497
     assert result.weighted_p_final_yes != 0.57026632

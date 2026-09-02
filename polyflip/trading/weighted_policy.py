@@ -311,6 +311,10 @@ def _stacker_score(
         return None
     if not all(isfinite(value) for value in coefficients):
         return None
+    # Artifacts produced by the benchmark keep the market logit as the prior.
+    # Reject older or hand-written payloads that try to relearn that coefficient.
+    if abs(coefficients[1] - 1.0) > 1e-6:
+        return None
     market = clamp_probability(inputs.p_market_yes)
     if market is None:
         return None

@@ -86,7 +86,12 @@ def test_walk_forward_folds_have_purge_gap():
 def test_stacker_is_bounded_and_benchmark_reports_cost_aware_arms():
     rows = [_row(i, i % 3 != 0) for i in range(16)]
     model = fit_ridge_logistic_stacker(rows, coefficient_bound=0.5)
-    assert all(abs(value) <= 0.5 for value in model.coefficients)
+    assert model.coefficients[1] == 1.0
+    assert all(
+        abs(value) <= 0.5
+        for index, value in enumerate(model.coefficients)
+        if index != 1
+    )
     result = benchmark(
         rows,
         config=BenchmarkConfig(
@@ -100,6 +105,13 @@ def test_stacker_is_bounded_and_benchmark_reports_cost_aware_arms():
         ),
     )
     assert result.resolved_observations == 16
+    assert result.stacker is not None
+    assert result.stacker.coefficients[1] == 1.0
+    assert all(
+        abs(value) <= 5.0
+        for index, value in enumerate(result.stacker.coefficients)
+        if index != 1
+    )
     assert {item.arm for item in result.arms} >= {"MARKET_ONLY", "FULL_WEIGHTED_MRF"}
     assert [item["stake_usdc"] for item in result.sizing_steps] == [1.0, 1.5, 2.0, 3.0]
     assert [item["fraction_percent"] for item in result.kelly_fractions] == [2.5, 5.0, 10.0]

@@ -556,7 +556,13 @@ def fit_ridge_logistic_stacker(
     coefficient_bound: float = 5.0,
     max_iter: int = 100,
 ) -> StackerModel:
-    """Fit a bounded ridge-logistic stacker using only supplied rows."""
+    """Fit a bounded ridge-logistic stacker using only supplied rows.
+
+    ``market_logit`` is a fixed prior with coefficient one.  Only the model
+    residuals, MRF and interaction terms are learned and bounded; this keeps a
+    stacker from silently replacing the executable market prior with a second
+    unconstrained market model.
+    """
     rows = [
         (_stacker_features(item), 1.0 if item.outcome_yes else 0.0)
         for item in observations
@@ -567,8 +573,14 @@ def fit_ridge_logistic_stacker(
     x = np.asarray([row[0] for row in rows], dtype=float)
     y = np.asarray([row[1] for row in rows], dtype=float)
     beta = np.zeros(x.shape[1], dtype=float)
+    market_prior_index = 1
+    beta[market_prior_index] = 1.0
     penalty = max(0.0, float(ridge_lambda))
     bound = max(0.1, float(coefficient_bound))
+    free_indices = np.asarray(
+        [index for index in range(x.shape[1]) if index != market_prior_index],
+        dtype=int,
+    )
     for _ in range(max(1, int(max_iter))):
         logits = np.clip(x @ beta, -40.0, 40.0)
         probabilities = 1.0 / (1.0 + np.exp(-logits))
@@ -578,11 +590,19 @@ def fit_ridge_logistic_stacker(
         ridge = np.eye(x.shape[1], dtype=float) * penalty
         ridge[0, 0] = 0.0
         hessian += ridge + np.eye(x.shape[1]) * 1e-8
+        free_hessian = hessian[np.ix_(free_indices, free_indices)]
+        free_gradient = gradient[free_indices]
         try:
-            step = np.linalg.solve(hessian, gradient)
+            step = np.linalg.solve(free_hessian, free_gradient)
         except np.linalg.LinAlgError:
-            step = np.linalg.pinv(hessian) @ gradient
-        updated = np.clip(beta - step, -bound, bound)
+            step = np.linalg.pinv(free_hessian) @ free_gradient
+        updated = beta.copy()
+        updated[free_indices] = np.clip(
+            beta[free_indices] - step,
+            -bound,
+            bound,
+        )
+        updated[market_prior_index] = 1.0
         if np.max(np.abs(updated - beta)) < 1e-7:
             beta = updated
             break
