@@ -840,6 +840,19 @@ def benchmark_policy_arms(
             "arm": name,
             "selected_side": selected.side if selected else None,
             "selected_ask": selected.ask if selected else None,
+            "selected_cost_per_share": (
+                selected.cost.total_per_share if selected else None
+            ),
+            "yes_cost_per_share": (
+                selection.yes_quote.cost.total_per_share
+                if selection.yes_quote
+                else None
+            ),
+            "no_cost_per_share": (
+                selection.no_quote.cost.total_per_share
+                if selection.no_quote
+                else None
+            ),
             "p_final_yes": selection.probability.p_final_yes,
             "models_agree": selection.probability.models_agree,
             "yes_net_ev": selection.yes_quote.net_ev_per_share if selection.yes_quote else None,

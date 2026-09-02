@@ -736,9 +736,20 @@ def _weighted_benchmark_snapshot(
         fee_source=quoted.cost.source if quoted else "CONFIG_DEFAULT",
         spread=quoted.cost.spread_per_share if quoted else 0.0,
     )
+    legacy_quote = (
+        selection.yes_quote
+        if legacy_action == "BUY_YES"
+        else selection.no_quote
+        if legacy_action == "BUY_NO"
+        else None
+    )
     snapshot["LEGACY"] = {
         "arm": "LEGACY",
         "selected_side": legacy_action if legacy_action in {"BUY_YES", "BUY_NO"} else None,
+        "selected_ask": legacy_quote.ask if legacy_quote else None,
+        "selected_cost_per_share": (
+            legacy_quote.cost.total_per_share if legacy_quote else None
+        ),
         "p_final_yes": probability.p_logreg_yes,
         "models_agree": None,
         "net_ev_per_share": None,

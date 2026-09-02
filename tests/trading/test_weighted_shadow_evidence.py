@@ -113,3 +113,26 @@ def test_shadow_summary_reports_policy_identity_and_mixed_ids():
     )
     assert live["policy_id"] == "artifact-a"
     assert live["policy_ids"] == ["artifact-a"]
+
+def test_shadow_pnl_uses_each_arm_selected_cost():
+    result = summarize_shadow_rows(
+        [
+            {
+                "market_id": "m-cost",
+                "created_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
+                "outcome_yes": "YES",
+                "weighted_cost_per_share": 0.0,
+                "weighted_benchmark_json": json.dumps(
+                    {
+                        "FULL_WEIGHTED_MRF": {
+                            "selected_side": "BUY_YES",
+                            "selected_ask": 0.40,
+                            "selected_cost_per_share": 0.20,
+                            "p_final_yes": 0.90,
+                        }
+                    }
+                ),
+            }
+        ]
+    )
+    assert result["telemetry"]["arms"]["FULL_WEIGHTED_MRF"]["net_pnl"] == 0.40

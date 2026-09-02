@@ -102,6 +102,10 @@ def _ask_for_side(
         value = _float(summary.get("selected_ask"))
         if value is not None:
             return value
+        side_key = "yes_ask" if side == "BUY_YES" else "no_ask"
+        value = _float(summary.get(side_key))
+        if value is not None:
+            return value
     for key in (
         "legacy_ask",
         "candidate_ask",
@@ -126,9 +130,18 @@ def _pnl(
     ask = _ask_for_side(row, side, summary)
     if ask is None or not 0.0 < ask < 1.0:
         return None
-    cost = _float(row.get("weighted_cost_per_share"))
+    cost = None
+    if summary:
+        cost = _float(summary.get("selected_cost_per_share"))
+        if cost is None:
+            side_key = (
+                "yes_cost_per_share" if side == "BUY_YES" else "no_cost_per_share"
+            )
+            cost = _float(summary.get(side_key))
     if cost is None:
-        cost = _float(row.get("observed_cost_per_share")) or 0.0
+        cost = _float(row.get("observed_cost_per_share"))
+    if cost is None:
+        cost = _float(row.get("weighted_cost_per_share")) or 0.0
     won = outcome_yes if side == "BUY_YES" else not outcome_yes
     return (1.0 if won else 0.0) - ask - max(0.0, cost)
 
