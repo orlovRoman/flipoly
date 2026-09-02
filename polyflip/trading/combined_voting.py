@@ -1273,7 +1273,12 @@ def _evaluate_combined_entry_inner(
         try:
             spread_value = abs(float(spread))
             max_spread_pct = float(getattr(cfg, "max_spread_pct", 0.0))
-            spread_ratio = spread_value / max(candidate_ask, 1e-9)
+            selected_mid = (
+                fresh_yes_price
+                if candidate_side == "BUY_YES"
+                else 1.0 - fresh_yes_price
+            )
+            spread_ratio = spread_value / max(selected_mid, 1e-9)
         except (TypeError, ValueError, OverflowError):
             spread_value = 0.0
             max_spread_pct = 0.0
@@ -1282,7 +1287,7 @@ def _evaluate_combined_entry_inner(
             return CombinedEntryResult(
                 action="SKIP",
                 reason=(
-                    f"Spread {spread_value:.4f} / selected ask {candidate_ask:.4f} "
+                    f"Spread {spread_value:.4f} / selected mid {selected_mid:.4f} "
                     f"= {spread_ratio:.4f} > max {max_spread_pct:.4f}"
                 ),
                 direction_status=dir_status_for_result,

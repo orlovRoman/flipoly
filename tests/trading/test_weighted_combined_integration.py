@@ -112,6 +112,33 @@ def test_weighted_shadow_records_score_without_changing_legacy_action():
     assert result.weighted_p_final_yes is not None
 
 
+def test_weighted_spread_guard_uses_selected_mid_like_pre_trade():
+    cfg = replace(
+        _weighted_cfg("WEIGHTED_ACTIVE"),
+        max_spread_pct=0.08,
+        weighted_min_net_ev_outsider=0.0,
+    )
+    result = evaluate_combined_entry(
+        crypto_sig=_signal(),
+        market_phase="mid_vol",
+        entry_requested_key="BTC_mid_vol",
+        entry_model_key="BTC_mid_vol",
+        entry_model_version=4,
+        entry_model_source="PHASE",
+        p_flip=0.80,
+        fresh_yes_price=0.45,
+        yes_ask=0.40,
+        no_ask=0.60,
+        cost_buffer=0.0,
+        time_left_sec=300.0,
+        cfg=cfg,
+        spread=0.035,
+        spread_cost=0.0175,
+    )
+    assert result.action == "BUY_YES"
+    assert "SPREAD_TOO_WIDE" not in result.entry_status
+
+
 def test_weighted_runtime_uses_half_spread_and_fee_schedule_role():
     cfg = replace(
         _weighted_cfg("WEIGHTED_ACTIVE"),
