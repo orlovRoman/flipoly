@@ -63,6 +63,15 @@ def _optional_float(value: Any) -> Optional[float]:
     return result if np.isfinite(result) else None
 
 
+def _first_present(raw: Mapping[str, Any], *names: str) -> Any:
+    """Return the first non-null/non-empty value from a compatibility set."""
+    for name in names:
+        value = raw.get(name)
+        if value is not None and value != "":
+            return value
+    return None
+
+
 def _evidence(value: Any) -> Optional[float]:
     try:
         result = float(value)
@@ -150,9 +159,9 @@ class MarketObservation:
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> "MarketObservation":
-        yes_ask = raw.get("yes_ask", raw.get("candidate_ask"))
-        no_ask = raw.get("no_ask")
-        p_market = raw.get("p_market_yes", raw.get("weighted_p_market_yes"))
+        yes_ask = _first_present(raw, "yes_ask", "candidate_ask")
+        no_ask = _first_present(raw, "no_ask")
+        p_market = _first_present(raw, "p_market_yes", "weighted_p_market_yes")
         if p_market is None and yes_ask is not None and no_ask is not None:
             try:
                 yes, no = float(yes_ask), float(no_ask)
@@ -160,12 +169,37 @@ class MarketObservation:
                     p_market = yes / (yes + no)
             except (TypeError, ValueError):
                 pass
-        raw_evidence = raw.get("mrf_evidence", raw.get("weighted_mrf_evidence"))
-        observed_cost = raw.get("observed_cost_per_share")
-        if observed_cost is None:
-            observed_cost = raw.get("observed_fee_per_share")
-        legacy_ask = raw.get("legacy_ask", raw.get("candidate_ask"))
-        legacy_action = raw.get("legacy_action", raw.get("final_action", raw.get("action", raw.get("candidate_side"))))
+        raw_evidence = _first_present(raw, "mrf_evidence", "weighted_mrf_evidence")
+        observed_cost = _first_present(
+            raw, "observed_cost_per_share", "observed_fee_per_share"
+        )
+        legacy_ask = _first_present(raw, "legacy_ask", "candidate_ask")
+        legacy_action = _action(
+            _first_present(
+                raw, "legacy_action", "final_action", "action", "candidate_side"
+            )
+        )
+        candidate_action = _action(
+            _first_present(
+                raw, "candidate_side", "legacy_action", "final_action", "action"
+            )
+        )
+        raw_p_logreg_yes = _first_present(
+            raw, "p_logreg_yes", "weighted_p_logreg_yes"
+        )
+        p_logreg = _probability(raw_p_logreg_yes)
+        if p_logreg is None:
+            # Older funnel/trade rows persist p_logreg_win relative to the
+            # selected candidate side, not on the YES axis.  Convert BUY_NO
+            # rows before exposing the canonical p_logreg_yes field.
+            candidate_win = _probability(
+                _first_present(raw, "p_logreg_win", "p_candidate_win")
+            )
+            if candidate_win is not None:
+                if candidate_action == BUY_YES:
+                    p_logreg = candidate_win
+                elif candidate_action == BUY_NO:
+                    p_logreg = 1.0 - candidate_win
         return cls(
             market_id=str(raw.get("market_id", raw.get("condition_id", ""))),
             timestamp=_dt(raw.get("timestamp", raw.get("created_at"))),
@@ -179,12 +213,7 @@ class MarketObservation:
                 )
             ),
             p_market_yes=_probability(p_market),
-            p_logreg_yes=_probability(
-                raw.get(
-                    "p_logreg_yes",
-                    raw.get("weighted_p_logreg_yes", raw.get("p_logreg_win")),
-                )
-            ),
+            p_logreg_yes=p_logreg,
             p_lgbm_yes=_probability(
                 raw.get("p_lgbm_yes", raw.get("weighted_p_lgbm_yes"))
             ),

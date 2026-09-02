@@ -40,10 +40,13 @@ def _json_default(value: Any) -> Any:
 
 
 def _expr(columns: set[str], alias: str, names: Iterable[str], fallback: str = "NULL") -> str:
-    for name in names:
-        if name in columns:
-            return f"{alias}.{name}"
-    return fallback
+    """Build a NULL-tolerant compatibility expression for exported columns."""
+    expressions = [f"{alias}.{name}" for name in names if name in columns]
+    if not expressions:
+        return fallback
+    if fallback == "NULL":
+        return expressions[0] if len(expressions) == 1 else f"COALESCE({', '.join(expressions)})"
+    return f"COALESCE({', '.join((*expressions, fallback))})"
 
 
 async def _columns(connection, table_name: str) -> set[str]:
@@ -123,7 +126,11 @@ async def _fetch_funnel_rows(connection, days: int) -> list[dict[str, Any]]:
         "ELSE NULL END"
     )
     p_market = f"COALESCE({p_market_raw}, {market_fallback})"
-    p_logreg = f(["p_logreg_yes", "weighted_p_logreg_yes", "p_logreg_win"])
+    # Keep the canonical YES-axis probability separate from the legacy
+    # p_logreg_win value, which is relative to candidate_side and is converted
+    # by MarketObservation.from_mapping when needed.
+    p_logreg = f(["p_logreg_yes", "weighted_p_logreg_yes"])
+    p_logreg_win = f(["p_logreg_win", "p_candidate_win"])
     p_lgbm = f(["p_lgbm_yes", "weighted_p_lgbm_yes"])
     mrf = f(["weighted_mrf_evidence", "mrf_regime_evidence"])
     fee_rate = f(["weighted_fee_rate", "fee_rate"])
@@ -158,7 +165,8 @@ async def _fetch_funnel_rows(connection, days: int) -> list[dict[str, Any]]:
         f"{f(['market_id'])} AS market_id, {f(['created_at'])} AS timestamp, "
         f"{f(['asset'])} AS asset, {yes_ask} AS yes_ask, {no_ask} AS no_ask, "
         f"{final_expr} AS outcome_yes, {p_market} AS p_market_yes, "
-        f"{p_logreg} AS p_logreg_yes, {p_lgbm} AS p_lgbm_yes, "
+        f"{p_logreg} AS p_logreg_yes, {p_logreg_win} AS p_logreg_win, "
+        f"{p_lgbm} AS p_lgbm_yes, "
         f"{mrf} AS mrf_evidence, {spread} AS spread, {role} AS market_role, "
         f"{fee_rate} AS fee_rate, {fee_exponent} AS fee_exponent, "
         f"{fee_source} AS fee_source, {execution_role} AS execution_role, "

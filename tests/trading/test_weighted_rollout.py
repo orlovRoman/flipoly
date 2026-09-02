@@ -75,6 +75,52 @@ def test_mapping_preserves_signed_mrf_evidence():
     assert item.outcome_yes is True
 
 
+def test_mapping_converts_legacy_candidate_probability_to_yes_axis():
+    no_item = MarketObservation.from_mapping(
+        {
+            "market_id": "legacy-no",
+            "timestamp": "2026-01-01T00:00:00Z",
+            "asset": "BTC",
+            "yes_ask": 0.70,
+            "no_ask": 0.30,
+            "outcome_yes": "NO",
+            "candidate_side": "BUY_NO",
+            "p_logreg_win": 0.80,
+        }
+    )
+    yes_item = MarketObservation.from_mapping(
+        {
+            "market_id": "legacy-yes",
+            "timestamp": "2026-01-01T00:00:00Z",
+            "asset": "BTC",
+            "yes_ask": 0.70,
+            "no_ask": 0.30,
+            "outcome_yes": "YES",
+            "candidate_side": "BUY_YES",
+            "p_logreg_win": 0.80,
+        }
+    )
+    assert no_item.p_logreg_yes == pytest.approx(0.20)
+    assert yes_item.p_logreg_yes == pytest.approx(0.80)
+
+
+def test_mapping_uses_non_null_compatibility_probability_when_canonical_is_null():
+    item = MarketObservation.from_mapping(
+        {
+            "market_id": "compat-probability",
+            "timestamp": "2026-01-01T00:00:00Z",
+            "asset": "BTC",
+            "yes_ask": 0.60,
+            "no_ask": 0.40,
+            "outcome_yes": "YES",
+            "candidate_side": "BUY_YES",
+            "p_logreg_yes": None,
+            "weighted_p_logreg_yes": 0.73,
+        }
+    )
+    assert item.p_logreg_yes == pytest.approx(0.73)
+
+
 def test_stacker_training_clamps_direct_mrf_evidence_like_runtime():
     from polyflip.trading.weighted_benchmark import _stacker_features
 
