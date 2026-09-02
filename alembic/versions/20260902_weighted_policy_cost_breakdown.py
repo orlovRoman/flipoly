@@ -21,9 +21,14 @@ _COLUMNS = (
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
     for table_name in ("trade_history", "decision_funnel_log"):
+        existing = {column["name"] for column in inspector.get_columns(table_name)}
         for name, column_type in _COLUMNS:
-            op.add_column(table_name, sa.Column(name, column_type, nullable=True))
+            if name not in existing:
+                op.add_column(table_name, sa.Column(name, column_type, nullable=True))
+                existing.add(name)
 
 
 def downgrade() -> None:
