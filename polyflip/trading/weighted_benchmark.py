@@ -373,6 +373,7 @@ class BenchmarkReport:
     oof_standard_error: Optional[float] = None
     stability: tuple[dict[str, Any], ...] = ()
     sizing_steps: tuple[dict[str, Any], ...] = ()
+    kelly_fractions: tuple[dict[str, Any], ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -395,6 +396,7 @@ class BenchmarkReport:
             "oof_standard_error": self.oof_standard_error,
             "stability": [dict(item) for item in self.stability],
             "sizing_steps": [dict(item) for item in self.sizing_steps],
+            "kelly_fractions": [dict(item) for item in self.kelly_fractions],
         }
 
 
@@ -1432,6 +1434,78 @@ def evaluate_sizing_steps(
     return tuple(rows)
 
 
+def _max_drawdown(evaluations: Sequence[TradeEvaluation]) -> float:
+    """Return the worst cumulative PnL drawdown for chronological fills."""
+    balance = 0.0
+    peak = 0.0
+    drawdown = 0.0
+    for item in sorted(evaluations, key=lambda value: (value.timestamp, value.market_id)):
+        balance += float(item.pnl)
+        peak = max(peak, balance)
+        drawdown = min(drawdown, balance - peak)
+    return round(drawdown, 10)
+
+
+def compare_kelly_fractions(
+    observations: Sequence[MarketObservation],
+    *,
+    arm: str = "FULL_WEIGHTED_MRF",
+    fractions: Sequence[float] = (0.025, 0.05, 0.10),
+    config: WeightedPolicyConfig | None = None,
+    standard_error: float = 0.0,
+    min_net_ev: float = 0.0,
+    evaluation_indices: Optional[Sequence[int]] = None,
+    bootstrap_iterations: int = 1000,
+    bootstrap_seed: int = 20260901,
+) -> tuple[dict[str, Any], ...]:
+    """Compare 2.5/5/10% lower-bound Kelly on one fixed OOT sample."""
+    rows: list[dict[str, Any]] = []
+    for fraction in fractions:
+        try:
+            value = max(0.0, min(1.0, float(fraction)))
+        except (TypeError, ValueError, OverflowError):
+            continue
+        metrics = evaluate_arm(
+            observations,
+            arm,
+            config=config,
+            min_net_ev=min_net_ev,
+            sizing_mode="LOWER_BOUND_KELLY",
+            sizing_standard_error=standard_error,
+            sizing_kelly_fraction=value,
+            evaluation_indices=evaluation_indices,
+        )
+        ci_low, ci_high = cluster_bootstrap_ci(
+            metrics.evaluations,
+            iterations=bootstrap_iterations,
+            seed=bootstrap_seed,
+        )
+        max_drawdown = _max_drawdown(metrics.evaluations)
+        risk_denominator = abs(max_drawdown)
+        drawdown_adjusted = (
+            metrics.net_pnl / risk_denominator
+            if risk_denominator > 0.0
+            else metrics.net_pnl
+        )
+        rows.append(
+            {
+                "type": "KELLY_FRACTION",
+                "arm": arm.upper(),
+                "fraction": value,
+                "fraction_percent": round(value * 100.0, 4),
+                "observations": metrics.observations,
+                "trades": metrics.trades,
+                "net_pnl": metrics.net_pnl,
+                "win_rate": metrics.win_rate,
+                "brier": metrics.brier,
+                "log_loss": metrics.log_loss,
+                "pnl_ci_low": ci_low,
+                "pnl_ci_high": ci_high,
+                "max_drawdown": max_drawdown,
+                "drawdown_adjusted_pnl": round(drawdown_adjusted, 10),
+            }
+        )
+    return tuple(rows)
 
 
 def cluster_bootstrap_ci(
@@ -1700,6 +1774,20 @@ def benchmark(
         bootstrap_iterations=cfg.bootstrap_iterations,
         bootstrap_seed=cfg.bootstrap_seed,
     )
+    kelly_fractions = compare_kelly_fractions(
+        ordered,
+        arm="FULL_WEIGHTED_MRF",
+        config=cfg.policy_config,
+        standard_error=(
+            oof_standard_error
+            if oof_standard_error is not None
+            else cfg.sizing_standard_error
+        ),
+        min_net_ev=cfg.min_net_ev,
+        evaluation_indices=oot_indices,
+        bootstrap_iterations=cfg.bootstrap_iterations,
+        bootstrap_seed=cfg.bootstrap_seed,
+    )
     return BenchmarkReport(
         generated_at=datetime.now(timezone.utc).isoformat(),
         observations=len(ordered),
@@ -1714,6 +1802,7 @@ def benchmark(
         oof_standard_error=oof_standard_error,
         stability=stability,
         sizing_steps=sizing_steps,
+        kelly_fractions=kelly_fractions,
     )
 
 

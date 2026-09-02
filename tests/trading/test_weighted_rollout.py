@@ -27,6 +27,7 @@ from polyflip.trading.weighted_benchmark import (
     optimize_price_cap,
     optimize_time_window,
     compare_mrf_application,
+    compare_kelly_fractions,
     create_policy_artifact_from_benchmark,
     parameter_sensitivity,
     stability_by_segment,
@@ -513,6 +514,30 @@ def test_sizing_step_report_uses_same_oot_sample_for_each_level():
     assert all(item["pnl_ci_low"] is not None for item in result)
 
 
+
+
+def test_kelly_fraction_report_compares_fixed_oot_sample():
+    rows = [
+        MarketObservation(
+            **{
+                **_row(index, index % 2 == 0).__dict__,
+                "yes_ask": 0.48,
+                "no_ask": 0.52,
+            }
+        )
+        for index in range(8)
+    ]
+    result = compare_kelly_fractions(
+        rows,
+        config=WeightedPolicyConfig(fee_rate=0.0, slippage_rate=0.0),
+        fractions=(0.025, 0.05, 0.10),
+        evaluation_indices=(4, 5, 6, 7),
+        bootstrap_iterations=10,
+    )
+    assert [item["fraction"] for item in result] == [0.025, 0.05, 0.1]
+    assert [item["fraction_percent"] for item in result] == [2.5, 5.0, 10.0]
+    assert all("max_drawdown" in item for item in result)
+    assert all("pnl_ci_low" in item for item in result)
 
 
 def test_benchmark_fingerprint_binds_artifact_to_exact_dataset():
