@@ -464,9 +464,11 @@ def test_stability_report_splits_required_dimensions_and_adds_ci():
         "asset_phase",
         "horizon",
         "execution_role",
+        "consensus",
         "week",
     }
     assert all("pnl_ci_low" in item and "pnl_ci_high" in item for item in result)
+    assert all("roi" in item for item in result)
     assert all(item["observations"] > 0 for item in result)
 
 

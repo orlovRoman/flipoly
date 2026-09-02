@@ -359,10 +359,24 @@ class ArmMetrics:
     def mean_pnl(self) -> Optional[float]:
         return self.net_pnl / self.trades if self.trades else None
 
+    @property
+    def exposure(self) -> float:
+        return sum(
+            max(0.0, float(item.ask)) * max(0.0, float(item.size_multiplier))
+            for item in self.evaluations
+        )
+
+    @property
+    def roi(self) -> Optional[float]:
+        denominator = self.exposure
+        return self.net_pnl / denominator if denominator > 0.0 else None
+
     def as_dict(self) -> dict[str, Any]:
         result = asdict(self)
         result["win_rate"] = self.win_rate
         result["mean_pnl"] = self.mean_pnl
+        result["exposure"] = round(self.exposure, 10)
+        result["roi"] = self.roi
         result.pop("evaluations", None)
         return result
 
@@ -1339,6 +1353,7 @@ def stability_by_segment(
         "asset_phase",
         "horizon",
         "execution_role",
+        "consensus",
         "week",
     )
     rows: list[dict[str, Any]] = []
@@ -1357,6 +1372,15 @@ def stability_by_segment(
                 key = str(item.asset_phase or "UNKNOWN").strip().upper() or "UNKNOWN"
             elif dimension == "horizon":
                 key = normalize_horizon(item.horizon) or "UNKNOWN"
+            elif dimension == "consensus":
+                agreement = _models_agree(item)
+                key = (
+                    "AGREE"
+                    if agreement is True
+                    else "DISAGREE"
+                    if agreement is False
+                    else "UNKNOWN"
+                )
             elif dimension == "week":
                 key = item.timestamp.strftime("%G-W%V")
             else:
@@ -1387,6 +1411,7 @@ def stability_by_segment(
                     "observations": metrics.observations,
                     "trades": metrics.trades,
                     "net_pnl": metrics.net_pnl,
+                    "roi": metrics.roi,
                     "win_rate": metrics.win_rate,
                     "pnl_ci_low": ci_low,
                     "pnl_ci_high": ci_high,
