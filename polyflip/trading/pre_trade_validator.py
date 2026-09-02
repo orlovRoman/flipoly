@@ -17,6 +17,12 @@ from polyflip.db.models import TradeHistory
 logger = structlog.get_logger(__name__)
 
 
+def _weighted_detail_or_default(details: dict[str, Any], key: str, default: Any) -> Any:
+    """Use runtime fallback when telemetry contains an explicit JSON null."""
+    value = details.get(key)
+    return default if value is None else value
+
+
 @dataclass
 class PreTradeValidation:
     valid: bool
@@ -167,20 +173,24 @@ async def validate_pre_trade(
     if weighted_active:
         weighted_cost = estimate_trade_cost(
             buy_price,
-            fee_rate=weighted_details.get(
+            fee_rate=_weighted_detail_or_default(
+                weighted_details,
                 "weighted_fee_rate",
                 getattr(cfg, "weighted_fee_rate", 0.07),
             ),
-            maker_fee_rate=weighted_details.get(
+            maker_fee_rate=_weighted_detail_or_default(
+                weighted_details,
                 "weighted_maker_fee_rate",
                 getattr(cfg, "weighted_maker_fee_rate", 0.0),
             ),
-            fee_exponent=weighted_details.get(
+            fee_exponent=_weighted_detail_or_default(
+                weighted_details,
                 "weighted_fee_exponent",
                 getattr(cfg, "weighted_fee_exponent", 1.0),
             ),
             slippage_rate=getattr(cfg, "weighted_slippage_rate", 0.005),
-            role=weighted_details.get(
+            role=_weighted_detail_or_default(
+                weighted_details,
                 "weighted_execution_role",
                 getattr(cfg, "weighted_execution_role", "TAKER"),
             ),
@@ -188,7 +198,8 @@ async def validate_pre_trade(
             # spread as adverse-selection cost. Reuse that convention here
             # rather than charging the full spread a second time.
             spread=fresh_spread / 2.0,
-            latency_buffer=weighted_details.get(
+            latency_buffer=_weighted_detail_or_default(
+                weighted_details,
                 "weighted_latency_buffer_per_share",
                 getattr(cfg, "weighted_latency_buffer", 0.0),
             ),

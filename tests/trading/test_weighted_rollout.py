@@ -621,6 +621,10 @@ def test_walk_forward_never_splits_one_market_between_train_and_test():
         assert train_markets.isdisjoint(test_markets)
 
 
+def test_benchmark_config_defaults_to_one_market_group_purge():
+    assert BenchmarkConfig().purge_gap == 1
+
+
 def test_benchmark_arm_metrics_are_out_of_time_only():
     rows = [_row(index, index % 2 == 0) for index in range(12)]
     result = benchmark(
@@ -632,6 +636,7 @@ def test_benchmark_arm_metrics_are_out_of_time_only():
             ),
             train_min_rows=4,
             test_size=4,
+            purge_gap=0,
             bootstrap_iterations=10,
         ),
     )
@@ -1004,3 +1009,76 @@ def test_evaluate_arm_replays_heldout_stacker_probability_without_refitting():
     )
     assert metrics.trades == 1
     assert metrics.evaluations[0].p_win == 0.90
+
+
+def test_probability_lower_bound_fails_closed_without_uncertainty():
+    assert probability_lower_bound(0.90, None) == 0.0
+
+
+def test_tuning_selector_does_not_deploy_unstable_candidate():
+    from polyflip.trading.weighted_benchmark import _select_tuning_candidate
+
+    result = _select_tuning_candidate(
+        "min_net_ev",
+        [{"value": 0.04, "stable_folds": 1, "net_pnl": 100.0, "trades": 1}],
+        minimum_stable_folds=3,
+    )
+    assert result.selected is None
+    assert result.stable_folds == 1
+
+
+def test_activation_gate_strict_rollout_quality_requires_explicit_evidence():
+    evidence = ActivationEvidence(
+        shadow_days=14,
+        shadow_resolved_markets=1000,
+        shadow_candidate_trades=300,
+        repeat_oot_reports=1,
+        pnl_ci_lower=0.01,
+        weighted_brier=0.10,
+        market_brier=0.103,
+        legacy_brier=0.104,
+        weighted_net_pnl=10.0,
+        market_net_pnl=5.0,
+        legacy_net_pnl=4.0,
+    )
+    rejected = activation_gate(evidence, require_rollout_quality=True)
+    assert not rejected.eligible
+    assert "STABILITY_EVIDENCE_MISSING_OR_FAILED" in rejected.reasons
+    assert "SENSITIVITY_EVIDENCE_MISSING_OR_FAILED" in rejected.reasons
+    assert "FIRST_ACTIVE_SIZING_NOT_FIXED" in rejected.reasons
+    assert "FIRST_ACTIVE_BET_NOT_ONE_USDC" in rejected.reasons
+
+    accepted = activation_gate(
+        ActivationEvidence(
+            **{
+                **evidence.__dict__,
+                "stability_ok": True,
+                "sensitivity_ok": True,
+                "sizing_mode": "FIXED",
+                "sizing_base_bet_usdc": 1.0,
+            }
+        ),
+        require_rollout_quality=True,
+    )
+    assert accepted.eligible
+
+def test_market_observation_mapping_uses_book_microprice():
+    item = MarketObservation.from_mapping(
+        {
+            "market_id": "book-1",
+            "timestamp": "2026-01-01T00:00:00+00:00",
+            "asset": "BTC",
+            "yes_bid": 0.40,
+            "yes_ask": 0.60,
+            "yes_bid_size": 1,
+            "yes_ask_size": 3,
+            "no_bid": 0.30,
+            "no_ask": 0.50,
+            "no_bid_size": 2,
+            "no_ask_size": 2,
+            "outcome_yes": True,
+        }
+    )
+    assert item.yes_bid == 0.40
+    assert item.yes_ask_size == 3.0
+    assert item.p_market_yes == pytest.approx(0.45 / 0.85)

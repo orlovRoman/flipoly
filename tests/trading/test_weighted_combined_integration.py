@@ -1,4 +1,5 @@
 from dataclasses import replace
+import pytest
 
 from polyflip.crypto.predictor import CryptoSignal
 from polyflip.trading.combined_voting import evaluate_combined_entry
@@ -84,6 +85,32 @@ def test_weighted_active_replaces_hard_direction_consensus():
     # LogReg and LGBM then add 0.05 log-odds residuals from that prior.
     assert result.weighted_p_final_yes == 0.57026632
     assert result.weighted_cost_per_share == 0.0
+
+
+def test_weighted_runtime_uses_book_microprice_when_depth_available():
+    result = evaluate_combined_entry(
+        crypto_sig=_signal(),
+        market_phase="mid_vol",
+        entry_requested_key="BTC_mid_vol",
+        entry_model_key="BTC_mid_vol",
+        entry_model_version=4,
+        entry_model_source="PHASE",
+        p_flip=0.20,
+        fresh_yes_price=0.50,
+        yes_ask=0.60,
+        no_ask=0.40,
+        cfg=_weighted_cfg("WEIGHTED_ACTIVE"),
+        cost_buffer=0.0,
+        time_left_sec=300.0,
+        yes_bid=0.40,
+        no_bid=0.20,
+        yes_bid_size=3.0,
+        yes_ask_size=1.0,
+        no_bid_size=2.0,
+        no_ask_size=1.0,
+    )
+
+    assert result.weighted_p_market_yes == pytest.approx(0.62264151)
 
 
 def test_weighted_active_ignores_legacy_probability_edge_and_sizing_gates():

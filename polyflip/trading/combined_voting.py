@@ -519,6 +519,12 @@ def _build_weighted_selection(
     spread: float = 0.0,
     spread_cost: Optional[float] = None,
     phase: Optional[str] = None,
+    yes_bid: Optional[float] = None,
+    no_bid: Optional[float] = None,
+    yes_bid_size: Optional[float] = None,
+    yes_ask_size: Optional[float] = None,
+    no_bid_size: Optional[float] = None,
+    no_ask_size: Optional[float] = None,
 ) -> WeightedSelection:
     """Build the shared weighted-policy result for active or shadow mode."""
     lgbm_available = bool(
@@ -571,6 +577,12 @@ def _build_weighted_selection(
     p_market_yes = market_yes_probability(
         yes_ask=yes_ask,
         no_ask=no_ask,
+        yes_bid=yes_bid,
+        no_bid=no_bid,
+        yes_bid_size=yes_bid_size,
+        yes_ask_size=yes_ask_size,
+        no_bid_size=no_bid_size,
+        no_ask_size=no_ask_size,
         fallback_yes=fresh_yes_price,
     )
     p_logreg_yes = logreg_flip_to_yes_probability(p_flip, fresh_yes_price)
@@ -1022,6 +1034,12 @@ def evaluate_combined_entry(
     weighted_fee_source: str = "CONFIG_DEFAULT",
     spread: Optional[float] = None,
     spread_cost: Optional[float] = None,
+    yes_bid: Optional[float] = None,
+    no_bid: Optional[float] = None,
+    yes_bid_size: Optional[float] = None,
+    yes_ask_size: Optional[float] = None,
+    no_bid_size: Optional[float] = None,
+    no_ask_size: Optional[float] = None,
 ) -> CombinedEntryResult:
     """Обёртка для переноса флагов LightGBM в результат."""
     result = _evaluate_combined_entry_inner(
@@ -1073,6 +1091,12 @@ def evaluate_combined_entry(
             spread=spread or 0.0,
             spread_cost=spread_cost,
             phase=market_phase,
+            yes_bid=yes_bid,
+            no_bid=no_bid,
+            yes_bid_size=yes_bid_size,
+            yes_ask_size=yes_ask_size,
+            no_bid_size=no_bid_size,
+            no_ask_size=no_ask_size,
         )
         result = replace(
             result,

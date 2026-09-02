@@ -168,3 +168,29 @@ async def test_paper_live_parity_rejects_crossing_post_only_order():
 
     assert result.accepted is False
     assert result.rejection_code == "PAPER_POST_ONLY_CROSSES_BOOK"
+
+
+@pytest.mark.asyncio
+async def test_instant_gateway_applies_distinct_maker_fee():
+    gateway = FakeExecutionGateway(
+        fee_model="POLYMARKET_PRICE_DEPENDENT",
+        fee_rate="0.07",
+        maker_fee_rate="0.01",
+    )
+    taker = await gateway.submit(_parity_order(), order_type="FAK")
+    maker = await gateway.submit(_parity_order(), order_type="GTC")
+    assert taker.fills[0].fee_usdc > maker.fills[0].fee_usdc
+
+def test_fake_taker_fee_matches_shared_weighted_fee_curve():
+    from polyflip.trading.weighted_policy import polymarket_taker_fee_per_share
+
+    gateway = FakeExecutionGateway(
+        fee_model="POLYMARKET_PRICE_DEPENDENT",
+        fee_rate="0.07",
+        maker_fee_rate="0.01",
+        fee_exponent="1.7",
+    )
+    price = Decimal("0.37")
+    actual = float(gateway._fee_per_share(price, role="TAKER"))
+    expected = polymarket_taker_fee_per_share(0.37, 0.07, 1.7)
+    assert abs(actual - expected) <= 1e-6

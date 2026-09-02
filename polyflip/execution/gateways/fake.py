@@ -32,6 +32,7 @@ class FakeExecutionGateway:
         self,
         *,
         profile: str = "INSTANT",
+        maker_fee_rate: Decimal | float | str = Decimal("0"),
         quote_provider: Callable[[str], Awaitable[Mapping[str, Any]]] | None = None,
         delay_sec: float = 0.0,
         slippage_pct: Decimal | float | str = Decimal("0"),
@@ -45,6 +46,7 @@ class FakeExecutionGateway:
         if normalized_profile not in {"INSTANT", "LIVE_PARITY"}:
             raise ValueError("PAPER profile must be INSTANT or LIVE_PARITY")
         self.profile = normalized_profile
+        self.maker_fee_rate = self._decimal(maker_fee_rate, "0")
         self.quote_provider = quote_provider
         self.delay_sec = max(0.0, float(delay_sec or 0.0))
         self.slippage_pct = self._decimal(slippage_pct, "0")
@@ -62,6 +64,7 @@ class FakeExecutionGateway:
         if (
             self.slippage_pct < 0
             or self.fee_rate < 0
+            or self.maker_fee_rate < 0
             or self.fee_exponent < 0
             or self.min_order_shares <= 0
         ):
@@ -98,23 +101,38 @@ class FakeExecutionGateway:
             self._orders[result.provider_order_id] = result
         return result
 
-    def _fee_per_share(self, price: Decimal) -> Decimal:
+    def _fee_per_share(self, price: Decimal, *, role: str = "TAKER") -> Decimal:
+        normalized_role = str(role or "TAKER").strip().upper()
+        rate = self.maker_fee_rate if normalized_role == "MAKER" else self.fee_rate
         if self.fee_model == "POLYMARKET_PRICE_DEPENDENT":
             bounded_price = max(Decimal("0"), min(Decimal("1"), price))
             curve = bounded_price * (Decimal("1") - bounded_price)
-            return self.fee_rate * (curve ** self.fee_exponent)
-        return price * self.fee_rate
+            return rate * (curve ** self.fee_exponent)
+        return price * rate
 
-    def _fee_for_fill(self, price: Decimal, shares: Decimal) -> Decimal:
+    def _fee_for_fill(
+        self, price: Decimal, shares: Decimal, *, role: str = "TAKER"
+    ) -> Decimal:
         # Polymarket rounds the final USDC fee to five decimal places.
-        return (self._fee_per_share(price) * shares).quantize(Decimal("0.00001"))
+        return (self._fee_per_share(price, role=role) * shares).quantize(
+            Decimal("0.00001")
+        )
 
-    def _instant_result(self, order: GatewayOrder) -> SubmissionResult:
+    def _instant_result(
+        self, order: GatewayOrder, order_type: str = "FAK"
+    ) -> SubmissionResult:
         now = datetime.now(timezone.utc)
         price = order.limit_price
         shares = order.requested_shares
         trade_id = f"TRADE:{order.attempt_id}"
-        fee = self._fee_for_fill(price, shares)
+        normalized_order_type = str(order_type or "FAK").strip().upper()
+        role = (
+            "MAKER"
+            if order.post_only
+            or normalized_order_type in {"GTC", "GTD", "GTC_TTL"}
+            else "TAKER"
+        )
+        fee = self._fee_for_fill(price, shares, role=role)
         fill = TradeExecution(
             provider_trade_id=trade_id,
             gateway=self.name,
@@ -171,10 +189,10 @@ class FakeExecutionGateway:
     async def submit(
         self, order: GatewayOrder, order_type: str = "FAK"
     ) -> SubmissionResult:
-        if self.profile == "INSTANT":
-            return self._instant_result(order)
-
         normalized_order_type = str(order_type or "FAK").upper()
+        if self.profile == "INSTANT":
+            return self._instant_result(order, normalized_order_type)
+
         is_resting = (
             normalized_order_type in {"GTC", "GTD", "GTC_TTL"} or order.post_only
         )
@@ -297,13 +315,15 @@ class FakeExecutionGateway:
                 break
             take = min(remaining, depth)
             if remaining_budget is not None:
-                denominator = execution_price + self._fee_per_share(execution_price)
+                denominator = execution_price + self._fee_per_share(
+                    execution_price, role="TAKER"
+                )
                 if denominator > 0:
                     take = min(take, remaining_budget / denominator)
             if take <= 0:
                 break
             gross = execution_price * take
-            fee = self._fee_for_fill(execution_price, take)
+            fee = self._fee_for_fill(execution_price, take, role="TAKER")
             trade_id = f"TRADE:{order.attempt_id}:{len(fills) + 1}"
             fills.append(
                 TradeExecution(

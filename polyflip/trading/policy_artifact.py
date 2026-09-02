@@ -232,6 +232,10 @@ class ActivationEvidence:
     legacy_net_pnl: Optional[float] = None
     execution_drag: Optional[float] = None
     calibration_error: Optional[float] = None
+    stability_ok: Optional[bool] = None
+    sensitivity_ok: Optional[bool] = None
+    sizing_mode: Optional[str] = None
+    sizing_base_bet_usdc: Optional[float] = None
     # Evidence identity is optional for backwards-compatible manual checks,
     # but required when activation is tied to a concrete artifact.
     policy_id: Optional[str] = None
@@ -253,6 +257,7 @@ def activation_gate(
     min_repeat_oot_reports: int = 1,
     min_live_fills: int = 300,
     require_live_validation: bool = False,
+    require_rollout_quality: bool = False,
     min_brier_improvement: float = 0.002,
     max_execution_drag: float = 0.02,
     max_calibration_error: float = 0.05,
@@ -350,5 +355,26 @@ def activation_gate(
             or abs(float(evidence.calibration_error)) > float(max_calibration_error)
         ):
             reasons.append("CALIBRATION_ERROR_ABOVE_LIMIT")
+
+    if require_rollout_quality:
+        if evidence.stability_ok is not True:
+            reasons.append("STABILITY_EVIDENCE_MISSING_OR_FAILED")
+        if evidence.sensitivity_ok is not True:
+            reasons.append("SENSITIVITY_EVIDENCE_MISSING_OR_FAILED")
+
+        sizing_mode = str(evidence.sizing_mode or "").strip().upper()
+        if sizing_mode != "FIXED":
+            reasons.append("FIRST_ACTIVE_SIZING_NOT_FIXED")
+
+        try:
+            base_bet = (
+                float(evidence.sizing_base_bet_usdc)
+                if evidence.sizing_base_bet_usdc is not None
+                else None
+            )
+        except (TypeError, ValueError, OverflowError):
+            base_bet = None
+        if base_bet is None or not isfinite(base_bet) or abs(base_bet - 1.0) > 1e-9:
+            reasons.append("FIRST_ACTIVE_BET_NOT_ONE_USDC")
 
     return ActivationGate(eligible=not reasons, reasons=tuple(reasons))

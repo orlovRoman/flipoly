@@ -26,6 +26,7 @@ from polyflip.trading.weighted_policy import (
     score_weighted_probability,
     probability_for_side,
     estimate_trade_cost,
+    market_yes_probability,
     select_weighted_side,
 )
 
@@ -156,19 +157,37 @@ class MarketObservation:
     time_left_sec: Optional[float] = None
     legacy_action: Optional[str] = None
     legacy_ask: Optional[float] = None
+    # Optional top-of-book fields are kept at the end to preserve positional
+    # construction compatibility for existing callers.
+    yes_bid: Optional[float] = None
+    no_bid: Optional[float] = None
+    yes_bid_size: Optional[float] = None
+    yes_ask_size: Optional[float] = None
+    no_bid_size: Optional[float] = None
+    no_ask_size: Optional[float] = None
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> "MarketObservation":
         yes_ask = _first_present(raw, "yes_ask", "candidate_ask")
         no_ask = _first_present(raw, "no_ask")
+        yes_bid = _first_present(raw, "yes_bid", "best_yes_bid")
+        no_bid = _first_present(raw, "no_bid", "best_no_bid")
+        yes_bid_size = _first_present(raw, "yes_bid_size", "bid_size_yes")
+        yes_ask_size = _first_present(raw, "yes_ask_size", "ask_size_yes")
+        no_bid_size = _first_present(raw, "no_bid_size", "bid_size_no")
+        no_ask_size = _first_present(raw, "no_ask_size", "ask_size_no")
         p_market = _first_present(raw, "p_market_yes", "weighted_p_market_yes")
-        if p_market is None and yes_ask is not None and no_ask is not None:
-            try:
-                yes, no = float(yes_ask), float(no_ask)
-                if yes > 0.0 and no > 0.0:
-                    p_market = yes / (yes + no)
-            except (TypeError, ValueError):
-                pass
+        if p_market is None:
+            p_market = market_yes_probability(
+                yes_ask=_optional_float(yes_ask),
+                no_ask=_optional_float(no_ask),
+                yes_bid=_optional_float(yes_bid),
+                no_bid=_optional_float(no_bid),
+                yes_bid_size=_optional_float(yes_bid_size),
+                yes_ask_size=_optional_float(yes_ask_size),
+                no_bid_size=_optional_float(no_bid_size),
+                no_ask_size=_optional_float(no_ask_size),
+            )
         raw_evidence = _first_present(raw, "mrf_evidence", "weighted_mrf_evidence")
         observed_cost = _first_present(
             raw, "observed_cost_per_share", "observed_fee_per_share"
@@ -206,6 +225,12 @@ class MarketObservation:
             asset=str(raw.get("asset", "")),
             yes_ask=_probability(yes_ask),
             no_ask=_probability(no_ask),
+            yes_bid=_probability(yes_bid),
+            no_bid=_probability(no_bid),
+            yes_bid_size=_optional_float(yes_bid_size),
+            yes_ask_size=_optional_float(yes_ask_size),
+            no_bid_size=_optional_float(no_bid_size),
+            no_ask_size=_optional_float(no_ask_size),
             outcome_yes=_outcome_yes(
                 _first_present(raw, "outcome_yes", "final_outcome", "settlement_outcome")
             ),
@@ -219,7 +244,9 @@ class MarketObservation:
             spread=max(0.0, _optional_float(raw.get("spread", 0.0)) or 0.0),
             fee_rate=_optional_float(raw.get("fee_rate")),
             fee_exponent=_optional_float(raw.get("fee_exponent")),
-            fee_source=str(raw.get("fee_source", "CONFIG_DEFAULT") or "CONFIG_DEFAULT"),
+            fee_source=str(
+                raw.get("fee_source", "CONFIG_DEFAULT") or "CONFIG_DEFAULT"
+            ),
             execution_role=str(raw.get("execution_role", "TAKER") or "TAKER").upper(),
             market_role=(
                 str(raw["market_role"]).upper()
@@ -286,7 +313,7 @@ class BenchmarkConfig:
     min_net_ev: float = 0.0
     train_min_rows: int = 300
     test_size: int = 100
-    purge_gap: int = 0
+    purge_gap: int = 1
     ridge_lambda: float = 1.0
     coefficient_bound: float = 5.0
     bootstrap_iterations: int = 1000
@@ -462,7 +489,7 @@ def purged_walk_forward_folds(
     *,
     train_min_rows: int = 300,
     test_size: int = 100,
-    purge_gap: int = 0,
+    purge_gap: int = 1,
 ) -> tuple[PurgedFold, ...]:
     """Build chronological folds without splitting one market across windows.
 
@@ -786,7 +813,7 @@ def evaluate_arm(
     time_left_role: Optional[str] = None,
     mrf_stake_gamma: Optional[float] = None,
     sizing_mode: str = "FIXED",
-    sizing_standard_error: float = 0.0,
+    sizing_standard_error: Optional[float] = 0.0,
     sizing_kelly_fraction: float = 0.025,
     sizing_base_bet_usdc: float = 1.0,
     sizing_cap_usdc: float = 3.0,
@@ -1009,7 +1036,12 @@ def evaluate_arm(
         except (TypeError, ValueError, OverflowError):
             base_stake = 1.0
         mode = str(sizing_mode or "FIXED").strip().upper()
-        if mode == "LOWER_BOUND_KELLY":
+        if (
+            sizing_standard_error is None
+            and mode in {"LOWER_BOUND_KELLY", "STEPPED_EDGE"}
+        ):
+            size_multiplier = base_stake
+        elif mode == "LOWER_BOUND_KELLY":
             sizing = conservative_size(
                 quote.p_win,
                 price=quote.ask,
@@ -1108,6 +1140,9 @@ def _select_tuning_candidate(
             minimum_stable_folds=minimum_stable_folds,
             candidates=(),
         )
+    stable_candidate_available = any(
+        int(item.get("stable_folds", 0)) >= minimum_stable_folds for item in candidates
+    )
     selected = max(
         candidates,
         key=lambda item: (
@@ -1119,7 +1154,7 @@ def _select_tuning_candidate(
     )
     return ParameterTuneResult(
         parameter=parameter,
-        selected=selected["value"],
+        selected=selected["value"] if stable_candidate_available else None,
         stable_folds=int(selected["stable_folds"]),
         minimum_stable_folds=minimum_stable_folds,
         candidates=tuple(candidates),
@@ -1504,8 +1539,10 @@ def estimate_oof_standard_error(
     predictions: Mapping[int, float],
     *,
     evaluation_indices: Optional[Sequence[int]] = None,
+    bootstrap_iterations: int = 1000,
+    bootstrap_seed: int = 20260901,
 ) -> Optional[float]:
-    """Estimate calibration uncertainty from chronological OOF residuals."""
+    """Estimate bootstrap SE of chronological OOF calibration residuals."""
     allowed = (
         {int(index) for index in evaluation_indices}
         if evaluation_indices is not None
@@ -1524,7 +1561,24 @@ def estimate_oof_standard_error(
         residuals.append(float(outcome) - probability)
     if len(residuals) < 2:
         return None
-    estimate = float(np.std(np.asarray(residuals), ddof=1))
+    try:
+        iterations = max(2, min(10_000, int(bootstrap_iterations)))
+    except (TypeError, ValueError, OverflowError):
+        iterations = 1000
+    try:
+        seed = int(bootstrap_seed)
+    except (TypeError, ValueError, OverflowError):
+        seed = 20260901
+    values = np.asarray(residuals, dtype=float)
+    rng = np.random.default_rng(seed)
+    bootstrap_means = np.asarray(
+        [
+            float(np.mean(values[rng.integers(0, len(values), size=len(values))]))
+            for _ in range(iterations)
+        ],
+        dtype=float,
+    )
+    estimate = float(np.std(bootstrap_means, ddof=1))
     return round(max(0.0, min(0.5, estimate)), 8)
 
 
@@ -2051,6 +2105,8 @@ def benchmark(
         ordered,
         deployment_oof,
         evaluation_indices=oot_indices,
+        bootstrap_iterations=cfg.bootstrap_iterations,
+        bootstrap_seed=cfg.bootstrap_seed,
     )
     if folds:
         try:
@@ -2099,6 +2155,12 @@ def benchmark(
         cfg.sizing_standard_error,
         oof_standard_error,
     )
+    if (
+        str(cfg.sizing_mode or "FIXED").strip().upper() != "FIXED"
+        and oof_standard_error is None
+        and effective_sizing_standard_error == 0.0
+    ):
+        effective_sizing_standard_error = None
     sizing_kwargs = {
         "sizing_mode": cfg.sizing_mode,
         "sizing_standard_error": effective_sizing_standard_error,

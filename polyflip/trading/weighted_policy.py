@@ -55,20 +55,62 @@ def probability_for_side(p_yes: Optional[float], side: str) -> Optional[float]:
     raise ValueError(f"unsupported side: {side}")
 
 
+def _book_reference(
+    bid: Optional[float],
+    ask: Optional[float],
+    bid_size: Optional[float] = None,
+    ask_size: Optional[float] = None,
+) -> Optional[float]:
+    bid_value = clamp_probability(bid)
+    ask_value = clamp_probability(ask)
+    if ask_value is not None and 0.0 < ask_value < 1.0:
+        if bid_value is not None and 0.0 < bid_value <= ask_value:
+            try:
+                bid_depth, ask_depth = float(bid_size or 0.0), float(ask_size or 0.0)
+            except (TypeError, ValueError, OverflowError):
+                bid_depth = ask_depth = 0.0
+            if bid_depth > 0.0 and ask_depth > 0.0:
+                return round(
+                    (ask_value * bid_depth + bid_value * ask_depth)
+                    / (bid_depth + ask_depth),
+                    8,
+                )
+            return round((bid_value + ask_value) / 2.0, 8)
+        return ask_value
+    return bid_value
+
+
 def market_yes_probability(
     *,
     yes_ask: Optional[float],
     no_ask: Optional[float],
+    yes_bid: Optional[float] = None,
+    no_bid: Optional[float] = None,
+    yes_bid_size: Optional[float] = None,
+    yes_ask_size: Optional[float] = None,
+    no_bid_size: Optional[float] = None,
+    no_ask_size: Optional[float] = None,
     fallback_yes: Optional[float] = None,
 ) -> Optional[float]:
     """Build a normalized YES prior from both executable sides of the book.
 
-    YES and NO asks normally sum to more than one because both include the
-    spread. Normalizing the pair removes that overround and is more stable
-    than treating a single side as the market probability.
+    When bids and sizes are supplied, each side uses a size-weighted
+    microprice; with bids but no depth it falls back to the midpoint. The
+    two references are normalized to remove the binary-book overround. When
+    only asks are available the result remains backwards-compatible.
     """
-    yes = clamp_probability(yes_ask)
-    no = clamp_probability(no_ask)
+    yes = _book_reference(
+        yes_bid,
+        yes_ask,
+        yes_bid_size,
+        yes_ask_size,
+    )
+    no = _book_reference(
+        no_bid,
+        no_ask,
+        no_bid_size,
+        no_ask_size,
+    )
     if (
         yes is not None
         and no is not None

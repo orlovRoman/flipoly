@@ -96,6 +96,7 @@ REGISTRY: list[SettingDef] = [
     SettingDef("PAPER_SLIPPAGE_PCT", "0.5", description="PAPER adverse execution slippage in percent"),
     SettingDef("PAPER_FEE_MODEL", "POLYMARKET_PRICE_DEPENDENT", description="PAPER fee model: POLYMARKET_PRICE_DEPENDENT | FLAT_NOTIONAL"),
     SettingDef("PAPER_FEE_RATE", "0.07", description="PAPER fee-rate parameter; with price-dependent model fee/share = rate × p × (1-p)"),
+    SettingDef("PAPER_MAKER_FEE_RATE", "0.0", description="PAPER maker fee-rate parameter; used for maker fills"),
     SettingDef("PAPER_FEE_EXPONENT", "1.0", description="PAPER fee-curve exponent; in CLOB V2 sourced from fd.e"),
     SettingDef("PAPER_MIN_ORDER_SHARES", "5", description="PAPER minimum outcome-token size"),
     SettingDef("MIRROR_MAX_BACKOFF_SECONDS", "30", description="Maximum retry backoff for the PAPER to LIVE mirror worker"),

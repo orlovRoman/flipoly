@@ -40,6 +40,7 @@ class ExecutionSettings(BaseSettings):
     # into FLAT_NOTIONAL without ambiguity.
     paper_fee_model: str = "POLYMARKET_PRICE_DEPENDENT"
     paper_fee_rate: float = 0.07
+    paper_maker_fee_rate: float = 0.0
     paper_fee_exponent: float = 1.0
 
     paper_min_order_shares: Decimal = POLYMARKET_MIN_ORDER_SHARES

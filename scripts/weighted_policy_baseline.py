@@ -65,7 +65,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--output", required=True)
     result.add_argument("--train-min-rows", type=int, default=300)
     result.add_argument("--test-size", type=int, default=100)
-    result.add_argument("--purge-gap", type=int, default=0)
+    result.add_argument("--purge-gap", type=int, default=1)
     result.add_argument("--ridge-lambda", type=float, default=1.0)
     result.add_argument("--coefficient-bound", type=float, default=5.0)
     result.add_argument("--min-net-ev", type=float, default=0.0)

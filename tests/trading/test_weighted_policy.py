@@ -347,3 +347,17 @@ def test_hierarchical_segment_coefficients_override_global_model():
 
     assert result.p_final_yes == 0.35559502
     assert result.p_final_yes != sigmoid(1.0 + logit(0.60))
+
+
+def test_market_prior_uses_size_weighted_microprice():
+    result = market_yes_probability(
+        yes_bid=0.40,
+        yes_ask=0.60,
+        yes_bid_size=1.0,
+        yes_ask_size=3.0,
+        no_bid=0.30,
+        no_ask=0.50,
+        no_bid_size=2.0,
+        no_ask_size=2.0,
+    )
+    assert math.isclose(result, 0.45 / (0.45 + 0.40), rel_tol=1e-8)

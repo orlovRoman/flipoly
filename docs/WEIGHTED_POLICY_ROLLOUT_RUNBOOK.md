@@ -57,6 +57,8 @@ intervals, threshold/price/time/beta-MRF tuning, 2.5%/5%/10% lower-bound Kelly,
 and fixed $1/$1.5/$2/$3 sizing steps. Stackers use chronological purged
 walk-forward folds, bounded ridge-logistic coefficients, role/agreement
 features and hierarchical segment shrinkage.
+The benchmark CLI defaults to a one-market-group purge gap. Pass `--purge-gap 0`
+only for a documented sensitivity run; it is not the rollout default.
 
 Run the required offline suite:
 
@@ -116,6 +118,12 @@ The pre-live command exits with status 2 until the SHADOW/OOT quality conditions
 are met; live fills are intentionally not required yet. A positive point
 estimate is not enough when the bootstrap lower bound is non-positive.
 repeat_oot_reports must be provided for each independently saved OOT report.
+
+For a final pre-live review, add `--require-rollout-quality` and provide
+`--stability-ok --sensitivity-ok --sizing-mode FIXED
+--sizing-base-bet-usdc 1`. These flags require explicit reviewed evidence for
+stability and parameter sensitivity and reject any first ACTIVE sizing other
+than a fixed one-dollar bet.
 
 After the fixed $1 ACTIVE period has accumulated at least 300 fills, run the
 same check with --require-live-validation. That second gate enforces the T57

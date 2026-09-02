@@ -27,7 +27,9 @@ def probability_lower_bound(
     """One-sided normal lower bound, clipped to a valid probability."""
     p = clamp_probability(p_estimate, 0.5)
     if standard_error is None:
-        uncertainty = 0.0
+        # Unknown OOF uncertainty is not evidence of a perfectly calibrated
+        # model; fail closed for direct sizing callers.
+        return 0.0
     else:
         try:
             uncertainty = float(standard_error)

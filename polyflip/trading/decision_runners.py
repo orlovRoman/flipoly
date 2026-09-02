@@ -25,6 +25,32 @@ from polyflip.crypto.market_regime_classifier import Regime
 logger = structlog.get_logger(__name__)
 
 
+def _best_book_level_size(prices: Any, side: str) -> Optional[float]:
+    """Return the size at the best normalized CLOB level, if present."""
+    levels = prices.get(side) if isinstance(prices, dict) else None
+    if not isinstance(levels, list):
+        return None
+    valid_levels: list[tuple[float, float]] = []
+    for level in levels:
+        if not isinstance(level, dict):
+            continue
+        try:
+            price = float(level.get("price"))
+            size = float(level.get("size") or level.get("quantity") or 0.0)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if price > 0.0 and price < 1.0 and size > 0.0 and price == price and size == size:
+            valid_levels.append((price, size))
+    if not valid_levels:
+        return None
+    _, size = (
+        max(valid_levels, key=lambda item: item[0])
+        if side == "bids"
+        else min(valid_levels, key=lambda item: item[0])
+    )
+    return size
+
+
 def _resolve_entry_flip_threshold(
     models_cache: Any,
     model_key: Optional[str],
@@ -569,13 +595,26 @@ async def decide_combined_mode(
     fresh_yes_price = float(fresh_yes_prices["current_yes_price"])
     fresh_spread = float(fresh_yes_prices.get("current_spread", market.current_spread or 0.01))
     yes_best_ask = float(fresh_yes_prices["best_ask"]) if fresh_yes_prices.get("best_ask") is not None else fresh_yes_price
+    yes_best_bid = float(fresh_yes_prices["best_bid"]) if fresh_yes_prices.get("best_bid") is not None else None
+    yes_bid_size = _best_book_level_size(fresh_yes_prices, "bids")
+    yes_ask_size = _best_book_level_size(fresh_yes_prices, "asks")
 
     # NO prices
     fresh_no_price = 1.0 - fresh_yes_price
     no_best_ask = round(1.0 - yes_best_ask, 8)  # mirror of YES best ask as NO fallback
+    no_best_bid = None
+    no_bid_size = None
+    no_ask_size = None
     if market.no_token_id:
         fresh_no_prices = await api_client.get_market_prices(market.no_token_id)
         if fresh_no_prices and fresh_no_prices.get("best_ask") is not None:
+            no_best_bid = (
+                float(fresh_no_prices["best_bid"])
+                if fresh_no_prices.get("best_bid") is not None
+                else None
+            )
+            no_bid_size = _best_book_level_size(fresh_no_prices, "bids")
+            no_ask_size = _best_book_level_size(fresh_no_prices, "asks")
             no_best_ask = float(fresh_no_prices["best_ask"])
             if fresh_no_prices.get("current_yes_price") is not None:
                 fresh_no_price = float(fresh_no_prices["current_yes_price"])
@@ -831,6 +870,12 @@ async def decide_combined_mode(
         weighted_fee_rate=weighted_fee_rate,
         weighted_fee_exponent=weighted_fee_exponent,
         weighted_fee_source=weighted_fee_source,
+        yes_bid=yes_best_bid,
+        no_bid=no_best_bid,
+        yes_bid_size=yes_bid_size,
+        yes_ask_size=yes_ask_size,
+        no_bid_size=no_bid_size,
+        no_ask_size=no_ask_size,
     )
 
     elapsed = time.monotonic() - t0

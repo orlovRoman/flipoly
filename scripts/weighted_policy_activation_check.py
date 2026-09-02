@@ -35,6 +35,20 @@ def main() -> int:
     parser.add_argument("--legacy-net-pnl", type=float)
     parser.add_argument("--execution-drag", type=float)
     parser.add_argument("--calibration-error", type=float)
+    parser.add_argument(
+        "--stability-ok",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="assert that reviewed stability evidence passed",
+    )
+    parser.add_argument(
+        "--sensitivity-ok",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="assert that reviewed sensitivity evidence passed",
+    )
+    parser.add_argument("--sizing-mode")
+    parser.add_argument("--sizing-base-bet-usdc", type=float)
     parser.add_argument("--min-brier-improvement", type=float, default=0.002)
     parser.add_argument("--max-execution-drag", type=float, default=0.02)
     parser.add_argument("--max-calibration-error", type=float, default=0.05)
@@ -42,6 +56,11 @@ def main() -> int:
         "--require-live-validation",
         action="store_true",
         help="enforce T57 minimum LIVE fills and execution/calibration limits",
+    )
+    parser.add_argument(
+        "--require-rollout-quality",
+        action="store_true",
+        help="also require reviewed stability/sensitivity and fixed $1 first-active sizing",
     )
     parser.add_argument("--artifact")
     parser.add_argument(
@@ -73,9 +92,14 @@ def main() -> int:
         return evidence_values.get(name, default)
 
     artifact_id = None
+    artifact = None
+    artifact_sizing_mode = None
+    artifact_base_bet = None
     if args.artifact:
         artifact = load_policy_artifact(Path(args.artifact))
         artifact_id = artifact.artifact_id
+        artifact_sizing_mode = artifact.policy_config.get("sizing_mode")
+        artifact_base_bet = artifact.policy_config.get("sizing_base_bet_usdc")
 
     def policy_ids_from(*sources: object) -> tuple[str, ...]:
         result: set[str] = set()
@@ -112,6 +136,10 @@ def main() -> int:
         legacy_net_pnl=value("legacy_net_pnl"),
         execution_drag=value("execution_drag"),
         calibration_error=value("calibration_error"),
+        stability_ok=value("stability_ok"),
+        sensitivity_ok=value("sensitivity_ok"),
+        sizing_mode=value("sizing_mode", artifact_sizing_mode),
+        sizing_base_bet_usdc=value("sizing_base_bet_usdc", artifact_base_bet),
         policy_id=observed_policy_id,
         policy_ids=observed_policy_ids,
     )
@@ -122,6 +150,7 @@ def main() -> int:
         max_execution_drag=args.max_execution_drag,
         max_calibration_error=args.max_calibration_error,
         require_live_validation=args.require_live_validation,
+        require_rollout_quality=args.require_rollout_quality,
         expected_policy_id=expected_policy_id,
     )
     reasons = list(gate.reasons)
