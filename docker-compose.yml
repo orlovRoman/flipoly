@@ -227,7 +227,8 @@ services:
     depends_on:
       - db
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}}
       - POLYFLIP_BUILD_SHA=${POLYFLIP_BUILD_SHA:-dev}
