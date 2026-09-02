@@ -225,6 +225,22 @@ REGISTRY: list[SettingDef] = [
                description="Фиксированный бюджет weighted active до валидации sizing."),
     SettingDef("WEIGHTED_MRF_EXTREME_VETO_THRESHOLD", "-1.0",
                description="Экспериментальный extreme MRF veto; -1.0 отключает veto."),
+    SettingDef("WEIGHTED_MODELS_AGREE_BETA", "0.0",
+               description="Поправка за согласие LogReg и LightGBM в log-odds."),
+    SettingDef("WEIGHTED_MRF_APPLICATION", "PROBABILITY",
+               description="Применение MRF: PROBABILITY или STAKE."),
+    SettingDef("WEIGHTED_MRF_SIZING_GAMMA", "0.0",
+               description="Множитель MRF для размера ставки в STAKE-режиме."),
+    SettingDef("WEIGHTED_POLICY_ARTIFACT_PATH", "",
+               description="Путь к immutable weighted-policy artifact внутри API-контейнера."),
+    SettingDef("WEIGHTED_SIZING_MODE", "FIXED",
+               description="Sizing: FIXED | LOWER_BOUND_KELLY | STEPPED_EDGE."),
+    SettingDef("WEIGHTED_STANDARD_ERROR", "0.0",
+               description="OOF uncertainty для conservative lower-bound sizing."),
+    SettingDef("WEIGHTED_KELLY_FRACTION", "0.025",
+               description="Доля Kelly для LOWER_BOUND_KELLY sizing."),
+    SettingDef("WEIGHTED_SIZE_CAP_USDC", "3.0",
+               description="Верхний cap размера weighted ставки в USDC."),
 
 
     # --- Обучение LogReg / Phase models ---
