@@ -1,6 +1,6 @@
 # Weighted trading policy rollout runbook
 
-This runbook is for the isolated branch codex/weighted-trading-policy-rollout.
+This runbook is for the isolated branch codex/weighted-trading-policy.
 The production checkout is not used for development. The safe default remains
 TRADING_POLICY_MODE=LEGACY and LIVE_TRADING_ENABLED=false.
 
@@ -14,8 +14,11 @@ python scripts/weighted_policy_runtime_snapshot.py \
   --assert-live-disabled
 ~~~
 
-The snapshot contains the commit, policy mode, policy ID, costs, MRF mode and
-execution role. It intentionally omits database URLs, private keys and tokens.
+The snapshot contains the commit, complete weighted controls, costs, sizing
+parameters and active ModelRegistry model/version metadata. It intentionally
+omits database URLs, private keys, model weights and tokens. If the database is
+unavailable, active_models_source records that fact instead of inventing
+versions.
 
 ## 2. Capture baseline and observations
 
@@ -48,11 +51,12 @@ estimate.
 ## 3. Offline acceptance
 
 The benchmark compares MARKET_ONLY, LEGACY, MARKET_LOGREG, MARKET_LGBM,
-FULL_WEIGHTED_MRF, OUTSIDER_AGREE and STACKER. It reports Brier score,
-log-loss, realized net PnL, win rate, cluster-bootstrap PnL intervals and
-threshold sensitivity. Stackers use chronological purged walk-forward folds,
-bounded ridge-logistic coefficients, role/agreement features and hierarchical
-segment shrinkage.
+FULL_WEIGHTED, FULL_WEIGHTED_MRF, OUTSIDER_AGREE_ONLY and STACKER. It reports
+Brier score, log-loss, ROI, realized net PnL, win rate, cluster-bootstrap PnL
+intervals, threshold/price/time/beta-MRF tuning, 2.5%/5%/10% lower-bound Kelly,
+and fixed $1/$1.5/$2/$3 sizing steps. Stackers use chronological purged
+walk-forward folds, bounded ridge-logistic coefficients, role/agreement
+features and hierarchical segment shrinkage.
 
 Run the required offline suite:
 
@@ -88,18 +92,22 @@ not replace the LEGACY action.
 Before any fixed-bet activation, check all plan evidence:
 
 ~~~text
-python scripts/weighted_policy_activation_check.py \
-  --shadow-days 14 \
-  --shadow-resolved-markets 1000 \
-  --shadow-candidate-trades 300 \
+python scripts/weighted_policy_shadow_evidence.py \
+  --days 30 \
   --repeat-oot-reports 1 \
-  --live-fills 300 \
-  --pnl-ci-lower 0.01 \
+  --output artifacts/weighted_policy/shadow_evidence.json
+
+python scripts/weighted_policy_activation_check.py \
+  --evidence artifacts/weighted_policy/shadow_evidence.json \
   --artifact artifacts/weighted_policy/policy_v1.json
 ~~~
 
-The command exits with status 2 until every minimum is met. A positive point
-estimate is not enough when the bootstrap lower bound is non-positive.
+The evidence collector is read-only. It derives counts, all-arm telemetry,
+Brier/PnL/cluster-CI, calibration error and LIVE expected-vs-realized price
+drag from the database. The command exits with status 2 until every minimum
+and quality comparison is met. A positive point estimate is not enough when
+the bootstrap lower bound is non-positive. repeat_oot_reports must be
+provided for each independently saved OOT report.
 
 ## 6. Rollout rules
 

@@ -97,18 +97,21 @@ applied to `WEIGHTED_ACTIVE`.
 
 Each combined decision records the component probabilities, effective weights,
 missing components, selected side, YES/NO net EV, selected cost, fee source,
-additive log-odds contributions, `models_agree`, and policy mode in
-`decision_details` / `lgbm_meta`. This makes it possible to compare the shadow
-counterfactual with the executed legacy result before switching to
-`WEIGHTED_ACTIVE`.
+additive log-odds contributions, models_agree, all benchmark-arm summaries,
+and policy mode in decision_details / lgbm_meta. This makes it possible to
+compare the shadow counterfactual with the executed legacy result before
+switching to WEIGHTED_ACTIVE. The offline report also records role-specific
+residuals, tuning candidates, lower-bound Kelly fractions and fixed sizing
+steps, all tied to a dataset fingerprint.
 
 ## Validation checklist
 
 1. Run unit tests for `polyflip/trading/weighted_policy.py` and the combined
    integration tests.
-2. Run `WEIGHTED_SHADOW` over a representative PAPER window and compare
-   action agreement, net EV, realized PnL, fees, fill rate, and calibration by
-   asset/price bucket.
+2. Run WEIGHTED_SHADOW over at least 14 days and 1,000 resolved markets,
+   then run the read-only weighted_policy_shadow_evidence.py collector.
+   Compare all arms' action agreement, net EV, realized PnL, fees, fill rate,
+   and calibration by asset/price bucket.
 3. Check that missing LightGBM signals are visible in telemetry and do not
    silently receive the LightGBM weight.
 4. Only then enable `WEIGHTED_ACTIVE` in a separately reviewed deployment.
