@@ -1,5 +1,6 @@
 from dataclasses import replace
 from unittest.mock import patch
+
 import pytest
 
 from polyflip.crypto.predictor import CryptoSignal
