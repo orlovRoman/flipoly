@@ -218,6 +218,20 @@ def test_evaluate_arm_uses_observed_cost_and_ci_is_reproducible():
     )
 
 
+def test_sizing_sanitizes_non_finite_uncertainty_and_cost_inputs():
+    assert probability_lower_bound(0.70, float("nan")) == 0.0
+    assert probability_lower_bound(0.70, float("inf")) == 0.0
+    decision = conservative_size(
+        0.70,
+        price=float("nan"),
+        cost_per_share=float("nan"),
+        standard_error=float("nan"),
+    )
+    assert decision.p_lower == 0.0
+    assert decision.edge_lower == -0.5
+    assert decision.size_multiplier == 0.0
+
+
 def test_artifact_is_immutable_and_sizing_uses_lower_bound(tmp_path):
     artifact = create_policy_artifact(
         version="test-v1",

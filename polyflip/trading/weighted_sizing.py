@@ -26,8 +26,23 @@ def probability_lower_bound(
 ) -> float:
     """One-sided normal lower bound, clipped to a valid probability."""
     p = clamp_probability(p_estimate, 0.5)
-    uncertainty = max(0.0, float(standard_error or 0.0))
-    z = max(0.0, float(z_score))
+    if standard_error is None:
+        uncertainty = 0.0
+    else:
+        try:
+            uncertainty = float(standard_error)
+        except (TypeError, ValueError, OverflowError):
+            uncertainty = float("nan")
+        if not isfinite(uncertainty) or uncertainty < 0.0:
+            # Unknown uncertainty must not be interpreted as certainty.
+            assert p is not None
+            return 0.0
+    try:
+        z = float(z_score)
+    except (TypeError, ValueError, OverflowError):
+        z = 1.96
+    if not isfinite(z) or z < 0.0:
+        z = 0.0
     assert p is not None
     return max(0.0, min(1.0, p - z * uncertainty))
 
@@ -42,11 +57,25 @@ def fractional_kelly_fraction(
     """Return fractional Kelly for a binary share, after per-share costs."""
     p = clamp_probability(p_win, 0.5)
     q = 1.0 - p if p is not None else 0.5
-    price_plus_cost = max(1e-9, float(price) + max(0.0, float(cost_per_share)))
+    normalized_price = clamp_probability(price, 0.5)
+    assert normalized_price is not None
+    try:
+        cost = float(cost_per_share)
+    except (TypeError, ValueError, OverflowError):
+        cost = 0.0
+    if not isfinite(cost) or cost < 0.0:
+        cost = 0.0
+    try:
+        fraction_value = float(fraction)
+    except (TypeError, ValueError, OverflowError):
+        fraction_value = 0.0
+    if not isfinite(fraction_value) or fraction_value < 0.0:
+        fraction_value = 0.0
+    price_plus_cost = max(1e-9, normalized_price + cost)
     win_profit = max(1e-9, 1.0 - price_plus_cost)
     odds = win_profit / price_plus_cost
     raw = (odds * p - q) / odds
-    return max(0.0, min(1.0, raw * max(0.0, float(fraction))))
+    return max(0.0, min(1.0, raw * fraction_value))
 
 
 DEFAULT_STEPPED_EDGE_THRESHOLDS: tuple[float, float, float] = (0.03, 0.06, 0.10)
@@ -118,14 +147,22 @@ def conservative_size(
 ) -> SizingDecision:
     p = clamp_probability(p_estimate, 0.5)
     assert p is not None
+    normalized_price = clamp_probability(price, 0.5)
+    assert normalized_price is not None
+    try:
+        normalized_cost = float(cost_per_share)
+    except (TypeError, ValueError, OverflowError):
+        normalized_cost = 0.0
+    if not isfinite(normalized_cost) or normalized_cost < 0.0:
+        normalized_cost = 0.0
     p_lower = probability_lower_bound(p, standard_error)
-    edge_lower = p_lower - float(price) - max(0.0, float(cost_per_share))
+    edge_lower = p_lower - normalized_price - normalized_cost
     if edge_lower < float(min_edge_lower):
         return SizingDecision(p, p_lower, edge_lower, 0.0, 0.0, "LOWER_BOUND_EDGE_BELOW_MINIMUM")
     kelly = fractional_kelly_fraction(
         p_lower,
-        price,
-        cost_per_share,
+        normalized_price,
+        normalized_cost,
         fraction=fraction,
     )
     return SizingDecision(p, p_lower, edge_lower, kelly, kelly, "KELLY_FROM_LOWER_BOUND")
