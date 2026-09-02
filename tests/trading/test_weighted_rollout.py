@@ -855,3 +855,32 @@ def test_activation_gate_requires_matching_policy_identity_when_expected():
     )
     assert not mixed.eligible
     assert "POLICY_IDS_MIXED" in mixed.reasons
+
+def test_evaluate_arm_replays_heldout_stacker_probability_without_refitting():
+    row = _row(0, True)
+    leaked_config = WeightedPolicyConfig(
+        fee_rate=0.0,
+        slippage_rate=0.0,
+        stacker_feature_names=(
+            "intercept",
+            "market_logit",
+            "logreg_residual",
+            "lgbm_residual",
+            "mrf_evidence",
+            "role_outsider",
+            "models_agree",
+            "outsider_agree",
+            "outsider_logreg_residual",
+            "outsider_lgbm_residual",
+        ),
+        stacker_coefficients=(-5.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+    )
+    metrics = evaluate_arm(
+        [row],
+        "FULL_WEIGHTED_MRF",
+        config=leaked_config,
+        stacker_predictions={0: 0.90},
+        use_stacker_predictions=True,
+    )
+    assert metrics.trades == 1
+    assert metrics.evaluations[0].p_win == 0.90

@@ -766,6 +766,7 @@ def evaluate_arm(
     sizing_cap_usdc: float = 3.0,
     stacker: Optional[StackerModel] = None,
     stacker_predictions: Optional[Mapping[int, float]] = None,
+    use_stacker_predictions: bool = False,
     evaluation_indices: Optional[Sequence[int]] = None,
 ) -> ArmMetrics:
     """Evaluate one arm using net realized PnL per one-share trade."""
@@ -866,8 +867,20 @@ def evaluate_arm(
             metrics.net_pnl += pnl
             metrics.total_cost += float(cost) * base_stake
             continue
-        if arm_name == "STACKER" and stacker_predictions is not None:
+        prediction_override = (
+            stacker_predictions is not None
+            and (use_stacker_predictions or arm_name == "STACKER")
+        )
+        if prediction_override:
+            if use_stacker_predictions and arm_name == "OUTSIDER_AGREE_ONLY":
+                if (
+                    observation_role != "OUTSIDER"
+                    or _models_agree(observation) is not True
+                ):
+                    continue
             p = stacker_predictions.get(index)
+            if p is None:
+                continue
             inputs = (p, None, None, p)
         else:
             inputs = _inputs(observation, arm_name, stacker)
@@ -1087,6 +1100,8 @@ def optimize_min_net_ev(
     folds: Optional[Sequence[PurgedFold]] = None,
     evaluation_indices: Optional[Sequence[int]] = None,
     minimum_stable_folds: int = 3,
+    stacker_predictions: Optional[Mapping[int, float]] = None,
+    use_stacker_predictions: bool = False,
 ) -> ParameterTuneResult:
     target = str(role).strip().upper()
     if target not in {"FAVORITE", "OUTSIDER"}:
@@ -1100,6 +1115,8 @@ def optimize_min_net_ev(
                 config=config,
                 min_net_ev_favorite=float(value) if target == "FAVORITE" else None,
                 min_net_ev_outsider=float(value) if target == "OUTSIDER" else None,
+                stacker_predictions=stacker_predictions,
+                use_stacker_predictions=use_stacker_predictions,
                 evaluation_indices=indices or None,
             )
             for indices in _tuning_indices(folds, evaluation_indices)
@@ -1130,6 +1147,8 @@ def optimize_price_cap(
     folds: Optional[Sequence[PurgedFold]] = None,
     evaluation_indices: Optional[Sequence[int]] = None,
     minimum_stable_folds: int = 3,
+    stacker_predictions: Optional[Mapping[int, float]] = None,
+    use_stacker_predictions: bool = False,
 ) -> ParameterTuneResult:
     target = str(role).strip().upper()
     if target not in {"FAVORITE", "OUTSIDER"}:
@@ -1143,6 +1162,8 @@ def optimize_price_cap(
                 config=config,
                 outsider_max_price=float(value) if target == "OUTSIDER" else None,
                 favorite_max_price=float(value) if target == "FAVORITE" else None,
+                stacker_predictions=stacker_predictions,
+                use_stacker_predictions=use_stacker_predictions,
                 evaluation_indices=indices or None,
             )
             for indices in _tuning_indices(folds, evaluation_indices)
@@ -1173,6 +1194,8 @@ def optimize_time_window(
     folds: Optional[Sequence[PurgedFold]] = None,
     evaluation_indices: Optional[Sequence[int]] = None,
     minimum_stable_folds: int = 3,
+    stacker_predictions: Optional[Mapping[int, float]] = None,
+    use_stacker_predictions: bool = False,
 ) -> ParameterTuneResult:
     target = str(role).strip().upper()
     if target not in {"FAVORITE", "OUTSIDER"}:
@@ -1186,6 +1209,8 @@ def optimize_time_window(
                 config=config,
                 time_left_range=(float(lower), float(upper)),
                 time_left_role=target,
+                stacker_predictions=stacker_predictions,
+                use_stacker_predictions=use_stacker_predictions,
                 evaluation_indices=indices or None,
             )
             for indices in _tuning_indices(folds, evaluation_indices)
@@ -1297,6 +1322,8 @@ def compare_outsider_agreement(
     folds: Optional[Sequence[PurgedFold]] = None,
     evaluation_indices: Optional[Sequence[int]] = None,
     min_net_ev: float = 0.0,
+    stacker_predictions: Optional[Mapping[int, float]] = None,
+    use_stacker_predictions: bool = False,
 ) -> dict[str, Any]:
     """Compare hard outsider consensus to the soft models_agree coefficient."""
     candidates: list[dict[str, Any]] = []
@@ -1308,6 +1335,8 @@ def compare_outsider_agreement(
                 arm,
                 config=config,
                 min_net_ev=min_net_ev,
+                stacker_predictions=stacker_predictions,
+                use_stacker_predictions=use_stacker_predictions,
                 evaluation_indices=indices or None,
             )
             for indices in _tuning_indices(folds, evaluation_indices)
@@ -1560,6 +1589,8 @@ def stability_by_segment(
     sizing_kelly_fraction: float = 0.025,
     sizing_base_bet_usdc: float = 1.0,
     sizing_cap_usdc: float = 3.0,
+    stacker_predictions: Optional[Mapping[int, float]] = None,
+    use_stacker_predictions: bool = False,
 ) -> tuple[dict[str, Any], ...]:
     """Report OOT net PnL by asset, role, horizon and execution role."""
     allowed = (
@@ -1613,6 +1644,8 @@ def stability_by_segment(
                 arm,
                 config=config,
                 evaluation_indices=indices,
+                stacker_predictions=stacker_predictions,
+                use_stacker_predictions=use_stacker_predictions,
                 sizing_mode=sizing_mode,
                 sizing_standard_error=sizing_standard_error,
                 sizing_kelly_fraction=sizing_kelly_fraction,
@@ -1651,6 +1684,8 @@ def evaluate_sizing_steps(
     evaluation_indices: Optional[Sequence[int]] = None,
     bootstrap_iterations: int = 1000,
     bootstrap_seed: int = 20260901,
+    stacker_predictions: Optional[Mapping[int, float]] = None,
+    use_stacker_predictions: bool = False,
 ) -> tuple[dict[str, Any], ...]:
     """Compare fixed stake levels on one identical OOT sample."""
     rows: list[dict[str, Any]] = []
@@ -1666,6 +1701,8 @@ def evaluate_sizing_steps(
             min_net_ev=min_net_ev,
             sizing_mode="FIXED",
             sizing_base_bet_usdc=stake,
+            stacker_predictions=stacker_predictions,
+            use_stacker_predictions=use_stacker_predictions,
             evaluation_indices=evaluation_indices,
         )
         ci_low, ci_high = cluster_bootstrap_ci(
@@ -1714,6 +1751,8 @@ def compare_kelly_fractions(
     evaluation_indices: Optional[Sequence[int]] = None,
     bootstrap_iterations: int = 1000,
     bootstrap_seed: int = 20260901,
+    stacker_predictions: Optional[Mapping[int, float]] = None,
+    use_stacker_predictions: bool = False,
 ) -> tuple[dict[str, Any], ...]:
     """Compare 2.5/5/10% lower-bound Kelly on one fixed OOT sample."""
     rows: list[dict[str, Any]] = []
@@ -1730,6 +1769,8 @@ def compare_kelly_fractions(
             sizing_mode="LOWER_BOUND_KELLY",
             sizing_standard_error=standard_error,
             sizing_kelly_fraction=value,
+            stacker_predictions=stacker_predictions,
+            use_stacker_predictions=use_stacker_predictions,
             evaluation_indices=evaluation_indices,
         )
         ci_low, ci_high = cluster_bootstrap_ci(
@@ -1904,10 +1945,12 @@ def benchmark(
     )
     stacker_model = None
     oof: dict[int, float] = {}
+    deployment_oof: dict[int, float] = {}
     for fold in folds:
+        train_rows = [ordered[i] for i in fold.train_indices]
         try:
             model = fit_ridge_logistic_stacker(
-                [ordered[i] for i in fold.train_indices],
+                train_rows,
                 ridge_lambda=cfg.ridge_lambda,
                 coefficient_bound=cfg.coefficient_bound,
             )
@@ -1916,16 +1959,37 @@ def benchmark(
             # fold in the audit trail but do not let one sparse train window
             # invalidate the remaining OOT folds.
             continue
+        fold_hierarchical = None
+        try:
+            fold_hierarchical = fit_hierarchical_stackers(
+                train_rows,
+                global_model=model,
+                min_segment_rows=cfg.hierarchical_min_segment_rows,
+                shrinkage=cfg.hierarchical_shrinkage,
+                ridge_lambda=cfg.ridge_lambda,
+                coefficient_bound=cfg.coefficient_bound,
+            )
+        except ValueError:
+            # The global fold model remains a valid fallback when a segment
+            # cannot be fitted from that training window.
+            pass
         for i in fold.test_indices:
             p = model.predict_one(ordered[i])
             if p is not None:
                 oof[i] = p
+            deployment_prediction = (
+                fold_hierarchical.predict_one(ordered[i])
+                if fold_hierarchical is not None
+                else p
+            )
+            if deployment_prediction is not None:
+                deployment_oof[i] = deployment_prediction
     oot_indices = tuple(
         sorted({index for fold in folds for index in fold.test_indices})
     )
     oof_standard_error = estimate_oof_standard_error(
         ordered,
-        oof,
+        deployment_oof,
         evaluation_indices=oot_indices,
     )
     if folds:
@@ -1949,14 +2013,19 @@ def benchmark(
         )
     except ValueError:
         hierarchical_model = None
-    # Evaluate the same hierarchical model that is serialized into the policy
-    # artifact.  The global model remains the fallback for segments below the
-    # independent-market minimum, while qualifying segments use their shrunk
-    # coefficients in OOT scoring and tuning.
-    evaluation_policy_config = cfg.policy_config
+    # Keep ordinary OOT arms free of any full-sample fitted coefficients. The
+    # deployable artifact is evaluated with fold-held-out predictions below;
+    # its full-sample hierarchical coefficients are reserved for final export.
+    base_evaluation_config = replace(
+        cfg.policy_config,
+        stacker_feature_names=(),
+        stacker_coefficients=(),
+        stacker_segment_models=(),
+    )
+    deployment_policy_config = base_evaluation_config
     if hierarchical_model is not None:
-        evaluation_policy_config = replace(
-            cfg.policy_config,
+        deployment_policy_config = replace(
+            base_evaluation_config,
             stacker_feature_names=hierarchical_model.global_model.feature_names,
             stacker_coefficients=hierarchical_model.global_model.coefficients,
             stacker_segment_models=tuple(
@@ -1975,13 +2044,22 @@ def benchmark(
     }
     results: list[ArmMetrics] = []
     for arm in arms:
+        arm_name = arm.upper()
+        use_deployment_oof = arm_name in {"FULL_WEIGHTED_MRF", "OUTSIDER_AGREE_ONLY"}
         result = evaluate_arm(
             ordered,
             arm,
-            config=evaluation_policy_config,
+            config=(deployment_policy_config if use_deployment_oof else base_evaluation_config),
             min_net_ev=cfg.min_net_ev,
             stacker=stacker_model,
-            stacker_predictions=oof if arm.upper() == "STACKER" else None,
+            stacker_predictions=(
+                deployment_oof
+                if use_deployment_oof
+                else oof
+                if arm_name == "STACKER"
+                else None
+            ),
+            use_stacker_predictions=use_deployment_oof,
             evaluation_indices=oot_indices,
             **sizing_kwargs,
         )
@@ -1995,11 +2073,11 @@ def benchmark(
         result = evaluate_arm(
             ordered,
             "STACKER",
-            config=evaluation_policy_config,
+            config=deployment_policy_config,
             min_net_ev=cfg.min_net_ev,
             evaluation_indices=oot_indices,
             stacker=stacker_model,
-            stacker_predictions=oof,
+            stacker_predictions=deployment_oof,
             **sizing_kwargs,
         )
         result.pnl_ci_low, result.pnl_ci_high = cluster_bootstrap_ci(
@@ -2014,7 +2092,7 @@ def benchmark(
             result = evaluate_arm(
                 ordered,
                 arm,
-                config=evaluation_policy_config,
+                config=base_evaluation_config,
                 min_net_ev=float(threshold),
                 evaluation_indices=oot_indices,
                 **sizing_kwargs,
@@ -2032,7 +2110,7 @@ def benchmark(
         parameter_sensitivity(
             ordered,
             arm="FULL_WEIGHTED_MRF",
-            config=evaluation_policy_config,
+            config=base_evaluation_config,
             evaluation_indices=oot_indices,
             **sizing_kwargs,
         )
@@ -2040,16 +2118,20 @@ def benchmark(
     stability = stability_by_segment(
         ordered,
         arm="FULL_WEIGHTED_MRF",
-        config=evaluation_policy_config,
+        config=deployment_policy_config,
         evaluation_indices=oot_indices,
+        stacker_predictions=deployment_oof,
+        use_stacker_predictions=True,
         **sizing_kwargs,
     )
     sizing_steps = evaluate_sizing_steps(
         ordered,
         arm="FULL_WEIGHTED_MRF",
-        config=evaluation_policy_config,
+        config=deployment_policy_config,
         min_net_ev=cfg.min_net_ev,
         evaluation_indices=oot_indices,
+        stacker_predictions=deployment_oof,
+        use_stacker_predictions=True,
         bootstrap_iterations=cfg.bootstrap_iterations,
         bootstrap_seed=cfg.bootstrap_seed,
     )
@@ -2057,7 +2139,7 @@ def benchmark(
     mrf_beta_result = optimize_mrf_beta(
         ordered,
         candidate_values=cfg.candidate_mrf_beta,
-        config=evaluation_policy_config,
+        config=base_evaluation_config,
         folds=folds,
         evaluation_indices=None if folds else None,
         min_net_ev=cfg.min_net_ev,
@@ -2073,7 +2155,7 @@ def benchmark(
             "parameter": "mrf_application",
             "result": compare_mrf_application(
                 ordered,
-                config=evaluation_policy_config,
+                config=base_evaluation_config,
                 folds=folds,
                 evaluation_indices=None if folds else None,
                 beta=selected_beta,
@@ -2083,10 +2165,12 @@ def benchmark(
     tuning_results.append(
         compare_outsider_agreement(
             ordered,
-            config=evaluation_policy_config,
+            config=deployment_policy_config,
             folds=folds,
             evaluation_indices=None if folds else None,
             min_net_ev=cfg.min_net_ev,
+            stacker_predictions=deployment_oof,
+            use_stacker_predictions=True,
         )
     )
     for role in ("FAVORITE", "OUTSIDER"):
@@ -2096,9 +2180,11 @@ def benchmark(
                 role=role,
                 arm="FULL_WEIGHTED_MRF",
                 candidate_values=cfg.candidate_min_net_ev,
-                config=evaluation_policy_config,
+                config=deployment_policy_config,
                 folds=folds,
                 evaluation_indices=None if folds else None,
+                stacker_predictions=deployment_oof,
+                use_stacker_predictions=True,
             ).as_dict()
         )
         tuning_results.append(
@@ -2111,9 +2197,11 @@ def benchmark(
                     if role == "FAVORITE"
                     else cfg.candidate_price_caps
                 ),
-                config=evaluation_policy_config,
+                config=deployment_policy_config,
                 folds=folds,
                 evaluation_indices=None if folds else None,
+                stacker_predictions=deployment_oof,
+                use_stacker_predictions=True,
             ).as_dict()
         )
         tuning_results.append(
@@ -2122,15 +2210,19 @@ def benchmark(
                 role=role,
                 windows=cfg.candidate_time_windows,
                 arm="FULL_WEIGHTED_MRF",
-                config=evaluation_policy_config,
+                config=deployment_policy_config,
                 folds=folds,
                 evaluation_indices=None if folds else None,
+                stacker_predictions=deployment_oof,
+                use_stacker_predictions=True,
             ).as_dict()
         )
     kelly_fractions = compare_kelly_fractions(
         ordered,
         arm="FULL_WEIGHTED_MRF",
-        config=evaluation_policy_config,
+        config=deployment_policy_config,
+        stacker_predictions=deployment_oof,
+        use_stacker_predictions=True,
         standard_error=(
             oof_standard_error
             if oof_standard_error is not None
