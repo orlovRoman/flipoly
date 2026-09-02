@@ -1037,9 +1037,16 @@ async def decide_combined_mode(
         or (comb_res.candidate_side == "BUY_YES" and fresh_yes_price < 0.50)
     ) if comb_res.candidate_side else False
     min_edge_val = (
-        cfg.get_weighted_min_net_ev(is_outsider)
-        if policy_mode == "WEIGHTED_ACTIVE"
-        else cfg.get_min_edge(is_outsider=is_outsider)
+        comb_res.weighted_min_net_ev
+        if (
+            policy_mode == "WEIGHTED_ACTIVE"
+            and comb_res.weighted_min_net_ev is not None
+        )
+        else (
+            cfg.get_weighted_min_net_ev(is_outsider)
+            if policy_mode == "WEIGHTED_ACTIVE"
+            else cfg.get_min_edge(is_outsider=is_outsider)
+        )
     )
 
     g1_loaded = bool(entry_model is not None and (lgbm_applied or comb_res.entry_status not in ("MODEL_NOT_FOUND", "MODEL_NOT_LOADED")))
