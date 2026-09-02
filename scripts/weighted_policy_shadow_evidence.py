@@ -80,6 +80,12 @@ def _side(value: Any) -> Optional[str]:
     return None
 
 
+def _bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _payload(row: Mapping[str, Any]) -> dict[str, Any]:
     raw = row.get("weighted_benchmark_json")
     if isinstance(raw, Mapping):
@@ -99,6 +105,10 @@ def _ask_for_side(
     summary: Optional[Mapping[str, Any]] = None,
 ) -> Optional[float]:
     if summary:
+        if "policy_eligible" in summary and _bool(summary.get("policy_eligible")):
+            value = _float(summary.get("policy_selected_ask"))
+            if value is not None:
+                return value
         value = _float(summary.get("selected_ask"))
         if value is not None:
             return value
@@ -132,7 +142,10 @@ def _pnl(
         return None
     cost = None
     if summary:
-        cost = _float(summary.get("selected_cost_per_share"))
+        if "policy_eligible" in summary and _bool(summary.get("policy_eligible")):
+            cost = _float(summary.get("policy_selected_cost_per_share"))
+        if cost is None:
+            cost = _float(summary.get("selected_cost_per_share"))
         if cost is None:
             side_key = (
                 "yes_cost_per_share" if side == "BUY_YES" else "no_cost_per_share"
@@ -188,6 +201,7 @@ def summarize_shadow_rows(rows: list[Mapping[str, Any]]) -> dict[str, Any]:
         name: [] for name in ARM_NAMES
     }
     candidate_trades = 0
+    raw_candidate_trades = 0
     telemetry_rows = 0
     arm_coverage = {name: 0 for name in ARM_NAMES}
     policy_ids = sorted(
@@ -239,9 +253,25 @@ def summarize_shadow_rows(rows: list[Mapping[str, Any]]) -> dict[str, Any]:
                     row.get("legacy_action", row.get("final_action", row.get("candidate_side")))
                 )
             if name == "FULL_WEIGHTED_MRF":
-                selected_side = selected_side or _side(row.get("weighted_selected_side"))
-            if name == "FULL_WEIGHTED_MRF" and selected_side is not None:
-                candidate_trades += 1
+                raw_selected_side = selected_side or _side(row.get("weighted_selected_side"))
+                if raw_selected_side is not None:
+                    raw_candidate_trades += 1
+                if summary and "policy_eligible" in summary:
+                    selected_side = (
+                        _side(summary.get("policy_selected_side"))
+                        if _bool(summary.get("policy_eligible"))
+                        else None
+                    )
+                elif str(row.get("weighted_policy_id") or "").strip():
+                    # An identified policy without eligibility telemetry is not
+                    # enough to claim an executable candidate.
+                    selected_side = None
+                else:
+                    # Backwards-compatible handling for unversioned/manual
+                    # fixtures created before policy eligibility was persisted.
+                    selected_side = raw_selected_side
+                if selected_side is not None:
+                    candidate_trades += 1
             pnl = _pnl(row, selected_side, outcome_yes, summary)
             if pnl is not None:
                 arm_pnls[name].append((market_id, timestamp, pnl))
@@ -283,6 +313,7 @@ def summarize_shadow_rows(rows: list[Mapping[str, Any]]) -> dict[str, Any]:
         "shadow_days": duration_days,
         "shadow_resolved_markets": len(resolved_markets),
         "shadow_candidate_trades": candidate_trades,
+        "shadow_raw_candidate_trades": raw_candidate_trades,
         "pnl_ci_lower": arms["FULL_WEIGHTED_MRF"]["pnl_ci_lower"],
         "weighted_brier": arms["FULL_WEIGHTED_MRF"]["brier"],
         "market_brier": arms["MARKET_ONLY"]["brier"],
@@ -502,6 +533,7 @@ async def collect(
             "shadow_days",
             "shadow_resolved_markets",
             "shadow_candidate_trades",
+            "shadow_raw_candidate_trades",
             "pnl_ci_lower",
             "weighted_brier",
             "market_brier",

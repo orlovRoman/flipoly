@@ -249,6 +249,10 @@ def test_weighted_active_applies_nested_artifact_tuning_controls(tmp_path):
     assert price_result.action == "SKIP"
     assert price_result.entry_status == "PRICE_OUT_OF_BOUNDS"
     assert "tuned max 0.53" in price_result.reason
+    price_shadow = price_result.weighted_benchmark_json["FULL_WEIGHTED_MRF"]
+    assert price_shadow["selected_side"] == "BUY_YES"
+    assert price_shadow["policy_eligible"] is False
+    assert "tuned max 0.53" in price_shadow["policy_skip_reason"]
 
     accepted_cfg = replace(
         _weighted_cfg("WEIGHTED_ACTIVE"),
@@ -261,6 +265,9 @@ def test_weighted_active_applies_nested_artifact_tuning_controls(tmp_path):
     accepted_result = _evaluate(accepted_cfg)
     assert accepted_result.action == "BUY_YES"
     assert accepted_result.max_acceptable_price == 0.56
+    accepted_shadow = accepted_result.weighted_benchmark_json["FULL_WEIGHTED_MRF"]
+    assert accepted_shadow["policy_eligible"] is True
+    assert accepted_shadow["policy_selected_side"] == "BUY_YES"
 
     time_cfg = replace(
         _weighted_cfg("WEIGHTED_ACTIVE"),
@@ -272,6 +279,9 @@ def test_weighted_active_applies_nested_artifact_tuning_controls(tmp_path):
     assert time_result.action == "SKIP"
     assert time_result.entry_status == "INVALID_TIME"
     assert "tuned [301, 600]" in time_result.reason
+    time_shadow = time_result.weighted_benchmark_json["FULL_WEIGHTED_MRF"]
+    assert time_shadow["policy_eligible"] is False
+    assert "tuned [301, 600]" in time_shadow["policy_skip_reason"]
 
 
 def test_weighted_active_applies_artifact_mrf_tuning_and_agreement(tmp_path):

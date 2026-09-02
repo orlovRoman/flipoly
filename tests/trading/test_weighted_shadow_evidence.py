@@ -136,3 +136,81 @@ def test_shadow_pnl_uses_each_arm_selected_cost():
         ]
     )
     assert result["telemetry"]["arms"]["FULL_WEIGHTED_MRF"]["net_pnl"] == 0.40
+
+
+def test_shadow_summary_counts_only_policy_eligible_candidates_for_identified_artifact():
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    payload = {
+        "FULL_WEIGHTED_MRF": {
+            "p_final_yes": 0.90,
+            "selected_side": "BUY_YES",
+            "selected_ask": 0.40,
+            "selected_cost_per_share": 0.01,
+            "policy_eligible": False,
+            "policy_skip_reason": "Weighted favorite price 0.400 > tuned max 0.35",
+        }
+    }
+    payload["FULL_WEIGHTED_MRF"].update(
+        {"policy_selected_side": None, "policy_selected_ask": None}
+    )
+    eligible = {
+        "FULL_WEIGHTED_MRF": {
+            "p_final_yes": 0.80,
+            "selected_side": "BUY_YES",
+            "selected_ask": 0.30,
+            "selected_cost_per_share": 0.02,
+            "policy_eligible": True,
+            "policy_selected_side": "BUY_YES",
+            "policy_selected_ask": 0.30,
+            "policy_selected_cost_per_share": 0.02,
+            "policy_net_ev_per_share": 0.48,
+        }
+    }
+    result = summarize_shadow_rows(
+        [
+            {
+                "market_id": "m-rejected",
+                "created_at": start,
+                "outcome_yes": "YES",
+                "weighted_policy_id": "artifact-a",
+                "weighted_benchmark_json": json.dumps(payload),
+            },
+            {
+                "market_id": "m-accepted",
+                "created_at": start + timedelta(minutes=1),
+                "outcome_yes": "YES",
+                "weighted_policy_id": "artifact-a",
+                "weighted_benchmark_json": json.dumps(eligible),
+            },
+        ]
+    )
+    assert result["shadow_raw_candidate_trades"] == 2
+    assert result["shadow_candidate_trades"] == 1
+    assert result["telemetry"]["arms"]["FULL_WEIGHTED_MRF"]["trades"] == 1
+    assert result["telemetry"]["arms"]["FULL_WEIGHTED_MRF"]["net_pnl"] == 0.68
+
+
+def test_identified_legacy_shadow_rows_without_eligibility_are_not_counted():
+    result = summarize_shadow_rows(
+        [
+            {
+                "market_id": "m-old",
+                "created_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
+                "outcome_yes": "YES",
+                "weighted_policy_id": "artifact-a",
+                "weighted_benchmark_json": json.dumps(
+                    {
+                        "FULL_WEIGHTED_MRF": {
+                            "selected_side": "BUY_YES",
+                            "selected_ask": 0.40,
+                            "selected_cost_per_share": 0.0,
+                            "p_final_yes": 0.9,
+                        }
+                    }
+                ),
+            }
+        ]
+    )
+    assert result["shadow_raw_candidate_trades"] == 1
+    assert result["shadow_candidate_trades"] == 0
+    assert result["telemetry"]["arms"]["FULL_WEIGHTED_MRF"]["trades"] == 0

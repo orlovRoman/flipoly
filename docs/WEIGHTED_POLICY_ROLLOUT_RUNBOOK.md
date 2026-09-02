@@ -106,13 +106,16 @@ python scripts/weighted_policy_activation_check.py \
 
 The evidence collector is read-only. It derives counts, all-arm telemetry,
 Brier/PnL/cluster-CI, calibration error and LIVE expected-vs-realized price
-drag from the database. Pass the artifact ID so shadow and ACTIVE rows are
-filtered to one immutable policy; the activation check rejects missing,
-mixed, or mismatched policy IDs. The pre-live command exits with status 2 until the
-SHADOW/OOT quality conditions are met; live fills are intentionally not
-required yet. A positive point estimate is not enough when the bootstrap lower
-bound is non-positive. repeat_oot_reports must be provided for each
-independently saved OOT report.
+drag from the database. Raw arm decisions remain in each benchmark summary,
+while `policy_*` fields replay the ACTIVE role, spread, time, price, agreement
+and net-EV gates; `shadow_candidate_trades` counts only policy-eligible
+candidates and `shadow_raw_candidate_trades` exposes the unfiltered raw count.
+Pass the artifact ID so shadow and ACTIVE rows are filtered to one immutable
+policy; the activation check rejects missing, mixed, or mismatched policy IDs.
+The pre-live command exits with status 2 until the SHADOW/OOT quality conditions
+are met; live fills are intentionally not required yet. A positive point
+estimate is not enough when the bootstrap lower bound is non-positive.
+repeat_oot_reports must be provided for each independently saved OOT report.
 
 After the fixed $1 ACTIVE period has accumulated at least 300 fills, run the
 same check with --require-live-validation. That second gate enforces the T57

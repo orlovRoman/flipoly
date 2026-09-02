@@ -671,12 +671,147 @@ def _build_weighted_selection(
     return selection
 
 
+
+def _weighted_policy_eligibility(
+    summary: Mapping[str, Any],
+    cfg: "TradingConfig",
+    *,
+    fresh_yes_price: float,
+    time_left_sec: Optional[float],
+    spread: Optional[float],
+) -> dict[str, Any]:
+    """Replay ACTIVE execution gates for the FULL shadow arm.
+
+    ``selected_side`` remains the raw counterfactual arm decision used for
+    model comparison. These extra fields identify whether that decision would
+    actually pass the same role, spread, time, price and net-EV gates as
+    ``WEIGHTED_ACTIVE``. Keeping both views prevents activation evidence from
+    counting non-executable raw opportunities.
+    """
+    side = str(summary.get("selected_side") or "").strip().upper()
+    if side not in {"BUY_YES", "BUY_NO"}:
+        return {
+            "policy_eligible": False,
+            "policy_skip_reason": str(summary.get("reason") or "NO_SELECTION"),
+            "policy_role": None,
+            "policy_selected_side": None,
+            "policy_selected_ask": None,
+            "policy_selected_cost_per_share": None,
+            "policy_net_ev_per_share": None,
+        }
+    try:
+        ask = float(summary.get("selected_ask"))
+    except (TypeError, ValueError, OverflowError):
+        ask = float("nan")
+    if not isfinite(ask) or not 0.0 < ask < 1.0:
+        return {
+            "policy_eligible": False,
+            "policy_skip_reason": "NO_VALID_ASK",
+            "policy_role": None,
+            "policy_selected_side": None,
+            "policy_selected_ask": None,
+            "policy_selected_cost_per_share": None,
+            "policy_net_ev_per_share": None,
+        }
+    try:
+        fresh = float(fresh_yes_price)
+    except (TypeError, ValueError, OverflowError):
+        fresh = float("nan")
+    is_outsider = (side == "BUY_YES" and fresh < 0.50) or (side == "BUY_NO" and fresh >= 0.50)
+    role = "OUTSIDER" if is_outsider else "FAVORITE"
+
+    def rejected(reason: str) -> dict[str, Any]:
+        return {
+            "policy_eligible": False,
+            "policy_skip_reason": reason,
+            "policy_role": role,
+            "policy_selected_side": None,
+            "policy_selected_ask": None,
+            "policy_selected_cost_per_share": None,
+            "policy_net_ev_per_share": None,
+        }
+
+    if not isfinite(fresh):
+        return rejected("INVALID_FRESH_YES_PRICE")
+    if not is_outsider and not cfg.trade_on_favorite:
+        return rejected(f"TRADE_ON_FAVORITE_DISABLED:{side}")
+    if is_outsider and not cfg.trade_on_flip:
+        return rejected(f"TRADE_ON_FLIP_DISABLED:{side}")
+
+    if spread is not None:
+        try:
+            spread_value = abs(float(spread))
+            max_spread_pct = float(getattr(cfg, "max_spread_pct", 0.0))
+            selected_mid = fresh if side == "BUY_YES" else 1.0 - fresh
+            spread_ratio = spread_value / max(selected_mid, 1e-9)
+        except (TypeError, ValueError, OverflowError):
+            spread_value, max_spread_pct, spread_ratio = 0.0, 0.0, 0.0
+        if max_spread_pct > 0.0 and spread_ratio > max_spread_pct:
+            return rejected(
+                f"Spread {spread_value:.4f} / selected mid {selected_mid:.4f} "
+                f"= {spread_ratio:.4f} > max {max_spread_pct:.4f}"
+            )
+
+    if time_left_sec is None:
+        return rejected("time_left=unknown")
+    try:
+        time_value = float(time_left_sec)
+    except (TypeError, ValueError, OverflowError):
+        time_value = float("nan")
+    if not isfinite(time_value):
+        return rejected("time_left=unknown")
+    valid_time, time_reason = cfg.is_time_valid(time_value, is_outsider)
+    if not valid_time:
+        return rejected(time_reason)
+    tuned_window = _weighted_tuned_time_window(cfg, is_outsider)
+    if tuned_window is not None:
+        lower, upper = tuned_window
+        if not lower <= time_value <= upper:
+            return rejected(
+                f"weighted {role.lower()}: time_left={time_value:.0f}s "
+                f"out of tuned [{lower:g}, {upper:g}]"
+            )
+
+    valid_price, price_reason = cfg.is_price_valid(ask, is_outsider)
+    if not valid_price:
+        return rejected(price_reason)
+    tuned_cap = _weighted_tuned_price_cap(cfg, is_outsider)
+    if tuned_cap is not None and ask > tuned_cap:
+        return rejected(f"Weighted {role.lower()} price {ask:.3f} > tuned max {tuned_cap:g}")
+    if (
+        is_outsider
+        and _weighted_outsider_agreement_mode(cfg) == "OUTSIDER_AGREE_ONLY"
+        and summary.get("models_agree") is not True
+    ):
+        return rejected("OUTSIDER_AGREE_GATE")
+
+    try:
+        net_ev = float(summary.get("net_ev_per_share"))
+    except (TypeError, ValueError, OverflowError):
+        net_ev = float("nan")
+    threshold = _weighted_min_net_ev(cfg, is_outsider)
+    if not isfinite(net_ev) or net_ev < threshold:
+        return rejected(
+            f"Insufficient net edge: {net_ev:.4f} < min {threshold:.4f}"
+        )
+    return {
+        "policy_eligible": True,
+        "policy_skip_reason": None,
+        "policy_role": role,
+        "policy_selected_side": side,
+        "policy_selected_ask": ask,
+        "policy_selected_cost_per_share": summary.get("selected_cost_per_share"),
+        "policy_net_ev_per_share": net_ev,
+    }
+
 def _weighted_benchmark_snapshot(
     selection: WeightedSelection,
     cfg: "TradingConfig",
     *,
     fresh_yes_price: float,
     legacy_action: Optional[str],
+    time_left_sec: Optional[float],
+    spread: Optional[float],
 ) -> dict[str, dict[str, Any]]:
     """Build compact same-snapshot counterfactual arms for shadow telemetry."""
     probability = selection.probability
@@ -741,9 +876,21 @@ def _weighted_benchmark_snapshot(
         config=policy_cfg,
         mrf_evidence=probability.mrf_evidence,
         role="OUTSIDER" if fresh_yes_price < 0.50 else "FAVORITE",
+        time_left_sec=time_left_sec,
         fee_source=quoted.cost.source if quoted else "CONFIG_DEFAULT",
         spread=quoted.cost.spread_per_share if quoted else 0.0,
     )
+    full_summary = snapshot.get("FULL_WEIGHTED_MRF")
+    if isinstance(full_summary, dict):
+        full_summary.update(
+            _weighted_policy_eligibility(
+                full_summary,
+                cfg,
+                fresh_yes_price=fresh_yes_price,
+                time_left_sec=time_left_sec,
+                spread=spread,
+            )
+        )
     legacy_quote = (
         selection.yes_quote
         if legacy_action == "BUY_YES"
@@ -773,6 +920,8 @@ def _weighted_result_fields(
     *,
     cfg: "TradingConfig",
     fresh_yes_price: float,
+    time_left_sec: Optional[float],
+    spread: Optional[float],
     legacy_action: Optional[str] = None,
 ) -> dict[str, Any]:
     """Flatten weighted policy telemetry into ``CombinedEntryResult`` fields."""
@@ -826,6 +975,8 @@ def _weighted_result_fields(
             cfg,
             fresh_yes_price=fresh_yes_price,
             legacy_action=legacy_action,
+            time_left_sec=time_left_sec,
+            spread=spread,
         ),
         **_weighted_sizing_fields(cfg, selection, fresh_yes_price),
     }
@@ -918,6 +1069,8 @@ def evaluate_combined_entry(
                 _weighted_policy_id(cfg),
                 cfg=cfg,
                 fresh_yes_price=fresh_yes_price,
+                time_left_sec=time_left_sec,
+                spread=spread,
                 legacy_action=result.action,
             ),
         )
