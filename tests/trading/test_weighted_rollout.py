@@ -143,6 +143,9 @@ def test_mrf_beta_and_outsider_agreement_are_compared_on_oot_rows():
         "FULL_WEIGHTED_MRF",
         "OUTSIDER_AGREE_ONLY",
     }
+    assert "difference" in agreement
+    assert agreement["selected"] == "FULL_WEIGHTED_MRF"
+    assert agreement["difference"]["statistically_better"] is False
 
 
 def test_legacy_arm_replays_persisted_action_instead_of_reselecting_weighted_side():

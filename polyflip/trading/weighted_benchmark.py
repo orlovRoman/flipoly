@@ -1212,6 +1212,46 @@ def optimize_mrf_beta(
     )
 
 
+def cluster_bootstrap_difference_ci(
+    baseline: Sequence[TradeEvaluation],
+    candidate: Sequence[TradeEvaluation],
+    *,
+    iterations: int = 1000,
+    seed: int = 20260902,
+    alpha: float = 0.05,
+) -> tuple[Optional[float], Optional[float]]:
+    """Return a cluster-bootstrap CI for candidate minus baseline PnL.
+
+    Both arms are evaluated on the same OOT rows, but may trade different
+    subsets. Missing arm/cluster PnL is therefore treated as zero and the
+    resampling unit remains ``market_id|UTC-date`` rather than an individual
+    horizon snapshot.
+    """
+    grouped: dict[str, list[float]] = {}
+    for item, sign in ((baseline, -1.0), (candidate, 1.0)):
+        for evaluation in item:
+            timestamp = evaluation.timestamp.astimezone(timezone.utc)
+            cluster = f"{evaluation.market_id}|{timestamp.date().isoformat()}"
+            grouped.setdefault(cluster, []).append(sign * float(evaluation.pnl))
+    if not grouped:
+        return None, None
+    keys = list(grouped)
+    rng = np.random.default_rng(seed)
+    samples = np.asarray(
+        [
+            sum(sum(grouped[keys[index]]) for index in rng.integers(0, len(keys), len(keys)))
+            for _ in range(max(1, int(iterations)))
+        ],
+        dtype=float,
+    )
+    lower_q = max(0.0, min(1.0, float(alpha) / 2.0))
+    upper_q = max(0.0, min(1.0, 1.0 - float(alpha) / 2.0))
+    return (
+        round(float(np.quantile(samples, lower_q)), 10),
+        round(float(np.quantile(samples, upper_q)), 10),
+    )
+
+
 def compare_outsider_agreement(
     observations: Sequence[MarketObservation],
     *,
@@ -1222,6 +1262,7 @@ def compare_outsider_agreement(
 ) -> dict[str, Any]:
     """Compare hard outsider consensus to the soft models_agree coefficient."""
     candidates: list[dict[str, Any]] = []
+    metrics_by_arm: dict[str, list[ArmMetrics]] = {}
     for arm in ("FULL_WEIGHTED_MRF", "OUTSIDER_AGREE_ONLY"):
         fold_metrics = [
             evaluate_arm(
@@ -1248,14 +1289,41 @@ def compare_outsider_agreement(
                 ),
             }
         )
-    selected = max(
-        candidates,
-        key=lambda item: (float(item["net_pnl"]), int(item["stable_folds"]), -int(item["trades"])),
+        metrics_by_arm[arm] = fold_metrics
+    soft_evaluations = [
+        item
+        for metrics in metrics_by_arm["FULL_WEIGHTED_MRF"]
+        for item in metrics.evaluations
+    ]
+    hard_evaluations = [
+        item
+        for metrics in metrics_by_arm["OUTSIDER_AGREE_ONLY"]
+        for item in metrics.evaluations
+    ]
+    delta_low, delta_high = cluster_bootstrap_difference_ci(
+        soft_evaluations,
+        hard_evaluations,
+    )
+    hard_statistically_better = delta_low is not None and delta_low > 0.0
+    selected_value = (
+        "OUTSIDER_AGREE_ONLY"
+        if hard_statistically_better
+        else "FULL_WEIGHTED_MRF"
     )
     return {
         "parameter": "outsider_agreement",
-        "selected": selected["value"],
+        "selected": selected_value,
         "candidates": candidates,
+        "difference": {
+            "candidate_minus_baseline": "OUTSIDER_AGREE_ONLY - FULL_WEIGHTED_MRF",
+            "pnl_delta": round(
+                candidates[1]["net_pnl"] - candidates[0]["net_pnl"], 10
+            ),
+            "pnl_ci_low": delta_low,
+            "pnl_ci_high": delta_high,
+            "statistically_better": hard_statistically_better,
+            "bootstrap_iterations": 1000,
+        },
         "comparison": {
             "soft_models_agree": "FULL_WEIGHTED_MRF",
             "hard_consensus": "OUTSIDER_AGREE_ONLY",
