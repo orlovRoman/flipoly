@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
 
 SAFE_ENV_KEYS = (
     "POLYFLIP_BUILD_SHA",
@@ -18,6 +22,7 @@ SAFE_ENV_KEYS = (
     "WEIGHTED_LOGREG_WEIGHT",
     "WEIGHTED_LGBM_WEIGHT",
     "WEIGHTED_MRF_BETA",
+    "WEIGHTED_INTERCEPT",
     "WEIGHTED_FEE_RATE",
     "WEIGHTED_MAKER_FEE_RATE",
     "WEIGHTED_FEE_EXPONENT",
@@ -28,9 +33,38 @@ SAFE_ENV_KEYS = (
     "WEIGHTED_MIN_NET_EV_OUTSIDER",
     "WEIGHTED_FIXED_BET_USDC",
     "WEIGHTED_MRF_EXTREME_VETO_THRESHOLD",
+    "WEIGHTED_MODELS_AGREE_BETA",
+    "WEIGHTED_MRF_APPLICATION",
+    "WEIGHTED_MRF_SIZING_GAMMA",
+    "WEIGHTED_SIZING_MODE",
+    "WEIGHTED_STANDARD_ERROR",
+    "WEIGHTED_KELLY_FRACTION",
+    "WEIGHTED_SIZE_CAP_USDC",
+    "WEIGHTED_POLICY_ARTIFACT_PATH",
+    "PAPER_FEE_MODEL",
+    "PAPER_FEE_RATE",
+    "PAPER_FEE_EXPONENT",
     "MARKET_REGIME_FILTER_MODE",
     "LIVE_TRADING_ENABLED",
     "EXECUTION_MODE",
+)
+
+MODEL_COLUMNS = (
+    "id",
+    "asset",
+    "version",
+    "model_type",
+    "features",
+    "decision_threshold",
+    "decision_threshold_down",
+    "brier_score",
+    "ece",
+    "interval",
+    "dataset_fingerprint",
+    "trained_at",
+    "quality_gate_passed",
+    "activation_source",
+    "activated_at",
 )
 
 
@@ -58,20 +92,82 @@ def build_snapshot() -> dict[str, Any]:
             "branch": _git(["rev-parse", "--abbrev-ref", "HEAD"]),
         },
         "safe_environment": environment,
+        "active_models": [],
+        "active_models_source": "not_requested",
         "secrets_omitted": True,
     }
+
+
+async def _active_models(database_url: str) -> tuple[list[dict[str, Any]], str, str | None]:
+    """Read active model metadata without loading model weights or secrets."""
+    url = database_url
+    if url.startswith("postgresql://"):
+        url = "postgresql+asyncpg://" + url[len("postgresql://"):]
+    engine = create_async_engine(url, pool_pre_ping=True)
+    try:
+        async with engine.connect() as connection:
+            if url.startswith("sqlite"):
+                result = await connection.execute(text("PRAGMA table_info(model_registry)"))
+                available = {str(row[1]) for row in result.fetchall()}
+            else:
+                result = await connection.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema = current_schema() AND table_name = 'model_registry'"
+                    )
+                )
+                available = {str(row[0]) for row in result.fetchall()}
+            if not {"asset", "version", "is_active"}.issubset(available):
+                return [], "unavailable", "MODEL_REGISTRY_SCHEMA_INCOMPLETE"
+            selected = [column for column in MODEL_COLUMNS if column in available]
+            query = (
+                "SELECT "
+                + ", ".join(selected)
+                + " FROM model_registry WHERE is_active IS TRUE "
+                + "ORDER BY asset, version DESC"
+            )
+            result = await connection.execute(text(query))
+            rows: list[dict[str, Any]] = []
+            for row in result.mappings().all():
+                item = dict(row)
+                for key, value in tuple(item.items()):
+                    if isinstance(value, datetime):
+                        item[key] = value.isoformat()
+                rows.append(item)
+            return rows, "database", None
+    except Exception as exc:
+        # Do not echo a DSN or driver message that could contain credentials.
+        return [], "error", type(exc).__name__
+    finally:
+        await engine.dispose()
+
+
+async def enrich_snapshot(snapshot: dict[str, Any], database_url: str | None) -> dict[str, Any]:
+    if not database_url:
+        return snapshot
+    models, source, error = await _active_models(database_url)
+    snapshot["active_models"] = models
+    snapshot["active_models_source"] = source
+    if error:
+        snapshot["active_models_error"] = error
+    return snapshot
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True)
     parser.add_argument(
+        "--database-url",
+        default=os.getenv("DATABASE_URL"),
+        help="read-only database URL used to include active ModelRegistry versions",
+    )
+    parser.add_argument(
         "--assert-live-disabled",
         action="store_true",
         help="fail if the snapshot says that live trading is enabled",
     )
     args = parser.parse_args()
-    snapshot = build_snapshot()
+    snapshot = asyncio.run(enrich_snapshot(build_snapshot(), args.database_url))
     if args.assert_live_disabled:
         live_enabled = str(
             snapshot["safe_environment"].get("LIVE_TRADING_ENABLED", "")
