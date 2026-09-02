@@ -136,6 +136,19 @@ def test_spread_is_included_in_both_policy_quotes():
     assert result.selected.net_ev_per_share == 0.02
 
 
+def test_mrf_stake_application_never_changes_probability():
+    result = score_weighted_probability(
+        p_market_yes=0.60,
+        p_logreg_yes=0.60,
+        p_lgbm_yes=0.60,
+        config=WeightedPolicyConfig(mrf_beta=0.5, mrf_application="STAKE"),
+        mrf_evidence=-1.0,
+    )
+
+    assert result.p_final_yes == 0.60
+    assert result.mrf_adjustment_logodds == 0.0
+
+
 def test_mrf_evidence_adjusts_log_odds_only_when_enabled():
     base = score_weighted_probability(
         p_market_yes=0.60,

@@ -505,6 +505,12 @@ def score_weighted_probability(
         beta = 0.0
     if not isfinite(beta):
         beta = 0.0
+    # MRF stake-adjustment is intentionally orthogonal to probability.
+    # Enforce that contract in the pure scorer so every caller (runtime,
+    # benchmark and shadow) cannot accidentally apply the evidence twice.
+    application = str(config.mrf_application or "PROBABILITY").strip().upper()
+    if application in {"STAKE", "STAKE_ADJUSTMENT"}:
+        beta = 0.0
     try:
         intercept = float(config.intercept)
     except (TypeError, ValueError, OverflowError):
