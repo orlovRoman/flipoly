@@ -236,7 +236,11 @@ async def _fetch_trade_rows(connection, days: int) -> list[dict[str, Any]]:
         item["observed_cost_per_share"] = item.get("weighted_cost_per_share")
         item["spread"] = item.get("weighted_spread_per_share") or 0.0
         item["outcome_yes"] = item.get("settlement_outcome")
-        item["legacy_action"] = "BUY_YES" if side == "YES" else "BUY_NO"
+        # p_logreg_win is relative to the persisted candidate side. Trade
+        # history stores that side as outcome_bought, so expose it explicitly
+        # for the YES-axis conversion in MarketObservation.from_mapping.
+        item["candidate_side"] = "BUY_YES" if side == "YES" else "BUY_NO"
+        item["legacy_action"] = item["candidate_side"]
         item["legacy_ask"] = price
         item["group"] = str(item.get("asset") or "")
         rows.append(item)
