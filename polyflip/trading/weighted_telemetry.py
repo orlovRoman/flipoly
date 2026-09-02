@@ -59,10 +59,12 @@ WEIGHTED_TELEMETRY_FIELDS: tuple[str, ...] = (
 
 
 def _value(details: Mapping[str, Any], key: str) -> Any:
-    """Read a canonical key, then its flat weighted alias."""
-    if key in details:
-        return details[key]
-    return details.get(f"weighted_{key}")
+    """Read the first non-null value from canonical/weighted aliases."""
+    for name in (key, f"weighted_{key}"):
+        value = details.get(name)
+        if value is not None and value != "":
+            return value
+    return None
 
 
 def weighted_telemetry_from_details(
