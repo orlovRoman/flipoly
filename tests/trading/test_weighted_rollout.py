@@ -295,6 +295,48 @@ def test_artifact_config_is_immutable_and_overrides_runtime_fallback():
     assert runtime.fee_rate == 0.02
 
 
+def test_evaluate_arm_passes_context_to_hierarchical_stacker():
+    names = (
+        "intercept",
+        "market_logit",
+        "logreg_residual",
+        "lgbm_residual",
+        "mrf_evidence",
+        "role_outsider",
+        "models_agree",
+        "outsider_agree",
+        "outsider_logreg_residual",
+        "outsider_lgbm_residual",
+    )
+    row = MarketObservation(
+        **{
+            **_row(0).__dict__,
+            "market_role": "FAVORITE",
+            "phase": "MID_VOL",
+            "yes_ask": 0.55,
+            "no_ask": 0.45,
+        }
+    )
+    config = WeightedPolicyConfig(
+        fee_rate=0.0,
+        slippage_rate=0.0,
+        stacker_feature_names=names,
+        stacker_coefficients=(1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+        stacker_segment_models=(
+            (
+                "BTC|MID_VOL|FAVORITE|AGREE",
+                (-1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            ),
+        ),
+    )
+
+    metrics = evaluate_arm([row], "FULL_WEIGHTED_MRF", config=config)
+
+    assert metrics.trades == 1
+    assert metrics.evaluations[0].side == "BUY_NO"
+    assert metrics.evaluations[0].p_win == 0.53810153
+
+
 def test_artifact_round_trips_hierarchical_segment_models():
     rows = [
         MarketObservation(

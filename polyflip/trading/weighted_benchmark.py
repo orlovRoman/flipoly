@@ -512,11 +512,20 @@ def _independent_market_key(observation: MarketObservation) -> str:
 
 def observation_segment_key(observation: MarketObservation) -> str:
     raw_role = str(observation.market_role or "UNKNOWN").strip().upper() or "UNKNOWN"
-    role = "OUTSIDER" if _is_outsider_role(raw_role) else raw_role
+    role = (
+        "OUTSIDER"
+        if _is_outsider_role(raw_role)
+        else "FAVORITE"
+        if raw_role in {"FAVORITE", "FAV"}
+        else raw_role
+    )
     phase = str(observation.phase or "UNKNOWN").strip().upper() or "UNKNOWN"
     agreement = _models_agree(observation)
     agreement_label = "AGREE" if agreement is True else ("DISAGREE" if agreement is False else "UNKNOWN")
-    return f"{observation.asset.strip().upper() or 'UNKNOWN'}|{phase}|{role}|{agreement_label}"
+    raw_asset = str(observation.asset or "UNKNOWN").strip().upper() or "UNKNOWN"
+    raw_asset = raw_asset.split("_", 1)[0] or "UNKNOWN"
+    asset = raw_asset[:-4] if raw_asset.endswith("USDT") and len(raw_asset) > 4 else raw_asset
+    return f"{asset}|{phase}|{role}|{agreement_label}"
 
 def _stacker_features(observation: MarketObservation) -> Optional[tuple[float, ...]]:
     if observation.p_market_yes is None:
@@ -882,6 +891,10 @@ def evaluate_arm(
                     if arm_name in {"FULL_WEIGHTED_MRF", "WEIGHTED", "OUTSIDER_AGREE", "OUTSIDER_AGREE_ONLY"}
                     else None
                 ),
+                asset=observation.asset,
+                phase=observation.phase,
+                role=observation_role,
+                time_left_sec=observation.time_left_sec,
             )
             p_final = scored.p_final_yes
         outcome = 1.0 if observation.outcome_yes else 0.0
@@ -905,6 +918,10 @@ def evaluate_arm(
             no_ask=observation.no_ask,
             config=policy,
             mrf_evidence=mrf,
+            asset=observation.asset,
+            phase=observation.phase,
+            role=observation_role,
+            time_left_sec=observation.time_left_sec,
             min_net_ev=selector_min,
             fee_source=observation.fee_source,
             spread=observation.spread,
@@ -1932,6 +1949,23 @@ def benchmark(
         )
     except ValueError:
         hierarchical_model = None
+    # Evaluate the same hierarchical model that is serialized into the policy
+    # artifact.  The global model remains the fallback for segments below the
+    # independent-market minimum, while qualifying segments use their shrunk
+    # coefficients in OOT scoring and tuning.
+    evaluation_policy_config = cfg.policy_config
+    if hierarchical_model is not None:
+        evaluation_policy_config = replace(
+            cfg.policy_config,
+            stacker_feature_names=hierarchical_model.global_model.feature_names,
+            stacker_coefficients=hierarchical_model.global_model.coefficients,
+            stacker_segment_models=tuple(
+                sorted(
+                    (key, model.coefficients)
+                    for key, model in hierarchical_model.segment_models.items()
+                )
+            ),
+        )
     sizing_kwargs = {
         "sizing_mode": cfg.sizing_mode,
         "sizing_standard_error": cfg.sizing_standard_error,
@@ -1944,7 +1978,7 @@ def benchmark(
         result = evaluate_arm(
             ordered,
             arm,
-            config=cfg.policy_config,
+            config=evaluation_policy_config,
             min_net_ev=cfg.min_net_ev,
             stacker=stacker_model,
             stacker_predictions=oof if arm.upper() == "STACKER" else None,
@@ -1961,7 +1995,7 @@ def benchmark(
         result = evaluate_arm(
             ordered,
             "STACKER",
-            config=cfg.policy_config,
+            config=evaluation_policy_config,
             min_net_ev=cfg.min_net_ev,
             evaluation_indices=oot_indices,
             stacker=stacker_model,
@@ -1980,7 +2014,7 @@ def benchmark(
             result = evaluate_arm(
                 ordered,
                 arm,
-                config=cfg.policy_config,
+                config=evaluation_policy_config,
                 min_net_ev=float(threshold),
                 evaluation_indices=oot_indices,
                 **sizing_kwargs,
@@ -1998,7 +2032,7 @@ def benchmark(
         parameter_sensitivity(
             ordered,
             arm="FULL_WEIGHTED_MRF",
-            config=cfg.policy_config,
+            config=evaluation_policy_config,
             evaluation_indices=oot_indices,
             **sizing_kwargs,
         )
@@ -2006,14 +2040,14 @@ def benchmark(
     stability = stability_by_segment(
         ordered,
         arm="FULL_WEIGHTED_MRF",
-        config=cfg.policy_config,
+        config=evaluation_policy_config,
         evaluation_indices=oot_indices,
         **sizing_kwargs,
     )
     sizing_steps = evaluate_sizing_steps(
         ordered,
         arm="FULL_WEIGHTED_MRF",
-        config=cfg.policy_config,
+        config=evaluation_policy_config,
         min_net_ev=cfg.min_net_ev,
         evaluation_indices=oot_indices,
         bootstrap_iterations=cfg.bootstrap_iterations,
@@ -2023,7 +2057,7 @@ def benchmark(
     mrf_beta_result = optimize_mrf_beta(
         ordered,
         candidate_values=cfg.candidate_mrf_beta,
-        config=cfg.policy_config,
+        config=evaluation_policy_config,
         folds=folds,
         evaluation_indices=None if folds else None,
         min_net_ev=cfg.min_net_ev,
@@ -2039,7 +2073,7 @@ def benchmark(
             "parameter": "mrf_application",
             "result": compare_mrf_application(
                 ordered,
-                config=cfg.policy_config,
+                config=evaluation_policy_config,
                 folds=folds,
                 evaluation_indices=None if folds else None,
                 beta=selected_beta,
@@ -2049,7 +2083,7 @@ def benchmark(
     tuning_results.append(
         compare_outsider_agreement(
             ordered,
-            config=cfg.policy_config,
+            config=evaluation_policy_config,
             folds=folds,
             evaluation_indices=None if folds else None,
             min_net_ev=cfg.min_net_ev,
@@ -2062,7 +2096,7 @@ def benchmark(
                 role=role,
                 arm="FULL_WEIGHTED_MRF",
                 candidate_values=cfg.candidate_min_net_ev,
-                config=cfg.policy_config,
+                config=evaluation_policy_config,
                 folds=folds,
                 evaluation_indices=None if folds else None,
             ).as_dict()
@@ -2077,7 +2111,7 @@ def benchmark(
                     if role == "FAVORITE"
                     else cfg.candidate_price_caps
                 ),
-                config=cfg.policy_config,
+                config=evaluation_policy_config,
                 folds=folds,
                 evaluation_indices=None if folds else None,
             ).as_dict()
@@ -2088,7 +2122,7 @@ def benchmark(
                 role=role,
                 windows=cfg.candidate_time_windows,
                 arm="FULL_WEIGHTED_MRF",
-                config=cfg.policy_config,
+                config=evaluation_policy_config,
                 folds=folds,
                 evaluation_indices=None if folds else None,
             ).as_dict()
@@ -2096,7 +2130,7 @@ def benchmark(
     kelly_fractions = compare_kelly_fractions(
         ordered,
         arm="FULL_WEIGHTED_MRF",
-        config=cfg.policy_config,
+        config=evaluation_policy_config,
         standard_error=(
             oof_standard_error
             if oof_standard_error is not None

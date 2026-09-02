@@ -294,12 +294,22 @@ def compute_net_ev_per_share(
     return round(probability - price - costs.total_per_share, 8)
 
 
-def _stacker_segment_key(inputs: ProbabilityInputs) -> str:
-    """Match the benchmark's asset/phase/role/agreement segment key."""
+def _segment_asset_labels(value: Any) -> tuple[str, ...]:
+    """Return canonical base-asset and raw aliases for segment lookup."""
+    raw = str(value or "UNKNOWN").strip().upper() or "UNKNOWN"
+    raw = raw.split("_", 1)[0] or "UNKNOWN"
+    canonical = raw[:-4] if raw.endswith("USDT") and len(raw) > 4 else raw
+    return (canonical, raw) if canonical != raw else (canonical,)
+
+
+def _stacker_segment_key_parts(inputs: ProbabilityInputs) -> tuple[str, ...]:
+    """Match benchmark segment labels and tolerate legacy asset aliases."""
     raw_role = str(inputs.role or "UNKNOWN").strip().upper() or "UNKNOWN"
     role = (
         "OUTSIDER"
         if raw_role in {"OUTSIDER", "OUTS", "UNDERDOG"}
+        else "FAVORITE"
+        if raw_role in {"FAVORITE", "FAV"}
         else raw_role
     )
     phase = str(inputs.phase or "UNKNOWN").strip().upper() or "UNKNOWN"
@@ -311,8 +321,15 @@ def _stacker_segment_key(inputs: ProbabilityInputs) -> str:
         if agreement is False
         else "UNKNOWN"
     )
-    asset = str(inputs.asset or "UNKNOWN").strip().upper() or "UNKNOWN"
-    return f"{asset}|{phase}|{role}|{agreement_label}"
+    return tuple(
+        f"{asset}|{phase}|{role}|{agreement_label}"
+        for asset in _segment_asset_labels(inputs.asset)
+    )
+
+
+def _stacker_segment_key(inputs: ProbabilityInputs) -> str:
+    """Return the canonical benchmark asset/phase/role/agreement key."""
+    return _stacker_segment_key_parts(inputs)[0]
 
 
 def _stacker_score(
@@ -337,7 +354,7 @@ def _stacker_score(
             segment_key, segment_values = segment
         except (TypeError, ValueError):
             continue
-        if str(segment_key) == _stacker_segment_key(inputs):
+        if str(segment_key) in _stacker_segment_key_parts(inputs):
             try:
                 candidate = tuple(float(value) for value in segment_values)
             except (TypeError, ValueError, OverflowError):
