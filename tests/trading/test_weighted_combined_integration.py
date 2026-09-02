@@ -1,4 +1,5 @@
 from dataclasses import replace
+from unittest.mock import patch
 import pytest
 
 from polyflip.crypto.predictor import CryptoSignal
@@ -552,3 +553,20 @@ def test_weighted_active_applies_stacker_coefficients_from_artifact(tmp_path):
     assert result.action == "BUY_YES"
     assert result.weighted_p_final_yes == 0.76139497
     assert result.weighted_p_final_yes != 0.57026632
+
+
+def test_weighted_active_builds_selection_once_for_decision_and_telemetry():
+    cfg = _weighted_cfg("WEIGHTED_ACTIVE")
+    import polyflip.trading.combined_voting as combined_voting
+
+    with patch.object(
+        combined_voting,
+        "_build_weighted_selection",
+        wraps=combined_voting._build_weighted_selection,
+    ) as build:
+        result = _evaluate(cfg)
+
+    assert build.call_count == 1
+    assert result.weighted_market_reference_logodds == (
+        result.weighted_market_contribution_logodds
+    )

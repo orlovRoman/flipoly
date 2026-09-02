@@ -70,12 +70,23 @@ MODEL_COLUMNS = (
 
 def _git(command: list[str]) -> str | None:
     try:
-        return subprocess.check_output(
+        value = subprocess.check_output(
             ["git", *command],
             text=True,
             stderr=subprocess.DEVNULL,
         ).strip()
+        return value or None
     except (OSError, subprocess.CalledProcessError):
+        # Production images do not include the .git directory. The deploy
+        # pipeline injects immutable commit metadata for reproducible snapshots.
+        if command == ["rev-parse", "HEAD"]:
+            return os.getenv("POLYFLIP_BUILD_SHA") or None
+        if command == ["rev-parse", "--abbrev-ref", "HEAD"]:
+            return (
+                os.getenv("POLYFLIP_BUILD_BRANCH")
+                or os.getenv("GIT_BRANCH")
+                or None
+            )
         return None
 
 

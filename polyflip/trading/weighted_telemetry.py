@@ -11,6 +11,12 @@ from collections.abc import Mapping
 from typing import Any
 
 # These names intentionally match the SQLAlchemy columns on both telemetry tables.
+# Runtime names may be more explicit than the historical database column names.
+# Keep the ORM payload compatible while accepting both spellings from decisions.
+WEIGHTED_TELEMETRY_ALIASES: dict[str, str] = {
+    "weighted_market_contribution_logodds": "weighted_market_reference_logodds",
+}
+
 WEIGHTED_TELEMETRY_FIELDS: tuple[str, ...] = (
     "p_market_yes",
     "p_logreg_yes",
@@ -60,7 +66,9 @@ WEIGHTED_TELEMETRY_FIELDS: tuple[str, ...] = (
 
 def _value(details: Mapping[str, Any], key: str) -> Any:
     """Read the first non-null value from canonical/weighted aliases."""
-    for name in (key, f"weighted_{key}"):
+    alias = WEIGHTED_TELEMETRY_ALIASES.get(key)
+    names = (key, alias, f"weighted_{key}") if alias else (key, f"weighted_{key}")
+    for name in names:
         value = details.get(name)
         if value is not None and value != "":
             return value
@@ -90,6 +98,7 @@ def weighted_telemetry_from_details(
             "weighted_p_lgbm_yes",
             "weighted_p_final_yes",
             "weighted_selected_side",
+            "weighted_market_reference_logodds",
         )
     )
     if not weighted_keys_present:
@@ -97,14 +106,7 @@ def weighted_telemetry_from_details(
 
     result: dict[str, Any] = {}
     for key in WEIGHTED_TELEMETRY_FIELDS:
-        if key == "p_market_yes":
-            value = _value(details, "p_market_yes")
-        elif key == "p_logreg_yes":
-            value = _value(details, "p_logreg_yes")
-        elif key == "p_lgbm_yes":
-            value = _value(details, "p_lgbm_yes")
-        else:
-            value = details.get(key)
+        value = _value(details, key)
         if value is not None:
             result[key] = value
 
@@ -128,6 +130,10 @@ def weighted_telemetry_from_object(obj: Any) -> dict[str, Any]:
         for key in WEIGHTED_TELEMETRY_FIELDS
         if hasattr(obj, key)
     }
+    if hasattr(obj, "weighted_market_reference_logodds"):
+        details["weighted_market_reference_logodds"] = getattr(
+            obj, "weighted_market_reference_logodds"
+        )
     # Result objects use weighted_p_* names; preserve the presence marker even
     # when all values are null so a SKIP remains auditable.
     if not details.get("weighted_policy_mode") and hasattr(obj, "weighted_policy_mode"):

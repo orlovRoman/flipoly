@@ -924,6 +924,7 @@ async def decide_combined_mode(
         "weighted_logreg_weight": comb_res.weighted_logreg_weight,
         "weighted_lgbm_weight": comb_res.weighted_lgbm_weight,
         "weighted_mrf_evidence": comb_res.weighted_mrf_evidence,
+        "weighted_market_reference_logodds": comb_res.weighted_market_reference_logodds,
         "weighted_market_contribution_logodds": comb_res.weighted_market_contribution_logodds,
         "weighted_logreg_contribution_logodds": comb_res.weighted_logreg_contribution_logodds,
         "weighted_lgbm_contribution_logodds": comb_res.weighted_lgbm_contribution_logodds,

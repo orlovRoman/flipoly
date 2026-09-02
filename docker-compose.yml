@@ -29,6 +29,7 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}}
       - POLYFLIP_BUILD_SHA=${POLYFLIP_BUILD_SHA:-dev}
+      - POLYFLIP_BUILD_BRANCH=${POLYFLIP_BUILD_BRANCH:-dev}
       - API_KEY=${API_KEY:-test-key}
       - ASSETS=${ASSETS:-BTC,ETH,SOL,XRP,DOGE}
       - EXECUTION_MODE=${EXECUTION_MODE:-PAPER}

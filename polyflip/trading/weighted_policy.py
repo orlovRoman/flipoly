@@ -488,7 +488,7 @@ class WeightedProbability:
     def contributions(self) -> dict[str, float]:
         """Return additive log-odds contributions for telemetry."""
         return {
-            "market": self.market_contribution_logodds,
+            "market_reference": self.market_contribution_logodds,
             "logreg": self.logreg_contribution_logodds,
             "lgbm": self.lgbm_contribution_logodds,
             "mrf": self.mrf_adjustment_logodds,

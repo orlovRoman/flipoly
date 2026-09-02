@@ -418,6 +418,7 @@ class CombinedEntryResult:
     entry_model_ece: float = 0.0
     would_live_accept: Optional[bool] = None
     # Weighted policy telemetry.  These fields are also populated in shadow
+    weighted_market_reference_logodds: Optional[float] = None
     weighted_market_contribution_logodds: Optional[float] = None
     weighted_logreg_contribution_logodds: Optional[float] = None
     weighted_lgbm_contribution_logodds: Optional[float] = None
@@ -963,6 +964,7 @@ def _weighted_result_fields(
         "weighted_market_weight": probability.market_weight,
         "weighted_logreg_weight": probability.logreg_weight,
         "weighted_lgbm_weight": probability.lgbm_weight,
+        "weighted_market_reference_logodds": probability.market_contribution_logodds,
         "weighted_market_contribution_logodds": probability.market_contribution_logodds,
         "weighted_logreg_contribution_logodds": probability.logreg_contribution_logodds,
         "weighted_lgbm_contribution_logodds": probability.lgbm_contribution_logodds,
@@ -1042,6 +1044,7 @@ def evaluate_combined_entry(
     no_ask_size: Optional[float] = None,
 ) -> CombinedEntryResult:
     """Обёртка для переноса флагов LightGBM в результат."""
+    weighted_selection_holder: dict[str, WeightedSelection] = {}
     result = _evaluate_combined_entry_inner(
         crypto_sig=crypto_sig,
         market_phase=market_phase,
@@ -1069,9 +1072,31 @@ def evaluate_combined_entry(
         weighted_fee_source=weighted_fee_source,
         spread=spread,
         spread_cost=spread_cost,
+        yes_bid=yes_bid,
+        no_bid=no_bid,
+        yes_bid_size=yes_bid_size,
+        yes_ask_size=yes_ask_size,
+        no_bid_size=no_bid_size,
+        no_ask_size=no_ask_size,
+        weighted_selection_holder=weighted_selection_holder,
     )
     policy_mode = str(getattr(cfg, "trading_policy_mode", "LEGACY") or "LEGACY").upper()
-    if policy_mode in {"WEIGHTED_SHADOW", "WEIGHTED_ACTIVE"}:
+    weighted_selection = weighted_selection_holder.get("selection")
+    if policy_mode == "WEIGHTED_ACTIVE" and weighted_selection is not None:
+        result = replace(
+            result,
+            **_weighted_result_fields(
+                policy_mode,
+                weighted_selection,
+                _weighted_policy_id(cfg),
+                cfg=cfg,
+                fresh_yes_price=fresh_yes_price,
+                time_left_sec=time_left_sec,
+                spread=spread,
+                legacy_action=result.action,
+            ),
+        )
+    elif policy_mode == "WEIGHTED_SHADOW":
         # Compute once at the wrapper boundary so SHADOW has identical maths
         # to ACTIVE without changing the legacy result returned by ``inner``.
         shadow_p_flip = result.p_flip_effective if result.p_flip_effective is not None else p_flip
@@ -1152,6 +1177,13 @@ def _evaluate_combined_entry_inner(
     weighted_fee_source: str = "CONFIG_DEFAULT",
     spread: Optional[float] = None,
     spread_cost: Optional[float] = None,
+    yes_bid: Optional[float] = None,
+    no_bid: Optional[float] = None,
+    yes_bid_size: Optional[float] = None,
+    yes_ask_size: Optional[float] = None,
+    no_bid_size: Optional[float] = None,
+    no_ask_size: Optional[float] = None,
+    weighted_selection_holder: Optional[dict[str, WeightedSelection]] = None,
 ) -> CombinedEntryResult:
     """Внутренняя логика оценки."""
 
@@ -1219,7 +1251,15 @@ def _evaluate_combined_entry_inner(
             spread=spread or 0.0,
             spread_cost=spread_cost,
             phase=market_phase,
+            yes_bid=yes_bid,
+            no_bid=no_bid,
+            yes_bid_size=yes_bid_size,
+            yes_ask_size=yes_ask_size,
+            no_bid_size=no_bid_size,
+            no_ask_size=no_ask_size,
         )
+        if weighted_selection_holder is not None:
+            weighted_selection_holder["selection"] = weighted_selection
         if weighted_selection.selected is None:
             consensus = DirectionConsensus(
                 "SKIP",

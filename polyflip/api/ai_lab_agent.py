@@ -95,6 +95,16 @@ def _as_utc(value):
     return value.astimezone(__import__("datetime").timezone.utc)
 
 
+def _non_negative_int(value: Any, default: int = 0) -> int:
+    """Normalize nullable progress counters at the external-agent API boundary."""
+    if value is None:
+        return default
+    try:
+        return max(int(value), 0)
+    except (TypeError, ValueError, OverflowError):
+        return default
+
+
 def _normalize_asset(raw: Any) -> str | None:
     """Normalize asset symbol: strip, upper, remove USDT suffix."""
     if not isinstance(raw, str):
@@ -360,6 +370,13 @@ def _claimed_run_payload(run: AIOptimizationRun, lease_token: str) -> dict[str, 
             "model_id": run.llm_summary_model,
             "protocol": snap.get("protocol") or "responses",
         }
+    budget_experiments = _non_negative_int(
+        getattr(run, "budget_experiments", None)
+    )
+    budget_seconds = _non_negative_int(getattr(run, "budget_seconds", None))
+    experiments_completed = _non_negative_int(
+        getattr(run, "experiments_completed", None)
+    )
     return {
         "id": run.id,
         "status": run.status,
@@ -367,9 +384,9 @@ def _claimed_run_payload(run: AIOptimizationRun, lease_token: str) -> dict[str, 
         "scope": run.scope or {},
         "mode": run.mode,
         "autonomy_level": run.autonomy_level,
-        "budget_experiments": run.budget_experiments,
-        "budget_seconds": run.budget_seconds,
-        "experiments_completed": int(run.experiments_completed or 0),
+        "budget_experiments": budget_experiments,
+        "budget_seconds": budget_seconds,
+        "experiments_completed": experiments_completed,
         "llm_provider": run.llm_provider,
         "llm_research_model": run.llm_research_model,
         "llm_summary_model": run.llm_summary_model,
@@ -659,7 +676,10 @@ async def get_agent_context(
         "min_positive_oot_windows": int(qg.get("min_positive_oot_windows", 2)),
     }
 
-    completed = int(run.experiments_completed or 0)
+    budget_experiments = _non_negative_int(
+        getattr(run, "budget_experiments", None)
+    )
+    completed = _non_negative_int(getattr(run, "experiments_completed", None))
 
     return {
         "run": {
@@ -670,7 +690,7 @@ async def get_agent_context(
             "autonomy_level": run.autonomy_level,
             "iteration": completed,
             "budget_remaining_steps": max(
-                run.budget_experiments - completed, 0
+                budget_experiments - completed, 0
             ),
         },
         "active_models": active_models,

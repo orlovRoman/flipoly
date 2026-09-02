@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
+from pydantic import ValidationError
 
 from schemas import AgentContext, ClaimedRun, ExperimentResult
 
@@ -90,7 +91,12 @@ class AILabApiClient:
         if not run:
             return None
         self._lease_token = run.get("lease_token")
-        return ClaimedRun.model_validate(run)
+        try:
+            return ClaimedRun.model_validate(run)
+        except ValidationError:
+            # Never retain a lease token for a payload that failed validation.
+            self.drop_lease()
+            raise
 
     async def heartbeat(self, run_id: int) -> float:
         data = await self._request(

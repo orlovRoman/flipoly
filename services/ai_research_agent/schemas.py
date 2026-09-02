@@ -30,10 +30,15 @@ class ClaimedRun(BaseModel):
     llm_research: dict[str, Any] | None = None
     llm_summary: dict[str, Any] | None = None
 
-    @field_validator("experiments_completed", mode="before")
+    @field_validator(
+        "budget_experiments",
+        "budget_seconds",
+        "experiments_completed",
+        mode="before",
+    )
     @classmethod
-    def normalize_experiments_completed(cls, value: Any) -> int:
-        """Accept null counters from legacy runs as the initial iteration."""
+    def normalize_progress_counters(cls, value: Any) -> int:
+        """Accept null counters from legacy runs as zero."""
         return 0 if value is None else value
 
 
