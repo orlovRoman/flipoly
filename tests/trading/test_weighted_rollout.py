@@ -826,3 +826,32 @@ def test_benchmark_filters_labeled_non_fixed_horizons_before_fingerprint():
     assert report.dataset_fingerprint == fingerprint_observations(
         (rows[0],)
     )
+
+def test_activation_gate_requires_matching_policy_identity_when_expected():
+    evidence = ActivationEvidence(
+        shadow_days=14,
+        shadow_resolved_markets=1000,
+        shadow_candidate_trades=300,
+        repeat_oot_reports=1,
+        pnl_ci_lower=0.01,
+        weighted_brier=0.10,
+        market_brier=0.103,
+        legacy_brier=0.104,
+        weighted_net_pnl=10.0,
+        market_net_pnl=5.0,
+        legacy_net_pnl=4.0,
+        policy_id="artifact-a",
+        policy_ids=("artifact-a",),
+    )
+    assert activation_gate(evidence, expected_policy_id="artifact-a").eligible
+
+    mismatch = activation_gate(evidence, expected_policy_id="artifact-b")
+    assert not mismatch.eligible
+    assert "POLICY_ID_MISMATCH" in mismatch.reasons
+
+    mixed = activation_gate(
+        ActivationEvidence(**{**evidence.__dict__, "policy_id": None, "policy_ids": ("artifact-a", "artifact-b")}),
+        expected_policy_id="artifact-a",
+    )
+    assert not mixed.eligible
+    assert "POLICY_IDS_MIXED" in mixed.reasons

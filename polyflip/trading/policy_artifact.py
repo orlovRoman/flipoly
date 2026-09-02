@@ -232,6 +232,10 @@ class ActivationEvidence:
     legacy_net_pnl: Optional[float] = None
     execution_drag: Optional[float] = None
     calibration_error: Optional[float] = None
+    # Evidence identity is optional for backwards-compatible manual checks,
+    # but required when activation is tied to a concrete artifact.
+    policy_id: Optional[str] = None
+    policy_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -252,9 +256,30 @@ def activation_gate(
     min_brier_improvement: float = 0.002,
     max_execution_drag: float = 0.02,
     max_calibration_error: float = 0.05,
+    expected_policy_id: Optional[str] = None,
 ) -> ActivationGate:
     """Require empirical quality and execution evidence before ACTIVE rollout."""
     reasons: list[str] = []
+    expected = str(expected_policy_id or "").strip()
+    if expected:
+        raw_policy_ids = evidence.policy_ids
+        if isinstance(raw_policy_ids, str):
+            raw_policy_ids = (raw_policy_ids,)
+        observed = {
+            str(value).strip()
+            for value in raw_policy_ids
+            if str(value).strip()
+        }
+        if not observed and evidence.policy_id:
+            value = str(evidence.policy_id).strip()
+            if value:
+                observed.add(value)
+        if not observed:
+            reasons.append("POLICY_ID_EVIDENCE_MISSING")
+        elif len(observed) != 1:
+            reasons.append("POLICY_IDS_MIXED")
+        elif next(iter(observed)) != expected:
+            reasons.append("POLICY_ID_MISMATCH")
     if evidence.shadow_days < min_shadow_days:
         reasons.append("SHADOW_DAYS_BELOW_MINIMUM")
     if evidence.shadow_resolved_markets < min_resolved_markets:

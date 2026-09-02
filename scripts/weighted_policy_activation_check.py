@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,6 +45,10 @@ def main() -> int:
     )
     parser.add_argument("--artifact")
     parser.add_argument(
+        "--policy-id",
+        help="expected immutable policy ID when no artifact file is supplied",
+    )
+    parser.add_argument(
         "--evidence",
         help="load evidence values from weighted_policy_shadow_evidence.py output",
     )
@@ -51,9 +56,13 @@ def main() -> int:
     args = parser.parse_args()
 
     evidence_values = {}
+    raw_evidence: Mapping[str, object] = {}
     if args.evidence:
-        raw_evidence = json.loads(Path(args.evidence).read_text(encoding="utf-8"))
-        evidence_values = raw_evidence.get("evidence", raw_evidence)
+        loaded = json.loads(Path(args.evidence).read_text(encoding="utf-8"))
+        if not isinstance(loaded, dict):
+            raise SystemExit("evidence file must contain an object")
+        raw_evidence = loaded
+        evidence_values = loaded.get("evidence", loaded)
         if not isinstance(evidence_values, dict):
             raise SystemExit("evidence file must contain an object or an evidence object")
 
@@ -67,6 +76,27 @@ def main() -> int:
     if args.artifact:
         artifact = load_policy_artifact(Path(args.artifact))
         artifact_id = artifact.artifact_id
+
+    def policy_ids_from(*sources: object) -> tuple[str, ...]:
+        result: set[str] = set()
+        for source in sources:
+            if not isinstance(source, Mapping):
+                continue
+            scalar = source.get("policy_id")
+            if scalar is not None and str(scalar).strip():
+                result.add(str(scalar).strip())
+            values = source.get("policy_ids")
+            if isinstance(values, (list, tuple, set)):
+                result.update(str(item).strip() for item in values if str(item).strip())
+        return tuple(sorted(result))
+
+    observed_policy_ids = policy_ids_from(
+        evidence_values,
+        raw_evidence,
+        raw_evidence.get("shadow"),
+        raw_evidence.get("live"),
+    )
+    observed_policy_id = observed_policy_ids[0] if len(observed_policy_ids) == 1 else None
     evidence = ActivationEvidence(
         shadow_days=value("shadow_days", 0.0),
         shadow_resolved_markets=value("shadow_resolved_markets", 0),
@@ -82,19 +112,29 @@ def main() -> int:
         legacy_net_pnl=value("legacy_net_pnl"),
         execution_drag=value("execution_drag"),
         calibration_error=value("calibration_error"),
+        policy_id=observed_policy_id,
+        policy_ids=observed_policy_ids,
     )
+    expected_policy_id = artifact_id or (str(args.policy_id).strip() if args.policy_id else None)
     gate = activation_gate(
         evidence,
         min_brier_improvement=args.min_brier_improvement,
         max_execution_drag=args.max_execution_drag,
         max_calibration_error=args.max_calibration_error,
         require_live_validation=args.require_live_validation,
+        expected_policy_id=expected_policy_id,
     )
+    reasons = list(gate.reasons)
+    if artifact_id and args.policy_id and str(args.policy_id).strip() != artifact_id:
+        reasons.append("POLICY_ID_ARGUMENT_MISMATCH")
     payload = {
-        "eligible": gate.eligible,
-        "reasons": list(gate.reasons),
+        "eligible": not reasons,
+        "reasons": reasons,
         "evidence": evidence.__dict__,
         "artifact_id": artifact_id,
+        "expected_policy_id": expected_policy_id,
+        "evidence_policy_id": observed_policy_id,
+        "evidence_policy_ids": list(observed_policy_ids),
         "evidence_source": args.evidence,
     }
     rendered = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
@@ -104,7 +144,7 @@ def main() -> int:
         destination.write_text(rendered, encoding="utf-8")
     else:
         print(rendered, end="")
-    return 0 if gate.eligible else 2
+    return 0 if not reasons else 2
 
 
 if __name__ == "__main__":

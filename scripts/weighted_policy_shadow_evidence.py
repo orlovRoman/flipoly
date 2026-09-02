@@ -177,6 +177,13 @@ def summarize_shadow_rows(rows: list[Mapping[str, Any]]) -> dict[str, Any]:
     candidate_trades = 0
     telemetry_rows = 0
     arm_coverage = {name: 0 for name in ARM_NAMES}
+    policy_ids = sorted(
+        {
+            str(row.get("weighted_policy_id") or "").strip()
+            for row in rows
+            if str(row.get("weighted_policy_id") or "").strip()
+        }
+    )
     for row in rows:
         outcome_yes = _outcome_yes(row.get("outcome_yes"))
         market_id = str(row.get("market_id") or "")
@@ -258,6 +265,8 @@ def summarize_shadow_rows(rows: list[Mapping[str, Any]]) -> dict[str, Any]:
     )
     arms = {name: arm_result(name) for name in ARM_NAMES}
     return {
+        "policy_id": policy_ids[0] if len(policy_ids) == 1 else None,
+        "policy_ids": policy_ids,
         "shadow_days": duration_days,
         "shadow_resolved_markets": len(resolved_markets),
         "shadow_candidate_trades": candidate_trades,
@@ -280,12 +289,21 @@ def summarize_shadow_rows(rows: list[Mapping[str, Any]]) -> dict[str, Any]:
 
 def summarize_live_rows(rows: list[Mapping[str, Any]]) -> dict[str, Any]:
     drags: list[float] = []
+    policy_ids = sorted(
+        {
+            str(row.get("weighted_policy_id") or "").strip()
+            for row in rows
+            if str(row.get("weighted_policy_id") or "").strip()
+        }
+    )
     for row in rows:
         expected = _float(row.get("weighted_expected_execution_price"))
         realized = _float(row.get("executed_price"))
         if expected is not None and realized is not None:
             drags.append(abs(realized - expected))
     return {
+        "policy_id": policy_ids[0] if len(policy_ids) == 1 else None,
+        "policy_ids": policy_ids,
         "live_fills": len(rows),
         "execution_drag": _mean(drags),
         "expected_realized_samples": len(drags),
@@ -310,12 +328,22 @@ def _expr(columns: set[str], alias: str, names: Iterable[str], fallback: str = "
     return fallback
 
 
-async def _fetch_shadow_rows(connection, days: int) -> list[dict[str, Any]]:
+async def _fetch_shadow_rows(
+    connection,
+    days: int,
+    policy_id: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    requested_policy_id = str(policy_id or "").strip()
     funnel = await _columns(connection, "decision_funnel_log")
     markets = await _columns(connection, "live_markets")
     if not {"market_id", "created_at"}.issubset(funnel):
         return []
     if not {"weighted_policy_mode", "weighted_benchmark_json"}.issubset(funnel):
+        return []
+    # A requested policy cannot be verified when the persisted identity column
+    # is absent. Return no rows so activation fails closed with missing evidence
+    # instead of silently mixing historical policies.
+    if requested_policy_id and "weighted_policy_id" not in funnel:
         return []
     f = lambda names, fallback="NULL": _expr(funnel, "d", names, fallback)
     outcome_join = ""
@@ -327,6 +355,7 @@ async def _fetch_shadow_rows(connection, days: int) -> list[dict[str, Any]]:
         f(["market_id"]) + " AS market_id",
         f(["created_at", "timestamp"]) + " AS created_at",
         f(["weighted_policy_mode"]) + " AS weighted_policy_mode",
+        f(["weighted_policy_id"]) + " AS weighted_policy_id",
         f(["execution_mode"]) + " AS execution_mode",
         f(["asset"]) + " AS asset",
         f(["candidate_side"]) + " AS candidate_side",
@@ -362,24 +391,37 @@ async def _fetch_shadow_rows(connection, days: int) -> list[dict[str, Any]]:
     ]
     if not available_modes:
         return []
+    policy_condition = ""
+    params: dict[str, Any] = {"days": max(1, int(days))}
+    if requested_policy_id:
+        policy_condition = " AND d.weighted_policy_id = :policy_id"
+        params["policy_id"] = requested_policy_id
     query = text(
         "SELECT "
         + ", ".join(selected)
         + " FROM decision_funnel_log d "
         + outcome_join
         + " WHERE d.created_at >= now() - (:days * interval '1 day') "
+        + policy_condition
         + " AND ("
         + " OR ".join(available_modes)
         + ") ORDER BY d.created_at ASC"
     )
-    result = await connection.execute(query, {"days": max(1, int(days))})
+    result = await connection.execute(query, params)
     return [dict(row._mapping) for row in result.fetchall()]
 
 
-async def _fetch_live_rows(connection, days: int) -> list[dict[str, Any]]:
+async def _fetch_live_rows(
+    connection,
+    days: int,
+    policy_id: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    requested_policy_id = str(policy_id or "").strip()
     trades = await _columns(connection, "trade_history")
     required = {"market_id", "created_at", "mode", "executed_price"}
     if not required.issubset(trades) or "weighted_policy_mode" not in trades:
+        return []
+    if requested_policy_id and "weighted_policy_id" not in trades:
         return []
     t = lambda names, fallback="NULL": _expr(trades, "t", names, fallback)
     status_condition = (
@@ -396,6 +438,7 @@ async def _fetch_live_rows(connection, days: int) -> list[dict[str, Any]]:
                 t(["mode"]) + " AS mode",
                 t(["status"]) + " AS status",
                 t(["weighted_policy_mode"]) + " AS weighted_policy_mode",
+                t(["weighted_policy_id"]) + " AS weighted_policy_id",
                 t(["weighted_expected_execution_price"]) + " AS weighted_expected_execution_price",
                 t(["executed_price"]) + " AS executed_price",
                 t(["weighted_p_final_yes"]) + " AS weighted_p_final_yes",
@@ -406,22 +449,36 @@ async def _fetch_live_rows(connection, days: int) -> list[dict[str, Any]]:
         + " FROM trade_history t WHERE t.created_at >= now() - (:days * interval '1 day') "
         + " AND t.mode = 'LIVE' "
         + " AND t.weighted_policy_mode = 'WEIGHTED_ACTIVE' "
+        + (" AND t.weighted_policy_id = :policy_id " if requested_policy_id else "")
         + " AND " + status_condition
         + " ORDER BY t.created_at ASC"
     )
-    result = await connection.execute(query, {"days": max(1, int(days))})
+    params: dict[str, Any] = {"days": max(1, int(days))}
+    if requested_policy_id:
+        params["policy_id"] = requested_policy_id
+    result = await connection.execute(query, params)
     return [dict(row._mapping) for row in result.fetchall()]
 
 
-async def collect(database_url: str, days: int, repeat_oot_reports: int) -> dict[str, Any]:
+async def collect(
+    database_url: str,
+    days: int,
+    repeat_oot_reports: int,
+    policy_id: Optional[str] = None,
+) -> dict[str, Any]:
+    requested_policy_id = str(policy_id or "").strip() or None
     url = database_url
     if url.startswith("postgresql://"):
         url = "postgresql+asyncpg://" + url[len("postgresql://"):]
     engine = create_async_engine(url, pool_pre_ping=True)
     try:
         async with engine.connect() as connection:
-            shadow_rows = await _fetch_shadow_rows(connection, days)
-            live_rows = await _fetch_live_rows(connection, days)
+            shadow_rows = await _fetch_shadow_rows(
+                connection, days, policy_id=requested_policy_id
+            )
+            live_rows = await _fetch_live_rows(
+                connection, days, policy_id=requested_policy_id
+            )
     finally:
         await engine.dispose()
     shadow = summarize_shadow_rows(shadow_rows)
@@ -442,12 +499,20 @@ async def collect(database_url: str, days: int, repeat_oot_reports: int) -> dict
             "calibration_error",
         )
     }
+    observed_policy_ids = sorted(
+        set(shadow.get("policy_ids", [])) | set(live.get("policy_ids", []))
+    )
+    observed_policy_id = observed_policy_ids[0] if len(observed_policy_ids) == 1 else None
+    evidence["policy_id"] = observed_policy_id
+    evidence["policy_ids"] = observed_policy_ids
     evidence["repeat_oot_reports"] = max(0, int(repeat_oot_reports))
     evidence["live_fills"] = live["live_fills"]
     evidence["execution_drag"] = live["execution_drag"]
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "window_days": max(1, int(days)),
+        "policy_id": observed_policy_id,
+        "requested_policy_id": requested_policy_id,
         "evidence": evidence,
         "shadow": shadow,
         "live": live,
@@ -458,7 +523,12 @@ async def run(args: argparse.Namespace) -> int:
     database_url = args.database_url or os.getenv("DATABASE_URL")
     if not database_url:
         raise SystemExit("DATABASE_URL or --database-url is required")
-    payload = await collect(database_url, args.days, args.repeat_oot_reports)
+    payload = await collect(
+        database_url,
+        args.days,
+        args.repeat_oot_reports,
+        policy_id=args.policy_id,
+    )
     destination = Path(args.output)
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(
@@ -474,6 +544,10 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--database-url")
     result.add_argument("--days", type=int, default=30)
     result.add_argument("--repeat-oot-reports", type=int, default=0)
+    result.add_argument(
+        "--policy-id",
+        help="restrict evidence to one immutable weighted policy ID",
+    )
     result.add_argument("--output", required=True)
     return result
 

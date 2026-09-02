@@ -84,3 +84,32 @@ def test_live_summary_measures_expected_realized_price_drag():
     assert result["live_fills"] == 2
     assert result["expected_realized_samples"] == 2
     assert result["execution_drag"] == 0.01
+
+def test_shadow_summary_reports_policy_identity_and_mixed_ids():
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    rows = [
+        {"market_id": "m-1", "created_at": start, "weighted_policy_id": "artifact-a"},
+        {
+            "market_id": "m-2",
+            "created_at": start + timedelta(days=1),
+            "weighted_policy_id": "artifact-a",
+        },
+    ]
+    result = summarize_shadow_rows(rows)
+    assert result["policy_id"] == "artifact-a"
+    assert result["policy_ids"] == ["artifact-a"]
+
+    mixed = summarize_shadow_rows(
+        [
+            {"market_id": "m-1", "created_at": start, "weighted_policy_id": "artifact-a"},
+            {"market_id": "m-2", "created_at": start, "weighted_policy_id": "artifact-b"},
+        ]
+    )
+    assert mixed["policy_id"] is None
+    assert mixed["policy_ids"] == ["artifact-a", "artifact-b"]
+
+    live = summarize_live_rows(
+        [{"weighted_policy_id": "artifact-a", "executed_price": 0.4}]
+    )
+    assert live["policy_id"] == "artifact-a"
+    assert live["policy_ids"] == ["artifact-a"]

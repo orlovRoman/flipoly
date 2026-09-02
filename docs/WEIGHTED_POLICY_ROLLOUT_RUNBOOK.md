@@ -92,8 +92,10 @@ not replace the LEGACY action.
 Before any fixed-bet activation, check all plan evidence:
 
 ~~~text
+POLICY_ID=$(python -c 'import json; print(json.load(open("artifacts/weighted_policy/policy_v1.json"))["artifact_id"])')
 python scripts/weighted_policy_shadow_evidence.py \
   --days 30 \
+  --policy-id "$POLICY_ID" \
   --repeat-oot-reports 1 \
   --output artifacts/weighted_policy/shadow_evidence.json
 
@@ -104,7 +106,9 @@ python scripts/weighted_policy_activation_check.py \
 
 The evidence collector is read-only. It derives counts, all-arm telemetry,
 Brier/PnL/cluster-CI, calibration error and LIVE expected-vs-realized price
-drag from the database. The pre-live command exits with status 2 until the
+drag from the database. Pass the artifact ID so shadow and ACTIVE rows are
+filtered to one immutable policy; the activation check rejects missing,
+mixed, or mismatched policy IDs. The pre-live command exits with status 2 until the
 SHADOW/OOT quality conditions are met; live fills are intentionally not
 required yet. A positive point estimate is not enough when the bootstrap lower
 bound is non-positive. repeat_oot_reports must be provided for each
