@@ -267,11 +267,23 @@ def _policy_config() -> WeightedPolicyConfig:
             return float(os.getenv(name, default))
         except (TypeError, ValueError):
             return default
+
+    def bounded_number(name: str, default: float, lower: float, upper: float) -> float:
+        return max(lower, min(upper, number(name, default)))
+
+    mrf_application = str(
+        os.getenv("WEIGHTED_MRF_APPLICATION", "PROBABILITY") or "PROBABILITY"
+    ).strip().upper()
+    if mrf_application not in {"PROBABILITY", "STAKE"}:
+        mrf_application = "PROBABILITY"
     return WeightedPolicyConfig(
         market_weight=number("WEIGHTED_MARKET_WEIGHT", 0.90),
         logreg_weight=number("WEIGHTED_LOGREG_WEIGHT", 0.05),
         lgbm_weight=number("WEIGHTED_LGBM_WEIGHT", 0.05),
         mrf_beta=number("WEIGHTED_MRF_BETA", 0.0),
+        models_agree_beta=bounded_number("WEIGHTED_MODELS_AGREE_BETA", 0.0, -2.0, 2.0),
+        mrf_application=mrf_application,
+        mrf_sizing_gamma=bounded_number("WEIGHTED_MRF_SIZING_GAMMA", 0.0, -1.0, 1.0),
         intercept=number("WEIGHTED_INTERCEPT", 0.0),
         fee_rate=number("WEIGHTED_FEE_RATE", 0.07),
         maker_fee_rate=number("WEIGHTED_MAKER_FEE_RATE", 0.0),
