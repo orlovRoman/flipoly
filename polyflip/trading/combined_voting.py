@@ -928,6 +928,13 @@ def _weighted_result_fields(
     probability = selection.probability
     selected = selection.selected
     quoted = selected or selection.best_quote
+    selected_is_outsider = bool(
+        selected is not None
+        and (
+            (selected.side == "BUY_YES" and fresh_yes_price < 0.50)
+            or (selected.side == "BUY_NO" and fresh_yes_price >= 0.50)
+        )
+    )
     return {
         "weighted_policy_mode": policy_mode,
         "weighted_p_market_yes": probability.p_market_yes,
@@ -951,7 +958,7 @@ def _weighted_result_fields(
         "weighted_no_net_ev": selection.no_quote.net_ev_per_share if selection.no_quote else None,
         "weighted_net_ev_per_share": selected.net_ev_per_share if selected else None,
         "weighted_min_net_ev": (
-            _weighted_min_net_ev(cfg, quoted.ask < 0.50)
+            _weighted_min_net_ev(cfg, selected_is_outsider)
             if quoted is not None
             else None
         ),

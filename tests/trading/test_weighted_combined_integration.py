@@ -139,6 +139,31 @@ def test_weighted_spread_guard_uses_selected_mid_like_pre_trade():
     assert "SPREAD_TOO_WIDE" not in result.entry_status
 
 
+def test_weighted_telemetry_role_uses_fresh_market_side_not_ask_price():
+    cfg = replace(
+        _weighted_cfg("WEIGHTED_SHADOW"),
+        weighted_min_net_ev_favorite=0.0,
+        weighted_min_net_ev_outsider=0.07,
+    )
+    result = evaluate_combined_entry(
+        crypto_sig=_signal(),
+        market_phase="mid_vol",
+        entry_requested_key="BTC_mid_vol",
+        entry_model_key="BTC_mid_vol",
+        entry_model_version=4,
+        entry_model_source="PHASE",
+        p_flip=0.80,
+        fresh_yes_price=0.45,
+        yes_ask=0.55,
+        no_ask=0.45,
+        cost_buffer=0.0,
+        time_left_sec=300.0,
+        cfg=cfg,
+    )
+    assert result.weighted_selected_side == "BUY_YES"
+    assert result.weighted_min_net_ev == 0.07
+
+
 def test_weighted_runtime_uses_half_spread_and_fee_schedule_role():
     cfg = replace(
         _weighted_cfg("WEIGHTED_ACTIVE"),
