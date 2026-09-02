@@ -58,8 +58,11 @@ def create_policy_artifact(
     thresholds: Mapping[str, Any],
     source_report_hash: Optional[str] = None,
     dataset_fingerprint: Optional[str] = None,
+    hierarchical_stacker: Optional[Mapping[str, Any]] = None,
 ) -> PolicyArtifact:
-    model = stacker.as_dict() if stacker else {"type": "NONE"}
+    model = dict(stacker.as_dict()) if stacker else {"type": "NONE"}
+    if hierarchical_stacker is not None:
+        model["hierarchical"] = dict(hierarchical_stacker)
     config = {
         key: value
         for key, value in vars(policy_config).items()
@@ -124,8 +127,6 @@ def weighted_policy_config_from_artifact(
     # the benchmark; malformed/legacy models deliberately fall back to the
     # initial residual scorer.
     model = artifact.model if isinstance(artifact.model, Mapping) else {}
-    names = model.get("feature_names")
-    coefficients = model.get("coefficients")
     expected_names = (
         "intercept",
         "market_logit",
@@ -138,18 +139,59 @@ def weighted_policy_config_from_artifact(
         "outsider_logreg_residual",
         "outsider_lgbm_residual",
     )
-    if isinstance(names, (list, tuple)) and isinstance(coefficients, (list, tuple)):
-        try:
-            parsed_coefficients = tuple(float(value) for value in coefficients)
-        except (TypeError, ValueError, OverflowError):
-            parsed_coefficients = ()
-        if (
-            tuple(str(value) for value in names) == expected_names
-            and len(parsed_coefficients) == len(expected_names)
-            and abs(parsed_coefficients[1] - 1.0) <= 1e-6
+
+    def parse_coefficients(payload: Any) -> Optional[tuple[float, ...]]:
+        if not isinstance(payload, Mapping):
+            return None
+        names = payload.get("feature_names")
+        coefficients = payload.get("coefficients")
+        if not isinstance(names, (list, tuple)) or not isinstance(
+            coefficients, (list, tuple)
         ):
-            values["stacker_feature_names"] = expected_names
-            values["stacker_coefficients"] = parsed_coefficients
+            return None
+        try:
+            parsed = tuple(float(value) for value in coefficients)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if (
+            tuple(str(value) for value in names) != expected_names
+            or len(parsed) != len(expected_names)
+            or not all(isfinite(value) for value in parsed)
+            or abs(parsed[1] - 1.0) > 1e-6
+        ):
+            return None
+        return parsed
+
+    global_payload: Any = model
+    hierarchy = model.get("hierarchical")
+    if parse_coefficients(global_payload) is None and isinstance(hierarchy, Mapping):
+        global_payload = hierarchy.get("global")
+    global_coefficients = parse_coefficients(global_payload)
+    if global_coefficients is not None:
+        values["stacker_feature_names"] = expected_names
+        values["stacker_coefficients"] = global_coefficients
+
+    segment_models: list[tuple[str, tuple[float, ...]]] = []
+    if isinstance(hierarchy, Mapping):
+        segments = hierarchy.get("segments")
+        try:
+            minimum_markets = max(1, int(hierarchy.get("min_segment_rows", 1)))
+        except (TypeError, ValueError, OverflowError):
+            minimum_markets = 1
+        if isinstance(segments, Mapping):
+            for key, payload in segments.items():
+                coefficients = parse_coefficients(payload)
+                if coefficients is None or not isinstance(payload, Mapping):
+                    continue
+                try:
+                    training_markets = int(payload.get("training_markets", 0))
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                if training_markets < minimum_markets:
+                    continue
+                segment_models.append((str(key), coefficients))
+    if segment_models:
+        values["stacker_segment_models"] = tuple(sorted(segment_models))
 
     values["policy_id"] = artifact.artifact_id[:64]
     return replace(base, **values)

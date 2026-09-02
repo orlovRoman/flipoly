@@ -224,3 +224,40 @@ def test_models_agree_beta_is_a_separate_auditable_contribution():
     assert boosted.p_final_yes > base.p_final_yes
     assert disagree.models_agree is False
     assert disagree.models_agree_adjustment_logodds == 0.0
+
+
+def test_hierarchical_segment_coefficients_override_global_model():
+    names = (
+        "intercept",
+        "market_logit",
+        "logreg_residual",
+        "lgbm_residual",
+        "mrf_evidence",
+        "role_outsider",
+        "models_agree",
+        "outsider_agree",
+        "outsider_logreg_residual",
+        "outsider_lgbm_residual",
+    )
+    global_coefficients = (1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    segment_coefficients = (-1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    config = WeightedPolicyConfig(
+        stacker_feature_names=names,
+        stacker_coefficients=global_coefficients,
+        stacker_segment_models=(
+            ("BTCUSDT|MID_VOL|FAVORITE|AGREE", segment_coefficients),
+        ),
+    )
+
+    result = score_weighted_probability(
+        p_market_yes=0.60,
+        p_logreg_yes=0.60,
+        p_lgbm_yes=0.60,
+        config=config,
+        asset="BTCUSDT",
+        phase="mid_vol",
+        role="FAVORITE",
+    )
+
+    assert result.p_final_yes == 0.35559502
+    assert result.p_final_yes != sigmoid(1.0 + logit(0.60))

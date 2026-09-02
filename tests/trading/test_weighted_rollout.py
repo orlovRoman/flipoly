@@ -295,6 +295,35 @@ def test_artifact_config_is_immutable_and_overrides_runtime_fallback():
     assert runtime.fee_rate == 0.02
 
 
+def test_artifact_round_trips_hierarchical_segment_models():
+    rows = [
+        MarketObservation(
+            **{
+                **_row(index).__dict__,
+                "market_role": "FAVORITE",
+                "phase": "MID_VOL",
+            }
+        )
+        for index in range(4)
+    ]
+    hierarchy = fit_hierarchical_stackers(rows, min_segment_rows=4)
+    artifact = create_policy_artifact(
+        version="hierarchical-v1",
+        created_at="2026-01-01T00:00:00+00:00",
+        training_window={"rows": len(rows)},
+        stacker=hierarchy.global_model,
+        hierarchical_stacker=hierarchy.as_dict(),
+        policy_config=WeightedPolicyConfig(),
+        thresholds={},
+    )
+
+    runtime = weighted_policy_config_from_artifact(artifact)
+
+    assert "hierarchical" in artifact.model
+    assert runtime.stacker_segment_models
+    assert runtime.stacker_segment_models[0][0] == observation_segment_key(rows[0])
+
+
 def test_activation_gate_requires_plan_evidence():
     assert not activation_gate(ActivationEvidence()).eligible
     assert activation_gate(

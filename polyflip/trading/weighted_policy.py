@@ -136,6 +136,10 @@ class WeightedPolicyConfig:
     # Empty tuples preserve the initial 90/5/5 residual scorer.
     stacker_feature_names: tuple[str, ...] = ()
     stacker_coefficients: tuple[float, ...] = ()
+    # Optional asset/phase/role/agreement-specific coefficients loaded from
+    # an immutable hierarchical artifact.  The global coefficients remain the
+    # fallback for sparse or unknown segments.
+    stacker_segment_models: tuple[tuple[str, tuple[float, ...]], ...] = ()
 
     def normalized_weights(self, available: set[str]) -> dict[str, float]:
         """Keep the market as prior and absorb missing model weight into it."""
@@ -290,11 +294,32 @@ def compute_net_ev_per_share(
     return round(probability - price - costs.total_per_share, 8)
 
 
+def _stacker_segment_key(inputs: ProbabilityInputs) -> str:
+    """Match the benchmark's asset/phase/role/agreement segment key."""
+    raw_role = str(inputs.role or "UNKNOWN").strip().upper() or "UNKNOWN"
+    role = (
+        "OUTSIDER"
+        if raw_role in {"OUTSIDER", "OUTS", "UNDERDOG"}
+        else raw_role
+    )
+    phase = str(inputs.phase or "UNKNOWN").strip().upper() or "UNKNOWN"
+    agreement = inputs.models_agree
+    agreement_label = (
+        "AGREE"
+        if agreement is True
+        else "DISAGREE"
+        if agreement is False
+        else "UNKNOWN"
+    )
+    asset = str(inputs.asset or "UNKNOWN").strip().upper() or "UNKNOWN"
+    return f"{asset}|{phase}|{role}|{agreement_label}"
+
+
 def _stacker_score(
     inputs: ProbabilityInputs,
     config: WeightedPolicyConfig,
     signed_evidence: float,
-) -> Optional[tuple[float, float, float, float, float, float]]:
+) -> Optional[tuple[float, float, float, float, float, float, float]]:
     """Evaluate a validated artifact stacker and return auditable terms.
 
     The feature order is shared with fit_ridge_logistic_stacker. A
@@ -303,7 +328,26 @@ def _stacker_score(
     """
     names = tuple(config.stacker_feature_names or ())
     coefficients_raw = tuple(config.stacker_coefficients or ())
-    if names != _STACKER_FEATURE_NAMES or len(coefficients_raw) != len(names):
+    if names != _STACKER_FEATURE_NAMES:
+        return None
+    # Prefer an explicitly trained segment model, falling back to the global
+    # coefficients when the segment is unknown or failed validation.
+    for segment in config.stacker_segment_models or ():
+        try:
+            segment_key, segment_values = segment
+        except (TypeError, ValueError):
+            continue
+        if str(segment_key) == _stacker_segment_key(inputs):
+            try:
+                candidate = tuple(float(value) for value in segment_values)
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if len(candidate) == len(_STACKER_FEATURE_NAMES) and all(
+                isfinite(value) for value in candidate
+            ) and abs(candidate[1] - 1.0) <= 1e-6:
+                coefficients_raw = candidate
+                break
+    if len(coefficients_raw) != len(names):
         return None
     try:
         coefficients = tuple(float(value) for value in coefficients_raw)
@@ -358,6 +402,7 @@ def _stacker_score(
         terms[3],
         terms[4],
         terms[0] + terms[5] + terms[8] + terms[9],
+        terms[6] + terms[7],
     )
 
 
@@ -471,15 +516,8 @@ def score_weighted_probability(
             lgbm_contribution,
             adjustment,
             intercept,
+            agreement_adjustment,
         ) = stacker
-        agreement_adjustment = (
-            (
-                float(config.stacker_coefficients[6])
-                + float(config.stacker_coefficients[7])
-            )
-            if inputs.models_agree is True
-            else 0.0
-        )
     elif market is None or sum(weights.values()) <= 0.0:
         market_contribution = 0.0
         logreg_contribution = 0.0

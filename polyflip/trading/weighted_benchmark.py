@@ -1841,6 +1841,11 @@ def create_policy_artifact_from_benchmark(
         stacker=report.stacker,
         policy_config=policy_config or WeightedPolicyConfig(),
         thresholds=dict(thresholds or {}),
+        hierarchical_stacker=(
+            report.hierarchical_stacker.as_dict()
+            if report.hierarchical_stacker is not None
+            else None
+        ),
         source_report_hash=source_report_hash,
         dataset_fingerprint=fingerprint,
     )
