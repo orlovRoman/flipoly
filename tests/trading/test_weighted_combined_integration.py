@@ -349,6 +349,12 @@ def test_weighted_active_applies_artifact_mrf_tuning_and_agreement(tmp_path):
     assert stake_result.action == "BUY_YES"
     assert stake_result.weighted_mrf_contribution_logodds == 0.0
     assert stake_result.weighted_size_multiplier == 0.5
+    # Shadow's FULL_WEIGHTED_MRF arm must use the same probability-as-unchanged
+    # semantics; MRF is applied only to sizing in this artifact.
+    assert (
+        stake_result.weighted_benchmark_json["FULL_WEIGHTED_MRF"]["p_final_yes"]
+        == stake_result.weighted_p_final_yes
+    )
 
     agreement_cfg = replace(
         _weighted_cfg("WEIGHTED_ACTIVE"),

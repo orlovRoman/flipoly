@@ -724,6 +724,14 @@ def _weighted_benchmark_snapshot(
             policy_id=artifact.artifact_id[:64],
         )
         policy_cfg = _apply_artifact_tuning(cfg, policy_cfg)
+    # Keep shadow counterfactuals on the same MRF application path as runtime.
+    # In STAKE mode the evidence changes sizing only; leaving beta enabled here
+    # would silently apply the MRF twice (probability in shadow, sizing in active).
+    application = str(policy_cfg.mrf_application or "PROBABILITY").upper()
+    if application not in {"PROBABILITY", "STAKE"}:
+        application = "PROBABILITY"
+    if application == "STAKE":
+        policy_cfg = replace(policy_cfg, mrf_beta=0.0, mrf_application=application)
     snapshot = benchmark_policy_arms(
         p_market_yes=probability.p_market_yes,
         p_logreg_yes=probability.p_logreg_yes,
