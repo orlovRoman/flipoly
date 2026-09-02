@@ -486,19 +486,27 @@ def _stacker_features(observation: MarketObservation) -> Optional[tuple[float, .
     agreement = _models_agree(observation)
     role_outsider = 1.0 if _is_outsider_role(observation.market_role) else 0.0
     models_agree = 1.0 if agreement is True else 0.0
+    logreg_residual = (
+        logit(observation.p_logreg_yes) - market_logit
+        if observation.p_logreg_yes is not None
+        else 0.0
+    )
+    lgbm_residual = (
+        logit(observation.p_lgbm_yes) - market_logit
+        if observation.p_lgbm_yes is not None
+        else 0.0
+    )
     return (
         1.0,
         market_logit,
-        logit(observation.p_logreg_yes) - market_logit
-        if observation.p_logreg_yes is not None
-        else 0.0,
-        logit(observation.p_lgbm_yes) - market_logit
-        if observation.p_lgbm_yes is not None
-        else 0.0,
+        logreg_residual,
+        lgbm_residual,
         float(observation.mrf_evidence or 0.0),
         role_outsider,
         models_agree,
         role_outsider * models_agree,
+        role_outsider * logreg_residual,
+        role_outsider * lgbm_residual,
     )
 
 
@@ -550,6 +558,8 @@ def fit_ridge_logistic_stacker(
             "role_outsider",
             "models_agree",
             "outsider_agree",
+            "outsider_logreg_residual",
+            "outsider_lgbm_residual",
         ),
         coefficients=tuple(round(float(value), 10) for value in beta),
         training_rows=len(rows),

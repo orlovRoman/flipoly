@@ -259,7 +259,11 @@ def test_hierarchical_stacker_has_role_and_agreement_segment():
     )
     key = observation_segment_key(rows[0])
     assert key in model.segment_models
-    assert len(model.global_model.coefficients) == 8
+    assert len(model.global_model.coefficients) == 10
+    assert model.global_model.feature_names[-2:] == (
+        "outsider_logreg_residual",
+        "outsider_lgbm_residual",
+    )
     assert model.predict_one(rows[0]) is not None
 
 
