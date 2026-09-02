@@ -530,7 +530,11 @@ def score_weighted_probability(
         else 0.0
     )
 
-    stacker = _stacker_score(inputs, config, signed_evidence)
+    # A STAKE artifact must not let a learned stacker MRF feature alter
+    # probability either. Keep the raw evidence for telemetry/sizing, but
+    # zero it only for the probability scorer.
+    stacker_evidence = 0.0 if application == "STAKE" else signed_evidence
+    stacker = _stacker_score(inputs, config, stacker_evidence)
     if stacker is not None:
         (
             final,
