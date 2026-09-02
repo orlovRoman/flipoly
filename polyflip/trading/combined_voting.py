@@ -37,6 +37,7 @@ from polyflip.trading.weighted_policy import (
     probability_for_side,
     score_weighted_probability,
     select_weighted_side,
+    benchmark_policy_arms,
 )
 from polyflip.trading.policy_artifact import (
     PolicyArtifact,
@@ -354,6 +355,7 @@ class CombinedEntryResult:
     weighted_expected_execution_price: Optional[float] = None
     weighted_edge_lower_bound: Optional[float] = None
     weighted_size_multiplier: Optional[float] = None
+    weighted_benchmark_json: Optional[Any] = None
     weighted_missing_components: Optional[str] = None
     weighted_selection_reason: Optional[str] = None
     weighted_fee_source: Optional[str] = None
@@ -540,6 +542,63 @@ def _build_weighted_selection(
     )
 
 
+def _weighted_benchmark_snapshot(
+    selection: WeightedSelection,
+    cfg: "TradingConfig",
+    *,
+    legacy_action: Optional[str],
+) -> dict[str, dict[str, Any]]:
+    """Build compact same-snapshot counterfactual arms for shadow telemetry."""
+    probability = selection.probability
+    quoted = selection.best_quote
+    fee_rate = quoted.cost.fee_rate if quoted else float(getattr(cfg, "weighted_fee_rate", 0.07))
+    maker_fee_rate = quoted.cost.maker_fee_rate if quoted else float(getattr(cfg, "weighted_maker_fee_rate", 0.0))
+    fee_exponent = quoted.cost.fee_exponent if quoted else float(getattr(cfg, "weighted_fee_exponent", 1.0))
+    slippage_rate = (
+        quoted.cost.slippage_per_share / max(quoted.cost.price, 1e-9)
+        if quoted and quoted.cost.price > 0.0
+        else float(getattr(cfg, "weighted_slippage_rate", 0.005))
+    )
+    latency_buffer = quoted.cost.latency_buffer_per_share if quoted else float(getattr(cfg, "weighted_latency_buffer", 0.0))
+    execution_role = quoted.cost.role if quoted else str(getattr(cfg, "weighted_execution_role", "TAKER"))
+    policy_cfg = WeightedPolicyConfig(
+        market_weight=probability.market_weight,
+        logreg_weight=probability.logreg_weight,
+        lgbm_weight=probability.lgbm_weight,
+        mrf_beta=float(getattr(cfg, "weighted_mrf_beta", 0.0)),
+        models_agree_beta=float(getattr(cfg, "weighted_models_agree_beta", 0.0)),
+        mrf_application=str(getattr(cfg, "weighted_mrf_application", "PROBABILITY") or "PROBABILITY").upper(),
+        fee_rate=fee_rate,
+        maker_fee_rate=maker_fee_rate,
+        fee_exponent=fee_exponent,
+        slippage_rate=slippage_rate,
+        latency_buffer=latency_buffer,
+        execution_role=execution_role,
+        policy_id=_weighted_policy_id(cfg),
+        mrf_extreme_veto_threshold=float(getattr(cfg, "weighted_mrf_extreme_veto_threshold", -1.0)),
+    )
+    snapshot = benchmark_policy_arms(
+        p_market_yes=probability.p_market_yes,
+        p_logreg_yes=probability.p_logreg_yes,
+        p_lgbm_yes=probability.p_lgbm_yes,
+        yes_ask=selection.yes_quote.ask if selection.yes_quote else None,
+        no_ask=selection.no_quote.ask if selection.no_quote else None,
+        config=policy_cfg,
+        mrf_evidence=probability.mrf_evidence,
+        fee_source=quoted.cost.source if quoted else "CONFIG_DEFAULT",
+        spread=quoted.cost.spread_per_share if quoted else 0.0,
+    )
+    snapshot["LEGACY"] = {
+        "arm": "LEGACY",
+        "selected_side": legacy_action if legacy_action in {"BUY_YES", "BUY_NO"} else None,
+        "p_final_yes": probability.p_logreg_yes,
+        "models_agree": None,
+        "net_ev_per_share": None,
+        "reason": "PERSISTED_LEGACY_ACTION",
+    }
+    return snapshot
+
+
 def _weighted_result_fields(
     policy_mode: str,
     selection: WeightedSelection,
@@ -547,6 +606,7 @@ def _weighted_result_fields(
     *,
     cfg: "TradingConfig",
     fresh_yes_price: float,
+    legacy_action: Optional[str] = None,
 ) -> dict[str, Any]:
     """Flatten weighted policy telemetry into ``CombinedEntryResult`` fields."""
     probability = selection.probability
@@ -594,6 +654,9 @@ def _weighted_result_fields(
         "weighted_missing_components": ",".join(probability.missing_components) or None,
         "weighted_selection_reason": selection.reason,
         "weighted_fee_source": quoted.cost.source if quoted else None,
+        "weighted_benchmark_json": _weighted_benchmark_snapshot(
+            selection, cfg, legacy_action=legacy_action
+        ),
         **_weighted_sizing_fields(cfg, selection, fresh_yes_price),
     }
 
@@ -684,6 +747,7 @@ def evaluate_combined_entry(
                 _weighted_policy_id(cfg),
                 cfg=cfg,
                 fresh_yes_price=fresh_yes_price,
+                legacy_action=result.action,
             ),
         )
 

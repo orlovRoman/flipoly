@@ -69,6 +69,16 @@ def test_weighted_active_replaces_hard_direction_consensus():
     assert result.weighted_policy_mode == "WEIGHTED_ACTIVE"
     assert result.weighted_selected_side == "BUY_YES"
     assert result.direction_status == "WEIGHTED_LGBM_USED"
+    assert result.weighted_benchmark_json is not None
+    assert set(result.weighted_benchmark_json) == {
+        "MARKET_ONLY",
+        "MARKET_LOGREG",
+        "MARKET_LGBM",
+        "FULL_WEIGHTED",
+        "FULL_WEIGHTED_MRF",
+        "OUTSIDER_AGREE_ONLY",
+        "LEGACY",
+    }
     # Market prior is normalized from asks: 0.54 / (0.54 + 0.46).
     # LogReg and LGBM then add 0.05 log-odds residuals from that prior.
     assert result.weighted_p_final_yes == 0.57026632

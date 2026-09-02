@@ -11,7 +11,7 @@ expected-value calculation in the same units as a binary contract payout.
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from math import exp, isfinite, log
 from typing import Any, Optional
 
@@ -594,3 +594,123 @@ def logreg_flip_to_yes_probability(
         return None
     yes_is_favorite = market >= 0.50
     return round((1.0 - p_flip) if yes_is_favorite else p_flip, 8)
+
+
+
+def benchmark_policy_arms(
+    *,
+    p_market_yes: Optional[float],
+    p_logreg_yes: Optional[float],
+    p_lgbm_yes: Optional[float],
+    yes_ask: Optional[float],
+    no_ask: Optional[float],
+    config: WeightedPolicyConfig,
+    mrf_evidence: Optional[float] = None,
+    fee_source: str = "CONFIG_DEFAULT",
+    spread: float = 0.0,
+) -> dict[str, dict[str, Any]]:
+    """Return compact counterfactual results for every rollout arm.
+
+    All arms consume one probability/quote snapshot. The helper is deliberately
+    pure so it can be used by runtime shadow telemetry and offline checks.
+    """
+    common = {
+        "fee_rate": config.fee_rate,
+        "maker_fee_rate": config.maker_fee_rate,
+        "fee_exponent": config.fee_exponent,
+        "slippage_rate": config.slippage_rate,
+        "latency_buffer": config.latency_buffer,
+        "execution_role": config.execution_role,
+        "policy_id": config.policy_id,
+        "mrf_extreme_veto_threshold": config.mrf_extreme_veto_threshold,
+    }
+    arms = {
+        "MARKET_ONLY": replace(
+            config, market_weight=1.0, logreg_weight=0.0, lgbm_weight=0.0,
+            mrf_beta=0.0, models_agree_beta=0.0, **common,
+        ),
+        "MARKET_LOGREG": replace(
+            config, market_weight=0.8, logreg_weight=0.2, lgbm_weight=0.0,
+            mrf_beta=0.0, models_agree_beta=0.0, **common,
+        ),
+        "MARKET_LGBM": replace(
+            config, market_weight=0.8, logreg_weight=0.0, lgbm_weight=0.2,
+            mrf_beta=0.0, models_agree_beta=0.0, **common,
+        ),
+        "FULL_WEIGHTED": replace(
+            config, mrf_beta=0.0, models_agree_beta=0.0, **common,
+        ),
+        "FULL_WEIGHTED_MRF": replace(config, **common),
+    }
+    result: dict[str, dict[str, Any]] = {}
+
+    def compact(name: str, selection: WeightedSelection) -> dict[str, Any]:
+        selected = selection.selected
+        return {
+            "arm": name,
+            "selected_side": selected.side if selected else None,
+            "selected_ask": selected.ask if selected else None,
+            "p_final_yes": selection.probability.p_final_yes,
+            "models_agree": selection.probability.models_agree,
+            "yes_net_ev": selection.yes_quote.net_ev_per_share if selection.yes_quote else None,
+            "no_net_ev": selection.no_quote.net_ev_per_share if selection.no_quote else None,
+            "net_ev_per_share": selected.net_ev_per_share if selected else None,
+            "reason": selection.reason,
+            "missing_components": list(selection.probability.missing_components),
+        }
+
+    for name, arm_config in arms.items():
+        selection = select_weighted_side(
+            p_market_yes=p_market_yes,
+            p_logreg_yes=p_logreg_yes,
+            p_lgbm_yes=p_lgbm_yes,
+            yes_ask=yes_ask,
+            no_ask=no_ask,
+            config=arm_config,
+            mrf_evidence=mrf_evidence if name == "FULL_WEIGHTED_MRF" else None,
+            min_net_ev=0.0,
+            fee_source=fee_source,
+            spread=spread,
+            mrf_extreme_veto_threshold=arm_config.mrf_extreme_veto_threshold,
+        )
+        result[name] = compact(name, selection)
+
+    agreement = (
+        p_logreg_yes is not None
+        and p_lgbm_yes is not None
+        and (p_logreg_yes >= 0.5) == (p_lgbm_yes >= 0.5)
+    )
+    outsider_selection = result.get("FULL_WEIGHTED_MRF")
+    if not agreement:
+        result["OUTSIDER_AGREE_ONLY"] = {
+            "arm": "OUTSIDER_AGREE_ONLY",
+            "selected_side": None,
+            "p_final_yes": outsider_selection.get("p_final_yes") if outsider_selection else None,
+            "models_agree": False if p_logreg_yes is not None and p_lgbm_yes is not None else None,
+            "yes_net_ev": outsider_selection.get("yes_net_ev") if outsider_selection else None,
+            "no_net_ev": outsider_selection.get("no_net_ev") if outsider_selection else None,
+            "net_ev_per_share": None,
+            "reason": "OUTSIDER_AGREE_GATE",
+            "missing_components": [],
+        }
+    elif outsider_selection is None or outsider_selection.get("selected_side") is None:
+        result["OUTSIDER_AGREE_ONLY"] = {
+            "arm": "OUTSIDER_AGREE_ONLY",
+            "selected_side": None,
+            "p_final_yes": outsider_selection.get("p_final_yes") if outsider_selection else None,
+            "models_agree": True,
+            "yes_net_ev": outsider_selection.get("yes_net_ev") if outsider_selection else None,
+            "no_net_ev": outsider_selection.get("no_net_ev") if outsider_selection else None,
+            "net_ev_per_share": None,
+            "reason": outsider_selection.get("reason", "NO_SELECTION") if outsider_selection else "NO_SELECTION",
+            "missing_components": [],
+        }
+    else:
+        selected_ask = float(outsider_selection.get("selected_ask") or 0.0)
+        is_outsider = selected_ask < 0.50
+        result["OUTSIDER_AGREE_ONLY"] = (
+            dict(outsider_selection, arm="OUTSIDER_AGREE_ONLY")
+            if is_outsider
+            else dict(outsider_selection, arm="OUTSIDER_AGREE_ONLY", selected_side=None, net_ev_per_share=None, reason="NOT_OUTSIDER")
+        )
+    return result
