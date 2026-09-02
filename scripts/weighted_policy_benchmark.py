@@ -16,14 +16,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from polyflip.trading.policy_artifact import create_policy_artifact, save_policy_artifact
+from polyflip.trading.policy_artifact import save_policy_artifact
 from polyflip.trading.weighted_benchmark import (
     BenchmarkConfig,
     MarketObservation,
     benchmark,
+    create_policy_artifact_from_benchmark,
 )
 from polyflip.trading.weighted_policy import WeightedPolicyConfig
 
@@ -315,17 +320,20 @@ async def run(args: argparse.Namespace) -> int:
             encoding="utf-8",
         )
     if args.artifact:
-        artifact = create_policy_artifact(
+        selected_tuning = {
+            str(item["parameter"]): item.get("selected")
+            for item in result.tuning
+            if item.get("parameter") and item.get("selected") is not None
+        }
+        artifact = create_policy_artifact_from_benchmark(
+            observations,
+            result,
             version=args.policy_version,
-            created_at=datetime.now(timezone.utc).isoformat(),
-            training_window={
-                "requested_days": args.days,
-                "observations": len(observations),
-                "resolved": report["input"]["resolved"],
-            },
-            stacker=result.stacker,
             policy_config=cfg.policy_config,
-            thresholds={"min_net_ev": args.min_net_ev},
+            thresholds={
+                "min_net_ev": args.min_net_ev,
+                "selected_tuning": selected_tuning,
+            },
             source_report_hash=_report_hash(report),
         )
         save_policy_artifact(args.artifact, artifact)
