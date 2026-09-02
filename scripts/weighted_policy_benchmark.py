@@ -121,6 +121,24 @@ async def _fetch_funnel_rows(connection, days: int) -> list[dict[str, Any]]:
     p_logreg = f(["p_logreg_yes", "weighted_p_logreg_yes", "p_logreg_win"])
     p_lgbm = f(["p_lgbm_yes", "weighted_p_lgbm_yes"])
     mrf = f(["weighted_mrf_evidence", "mrf_regime_evidence"])
+    fee_rate = f(["weighted_fee_rate", "fee_rate"])
+    fee_exponent = f(["weighted_fee_exponent", "fee_exponent"])
+    fee_source = f(["weighted_fee_source", "fee_source"], "'CONFIG_DEFAULT'")
+    execution_role = f(
+        ["weighted_execution_role", "execution_role", "trade_role"],
+        "'TAKER'",
+    )
+    observed_cost = f(
+        ["weighted_cost_per_share", "observed_cost_per_share", "cost_per_share"]
+    )
+    phase = f(
+        ["entry_model_phase", "phase", "market_phase", "mrf_phase"]
+    )
+    asset_phase = f(["mrf_asset_phase", "asset_phase"])
+    time_left = f(["time_left_sec", "time_left_seconds"])
+    if time_left == "NULL" and "time_left_min" in funnel:
+        time_left = f"({f(['time_left_min'])} * 60.0)"
+    group = f(["group", "market_group"], f(["asset"], "''"))
     horizon = f(["horizon", "market_horizon", "timeframe"])
     role = f(["market_role"], "CASE "
               f"WHEN {f(['candidate_ask'])} < 0.5 THEN 'OUTSIDER' "
@@ -137,7 +155,11 @@ async def _fetch_funnel_rows(connection, days: int) -> list[dict[str, Any]]:
         f"{final_expr} AS outcome_yes, {p_market} AS p_market_yes, "
         f"{p_logreg} AS p_logreg_yes, {p_lgbm} AS p_lgbm_yes, "
         f"{mrf} AS mrf_evidence, {spread} AS spread, {role} AS market_role, "
-        f"{horizon} AS horizon, "
+        f"{fee_rate} AS fee_rate, {fee_exponent} AS fee_exponent, "
+        f"{fee_source} AS fee_source, {execution_role} AS execution_role, "
+        f"{observed_cost} AS observed_cost_per_share, {phase} AS phase, "
+        f"{asset_phase} AS asset_phase, {time_left} AS time_left_sec, "
+        f"{group} AS \"group\", {horizon} AS horizon, "
         f"{f(['candidate_side'])} AS candidate_side, "
         f"{f(['strategy_type'])} AS strategy_type, "
         f"{f(['final_action'])} AS legacy_action, "
@@ -162,6 +184,10 @@ async def _fetch_trade_rows(connection, days: int) -> list[dict[str, Any]]:
         "settlement_outcome", "pnl", "fee", "p_candidate_win", "p_logreg_win",
         "p_market_yes", "p_logreg_yes", "p_lgbm_yes", "weighted_p_market_yes",
         "weighted_p_logreg_yes", "weighted_p_lgbm_yes", "weighted_mrf_evidence",
+        "weighted_cost_per_share", "weighted_fee_rate", "weighted_fee_exponent",
+        "weighted_fee_source", "weighted_execution_role",
+        "weighted_spread_per_share", "weighted_expected_execution_price",
+        "weighted_edge_lower_bound", "weighted_size_multiplier",
         "market_role", "strategy_type", "trade_role",
     ]
     selected = [name for name in selected if name in columns]
@@ -186,6 +212,16 @@ async def _fetch_trade_rows(connection, days: int) -> list[dict[str, Any]]:
         item["yes_ask"] = price if side == "YES" else 1.0 - price
         item["no_ask"] = 1.0 - price if side == "YES" else price
         item["timestamp"] = item.get("created_at")
+        item["fee_rate"] = item.get("weighted_fee_rate")
+        item["fee_exponent"] = item.get("weighted_fee_exponent")
+        item["fee_source"] = item.get("weighted_fee_source") or "OBSERVED_TRADE"
+        item["execution_role"] = (
+            item.get("weighted_execution_role")
+            or item.get("trade_role")
+            or "TAKER"
+        )
+        item["observed_cost_per_share"] = item.get("weighted_cost_per_share")
+        item["spread"] = item.get("weighted_spread_per_share") or 0.0
         item["outcome_yes"] = item.get("settlement_outcome")
         item["legacy_action"] = "BUY_YES" if side == "YES" else "BUY_NO"
         item["legacy_ask"] = price
