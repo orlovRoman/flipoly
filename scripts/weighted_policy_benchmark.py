@@ -139,7 +139,9 @@ async def _fetch_funnel_rows(connection, days: int) -> list[dict[str, Any]]:
         f"{mrf} AS mrf_evidence, {spread} AS spread, {role} AS market_role, "
         f"{horizon} AS horizon, "
         f"{f(['candidate_side'])} AS candidate_side, "
-        f"{f(['strategy_type'])} AS strategy_type "
+        f"{f(['strategy_type'])} AS strategy_type, "
+        f"{f(['final_action'])} AS legacy_action, "
+        f"{f(['candidate_ask'])} AS legacy_ask "
         "FROM decision_funnel_log f "
         + quote_join
         + outcome_join
@@ -185,6 +187,8 @@ async def _fetch_trade_rows(connection, days: int) -> list[dict[str, Any]]:
         item["no_ask"] = 1.0 - price if side == "YES" else price
         item["timestamp"] = item.get("created_at")
         item["outcome_yes"] = item.get("settlement_outcome")
+        item["legacy_action"] = "BUY_YES" if side == "YES" else "BUY_NO"
+        item["legacy_ask"] = price
         item["group"] = str(item.get("asset") or "")
         rows.append(item)
     return rows

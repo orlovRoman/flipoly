@@ -24,6 +24,8 @@ from polyflip.trading.weighted_policy import (
     clamp_probability,
     logit,
     score_weighted_probability,
+    probability_for_side,
+    estimate_trade_cost,
     select_weighted_side,
 )
 
@@ -103,6 +105,18 @@ def _outcome_yes(value: Any) -> Optional[bool]:
     return None
 
 
+def _action(value: Any) -> Optional[str]:
+    """Normalize a persisted legacy/candidate action to the policy axis."""
+    text = str(value or "").strip().upper()
+    if text in {"BUY_YES", "YES", "UP"}:
+        return BUY_YES
+    if text in {"BUY_NO", "NO", "DOWN"}:
+        return BUY_NO
+    if text in {"SKIP", "NONE", "CANCELLED", "FAILED"}:
+        return "SKIP"
+    return None
+
+
 @dataclass(frozen=True)
 class MarketObservation:
     """Exactly one market/horizon observation for benchmark purposes."""
@@ -131,6 +145,8 @@ class MarketObservation:
     group: Optional[str] = None
     horizon: str = ""
     time_left_sec: Optional[float] = None
+    legacy_action: Optional[str] = None
+    legacy_ask: Optional[float] = None
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> "MarketObservation":
@@ -148,6 +164,8 @@ class MarketObservation:
         observed_cost = raw.get("observed_cost_per_share")
         if observed_cost is None:
             observed_cost = raw.get("observed_fee_per_share")
+        legacy_ask = raw.get("legacy_ask", raw.get("candidate_ask"))
+        legacy_action = raw.get("legacy_action", raw.get("final_action", raw.get("action", raw.get("candidate_side"))))
         return cls(
             market_id=str(raw.get("market_id", raw.get("condition_id", ""))),
             timestamp=_dt(raw.get("timestamp", raw.get("created_at"))),
@@ -226,6 +244,8 @@ class MarketObservation:
             time_left_sec=_optional_float(
                 raw.get("time_left_sec", raw.get("time_to_close_sec"))
             ),
+            legacy_action=_action(legacy_action),
+            legacy_ask=_probability(legacy_ask),
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -691,6 +711,74 @@ def evaluate_arm(
             elif time_left_role is None:
                 continue
         metrics.observations += 1
+        if arm_name == "LEGACY":
+            # Replay the persisted legacy action instead of routing the row
+            # through the weighted selector. This keeps the benchmark's
+            # control arm a true counterfactual of what actually ran.
+            p_yes = clamp_probability(
+                observation.p_legacy_yes
+                if observation.p_legacy_yes is not None
+                else observation.p_logreg_yes
+            )
+            if p_yes is None:
+                continue
+            outcome_value = 1.0 if observation.outcome_yes else 0.0
+            brier.append((p_yes - outcome_value) ** 2)
+            logloss.append(
+                -log(max(1e-12, p_yes if observation.outcome_yes else 1.0 - p_yes))
+            )
+            action = observation.legacy_action
+            if action not in {BUY_YES, BUY_NO}:
+                continue
+            ask = observation.legacy_ask
+            if ask is None:
+                ask = observation.yes_ask if action == BUY_YES else observation.no_ask
+            ask = clamp_probability(ask)
+            if ask is None or not 0.0 < ask < 1.0:
+                continue
+            p_win = probability_for_side(p_yes, action)
+            if p_win is None:
+                continue
+            cost = observation.observed_cost_per_share
+            if cost is None:
+                cost = estimate_trade_cost(
+                    ask,
+                    fee_rate=base.fee_rate,
+                    maker_fee_rate=base.maker_fee_rate,
+                    fee_exponent=base.fee_exponent,
+                    slippage_rate=base.slippage_rate,
+                    latency_buffer=base.latency_buffer,
+                    role=base.execution_role,
+                ).total_per_share
+            won = observation.outcome_yes if action == BUY_YES else not observation.outcome_yes
+            try:
+                base_stake = max(0.0, float(sizing_base_bet_usdc))
+            except (TypeError, ValueError, OverflowError):
+                base_stake = 1.0
+            if base_stake <= 0.0:
+                continue
+            raw_pnl = (1.0 if won else 0.0) - ask - float(cost)
+            pnl = raw_pnl * base_stake
+            metrics.evaluations.append(
+                TradeEvaluation(
+                    market_id=observation.market_id,
+                    timestamp=observation.timestamp,
+                    asset=observation.asset,
+                    side=action,
+                    ask=ask,
+                    p_win=p_win,
+                    outcome_yes=observation.outcome_yes,
+                    pnl=round(pnl, 10),
+                    cost_per_share=round(float(cost) * base_stake, 10),
+                    group=observation.group or observation.asset or observation.market_id,
+                    size_multiplier=round(base_stake, 10),
+                )
+            )
+            metrics.trades += 1
+            metrics.wins += int(won)
+            metrics.net_pnl += pnl
+            metrics.total_cost += float(cost) * base_stake
+            continue
         if arm_name == "STACKER" and stacker_predictions is not None:
             p = stacker_predictions.get(index)
             inputs = (p, None, None, p)

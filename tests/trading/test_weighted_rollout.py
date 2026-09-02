@@ -101,6 +101,47 @@ def test_stacker_is_bounded_and_benchmark_reports_cost_aware_arms():
     assert [item["stake_usdc"] for item in result.sizing_steps] == [1.0, 1.5, 2.0, 3.0]
 
 
+def test_legacy_arm_replays_persisted_action_instead_of_reselecting_weighted_side():
+    rows = [
+        MarketObservation(
+            **{
+                **_row(0, True).__dict__,
+                "p_legacy_yes": 0.55,
+                "legacy_action": "BUY_NO",
+                "legacy_ask": 0.30,
+                "yes_ask": 0.70,
+                "no_ask": 0.30,
+            }
+        )
+    ]
+    metrics = evaluate_arm(
+        rows,
+        "LEGACY",
+        config=WeightedPolicyConfig(fee_rate=0.0, slippage_rate=0.0),
+    )
+    assert metrics.trades == 1
+    assert metrics.evaluations[0].side == "BUY_NO"
+    assert metrics.evaluations[0].ask == 0.30
+
+
+def test_legacy_action_is_normalized_from_exported_final_action():
+    item = MarketObservation.from_mapping(
+        {
+            "market_id": "legacy-action",
+            "timestamp": "2026-01-01T00:00:00Z",
+            "asset": "BTC",
+            "yes_ask": 0.60,
+            "no_ask": 0.40,
+            "outcome_yes": "YES",
+            "p_logreg_yes": 0.70,
+            "final_action": "BUY_YES",
+            "candidate_ask": 0.60,
+        }
+    )
+    assert item.legacy_action == "BUY_YES"
+    assert item.legacy_ask == 0.60
+
+
 def test_evaluate_arm_uses_observed_cost_and_ci_is_reproducible():
     rows = [_row(0, True)]
     rows = [
