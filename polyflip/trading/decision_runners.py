@@ -907,6 +907,7 @@ async def decide_combined_mode(
         "weighted_expected_execution_price": comb_res.weighted_expected_execution_price,
         "weighted_missing_components": comb_res.weighted_missing_components,
         "weighted_selection_reason": comb_res.weighted_selection_reason,
+        "weighted_benchmark_json": comb_res.weighted_benchmark_json,
         "weighted_fee_source": comb_res.weighted_fee_source,
         "consensus_type": comb_res.consensus_type,
         "direction_status": "SHADOW_NOT_APPLIED" if lgbm_shadow else ("DISABLED_BY_OPERATOR" if effective_lgbm_mode == "OFF" else comb_res.direction_status),
