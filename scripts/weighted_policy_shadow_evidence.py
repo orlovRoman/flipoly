@@ -423,7 +423,7 @@ async def _fetch_shadow_rows(
         f(["final_action"]) + " AS final_action",
         f(["p_market_yes", "weighted_p_market_yes"]) + " AS p_market_yes",
         f(["p_logreg_yes", "weighted_p_logreg_yes"]) + " AS p_logreg_yes",
-        f(["p_logreg_win", "p_candidate_win"]) + " AS p_logreg_win",
+        f(["p_logreg_win"]) + " AS p_logreg_win",
         f(["p_lgbm_yes", "weighted_p_lgbm_yes"]) + " AS p_lgbm_yes",
         f(["weighted_p_market_yes"]) + " AS weighted_p_market_yes",
         f(["weighted_p_final_yes"]) + " AS weighted_p_final_yes",

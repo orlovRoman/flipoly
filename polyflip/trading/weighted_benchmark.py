@@ -193,7 +193,7 @@ class MarketObservation:
             # selected candidate side, not on the YES axis.  Convert BUY_NO
             # rows before exposing the canonical p_logreg_yes field.
             candidate_win = _probability(
-                _first_present(raw, "p_logreg_win", "p_candidate_win")
+                _first_present(raw, "p_logreg_win")
             )
             if candidate_win is not None:
                 if candidate_action == BUY_YES:

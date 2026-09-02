@@ -130,7 +130,7 @@ async def _fetch_funnel_rows(connection, days: int) -> list[dict[str, Any]]:
     # p_logreg_win value, which is relative to candidate_side and is converted
     # by MarketObservation.from_mapping when needed.
     p_logreg = f(["p_logreg_yes", "weighted_p_logreg_yes"])
-    p_logreg_win = f(["p_logreg_win", "p_candidate_win"])
+    p_logreg_win = f(["p_logreg_win"])
     p_lgbm = f(["p_lgbm_yes", "weighted_p_lgbm_yes"])
     mrf = f(["weighted_mrf_evidence", "mrf_regime_evidence"])
     fee_rate = f(["weighted_fee_rate", "fee_rate"])

@@ -104,6 +104,22 @@ def test_mapping_converts_legacy_candidate_probability_to_yes_axis():
     assert yes_item.p_logreg_yes == pytest.approx(0.80)
 
 
+def test_mapping_does_not_treat_effective_candidate_probability_as_logreg_raw():
+    item = MarketObservation.from_mapping(
+        {
+            "market_id": "effective-only",
+            "timestamp": "2026-01-01T00:00:00Z",
+            "asset": "BTC",
+            "yes_ask": 0.60,
+            "no_ask": 0.40,
+            "outcome_yes": "YES",
+            "candidate_side": "BUY_YES",
+            "p_candidate_win": 0.80,
+        }
+    )
+    assert item.p_logreg_yes is None
+
+
 def test_mapping_uses_non_null_compatibility_lgbm_when_canonical_is_null():
     item = MarketObservation.from_mapping(
         {
