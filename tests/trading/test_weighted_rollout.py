@@ -28,6 +28,8 @@ from polyflip.trading.weighted_benchmark import (
     optimize_time_window,
     compare_mrf_application,
     compare_kelly_fractions,
+    optimize_mrf_beta,
+    compare_outsider_agreement,
     create_policy_artifact_from_benchmark,
     parameter_sensitivity,
     stability_by_segment,
@@ -109,6 +111,37 @@ def test_stacker_is_bounded_and_benchmark_reports_cost_aware_arms():
         "time_left_favorite",
         "time_left_outsider",
         "mrf_application",
+        "mrf_beta",
+        "outsider_agreement",
+    }
+
+
+def test_mrf_beta_and_outsider_agreement_are_compared_on_oot_rows():
+    rows = [
+        MarketObservation(
+            **{
+                **_row(index, index % 2 == 0).__dict__,
+                "market_role": "OUTSIDER",
+                "yes_ask": 0.40,
+                "no_ask": 0.60,
+            }
+        )
+        for index in range(8)
+    ]
+    folds = purged_walk_forward_folds(rows, train_min_rows=4, test_size=2)
+    beta = optimize_mrf_beta(
+        rows,
+        candidate_values=(0.0, 0.2),
+        folds=folds,
+        minimum_stable_folds=1,
+    )
+    agreement = compare_outsider_agreement(rows, folds=folds)
+    assert beta.parameter == "mrf_beta"
+    assert beta.selected in {0.0, 0.2}
+    assert agreement["parameter"] == "outsider_agreement"
+    assert {item["value"] for item in agreement["candidates"]} == {
+        "FULL_WEIGHTED_MRF",
+        "OUTSIDER_AGREE_ONLY",
     }
 
 

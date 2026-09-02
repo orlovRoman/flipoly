@@ -284,6 +284,7 @@ class BenchmarkConfig:
         (60.0, 600.0),
         (120.0, 900.0),
     )
+    candidate_mrf_beta: tuple[float, ...] = (0.0, 0.10, 0.20, 0.25, 0.40)
     sizing_mode: str = "FIXED"
     sizing_standard_error: float = 0.0
     sizing_kelly_fraction: float = 0.025
@@ -1148,6 +1149,101 @@ def optimize_time_window(
     )
 
 
+def optimize_mrf_beta(
+    observations: Sequence[MarketObservation],
+    *,
+    candidate_values: Sequence[float] = (0.0, 0.10, 0.20, 0.25, 0.40),
+    config: WeightedPolicyConfig | None = None,
+    folds: Optional[Sequence[PurgedFold]] = None,
+    evaluation_indices: Optional[Sequence[int]] = None,
+    min_net_ev: float = 0.0,
+    minimum_stable_folds: int = 3,
+) -> ParameterTuneResult:
+    """Choose probability MRF beta using OOT net PnL stability."""
+    candidates: list[dict[str, Any]] = []
+    base = config or WeightedPolicyConfig()
+    for value in candidate_values:
+        try:
+            beta = float(value)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        fold_metrics = [
+            evaluate_arm(
+                observations,
+                "FULL_WEIGHTED_MRF",
+                config=replace(base, mrf_beta=beta),
+                min_net_ev=min_net_ev,
+                evaluation_indices=indices or None,
+            )
+            for indices in _tuning_indices(folds, evaluation_indices)
+        ]
+        candidates.append(
+            {
+                "value": beta,
+                "net_pnl": round(sum(item.net_pnl for item in fold_metrics), 10),
+                "trades": sum(item.trades for item in fold_metrics),
+                "stable_folds": sum(1 for item in fold_metrics if item.net_pnl > 0.0),
+                "folds": len(fold_metrics),
+            }
+        )
+    return _select_tuning_candidate(
+        "mrf_beta",
+        candidates,
+        minimum_stable_folds=minimum_stable_folds,
+    )
+
+
+def compare_outsider_agreement(
+    observations: Sequence[MarketObservation],
+    *,
+    config: WeightedPolicyConfig | None = None,
+    folds: Optional[Sequence[PurgedFold]] = None,
+    evaluation_indices: Optional[Sequence[int]] = None,
+    min_net_ev: float = 0.0,
+) -> dict[str, Any]:
+    """Compare hard outsider consensus to the soft models_agree coefficient."""
+    candidates: list[dict[str, Any]] = []
+    for arm in ("FULL_WEIGHTED_MRF", "OUTSIDER_AGREE_ONLY"):
+        fold_metrics = [
+            evaluate_arm(
+                observations,
+                arm,
+                config=config,
+                min_net_ev=min_net_ev,
+                evaluation_indices=indices or None,
+            )
+            for indices in _tuning_indices(folds, evaluation_indices)
+        ]
+        brier_values = [item.brier for item in fold_metrics if item.brier is not None]
+        candidates.append(
+            {
+                "value": arm,
+                "net_pnl": round(sum(item.net_pnl for item in fold_metrics), 10),
+                "trades": sum(item.trades for item in fold_metrics),
+                "stable_folds": sum(1 for item in fold_metrics if item.net_pnl > 0.0),
+                "folds": len(fold_metrics),
+                "brier": (
+                    round(sum(brier_values) / len(brier_values), 10)
+                    if brier_values
+                    else None
+                ),
+            }
+        )
+    selected = max(
+        candidates,
+        key=lambda item: (float(item["net_pnl"]), int(item["stable_folds"]), -int(item["trades"])),
+    )
+    return {
+        "parameter": "outsider_agreement",
+        "selected": selected["value"],
+        "candidates": candidates,
+        "comparison": {
+            "soft_models_agree": "FULL_WEIGHTED_MRF",
+            "hard_consensus": "OUTSIDER_AGREE_ONLY",
+        },
+    }
+
+
 def compare_mrf_application(
     observations: Sequence[MarketObservation],
     *,
@@ -1653,7 +1749,7 @@ def benchmark(
         "MARKET_LGBM",
         "FULL_WEIGHTED",
         "FULL_WEIGHTED_MRF",
-        "OUTSIDER_AGREE",
+        "OUTSIDER_AGREE_ONLY",
     ),
 ) -> BenchmarkReport:
     """Run purged walk-forward stacker training plus comparison arms."""
@@ -1767,7 +1863,7 @@ def benchmark(
         results.append(result)
     sensitivity = []
     for threshold in cfg.candidate_min_net_ev:
-        for arm in ("FULL_WEIGHTED_MRF", "OUTSIDER_AGREE"):
+        for arm in ("FULL_WEIGHTED_MRF", "OUTSIDER_AGREE_ONLY"):
             result = evaluate_arm(
                 ordered,
                 arm,
@@ -1811,6 +1907,41 @@ def benchmark(
         bootstrap_seed=cfg.bootstrap_seed,
     )
     tuning_results: list[dict[str, Any]] = []
+    mrf_beta_result = optimize_mrf_beta(
+        ordered,
+        candidate_values=cfg.candidate_mrf_beta,
+        config=cfg.policy_config,
+        folds=folds,
+        evaluation_indices=None if folds else None,
+        min_net_ev=cfg.min_net_ev,
+    )
+    tuning_results.append(mrf_beta_result.as_dict())
+    selected_beta = (
+        float(mrf_beta_result.selected)
+        if mrf_beta_result.selected is not None
+        else float(cfg.policy_config.mrf_beta)
+    )
+    tuning_results.append(
+        {
+            "parameter": "mrf_application",
+            "result": compare_mrf_application(
+                ordered,
+                config=cfg.policy_config,
+                folds=folds,
+                evaluation_indices=None if folds else None,
+                beta=selected_beta,
+            ),
+        }
+    )
+    tuning_results.append(
+        compare_outsider_agreement(
+            ordered,
+            config=cfg.policy_config,
+            folds=folds,
+            evaluation_indices=None if folds else None,
+            min_net_ev=cfg.min_net_ev,
+        )
+    )
     for role in ("FAVORITE", "OUTSIDER"):
         tuning_results.append(
             optimize_min_net_ev(
@@ -1849,17 +1980,6 @@ def benchmark(
                 evaluation_indices=None if folds else None,
             ).as_dict()
         )
-    tuning_results.append(
-        {
-            "parameter": "mrf_application",
-            "result": compare_mrf_application(
-                ordered,
-                config=cfg.policy_config,
-                folds=folds,
-                evaluation_indices=None if folds else None,
-            ),
-        }
-    )
     kelly_fractions = compare_kelly_fractions(
         ordered,
         arm="FULL_WEIGHTED_MRF",
