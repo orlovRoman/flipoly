@@ -305,6 +305,10 @@ class StackerModel:
     training_rows: int
     ridge_lambda: float
     coefficient_bound: float
+    # Number of independent markets represented by the training rows.  A
+    # market can have multiple fixed-horizon snapshots, so this is tracked
+    # separately from ``training_rows`` for hierarchical minimum-size gates.
+    training_markets: int = 0
 
     def predict_one(self, observation: MarketObservation) -> Optional[float]:
         features = _stacker_features(observation)
@@ -318,6 +322,7 @@ class StackerModel:
             "feature_names": list(self.feature_names),
             "coefficients": list(self.coefficients),
             "training_rows": self.training_rows,
+            "training_markets": self.training_markets,
             "ridge_lambda": self.ridge_lambda,
             "coefficient_bound": self.coefficient_bound,
         }
@@ -500,12 +505,18 @@ def _models_agree(observation: MarketObservation) -> Optional[bool]:
     return (observation.p_logreg_yes >= 0.5) == (observation.p_lgbm_yes >= 0.5)
 
 
+def _independent_market_key(observation: MarketObservation) -> str:
+    """Return the identity used for independent-market sample-size gates."""
+    return observation.market_id or f"{observation.asset}|{observation.timestamp.isoformat()}"
+
+
 def observation_segment_key(observation: MarketObservation) -> str:
     raw_role = str(observation.market_role or "UNKNOWN").strip().upper() or "UNKNOWN"
     role = "OUTSIDER" if _is_outsider_role(raw_role) else raw_role
+    phase = str(observation.phase or "UNKNOWN").strip().upper() or "UNKNOWN"
     agreement = _models_agree(observation)
     agreement_label = "AGREE" if agreement is True else ("DISAGREE" if agreement is False else "UNKNOWN")
-    return f"{observation.asset.strip().upper() or 'UNKNOWN'}|{role}|{agreement_label}"
+    return f"{observation.asset.strip().upper() or 'UNKNOWN'}|{phase}|{role}|{agreement_label}"
 
 def _stacker_features(observation: MarketObservation) -> Optional[tuple[float, ...]]:
     if observation.p_market_yes is None:
@@ -576,6 +587,13 @@ def fit_ridge_logistic_stacker(
             beta = updated
             break
         beta = updated
+    training_markets = len(
+        {
+            _independent_market_key(item)
+            for item in observations
+            if item.outcome_yes is not None and _stacker_features(item) is not None
+        }
+    )
     return StackerModel(
         feature_names=(
             "intercept",
@@ -593,6 +611,7 @@ def fit_ridge_logistic_stacker(
         training_rows=len(rows),
         ridge_lambda=penalty,
         coefficient_bound=bound,
+        training_markets=training_markets,
     )
 
 
@@ -2066,7 +2085,8 @@ def fit_hierarchical_stackers(
         grouped.setdefault(observation_segment_key(item), []).append(item)
     segment_models: dict[str, StackerModel] = {}
     for key, rows in grouped.items():
-        if len(rows) < minimum:
+        independent_markets = {_independent_market_key(item) for item in rows}
+        if len(independent_markets) < minimum:
             continue
         fitted = fit_ridge_logistic_stacker(
             rows,
@@ -2089,6 +2109,7 @@ def fit_hierarchical_stackers(
             training_rows=len(rows),
             ridge_lambda=fitted.ridge_lambda,
             coefficient_bound=fitted.coefficient_bound,
+            training_markets=len(independent_markets),
         )
     return HierarchicalStacker(
         global_model=global_model,

@@ -355,12 +355,13 @@ def test_deduplicate_keeps_one_row_per_market_and_horizon():
     assert later not in result
 
 
-def test_hierarchical_stacker_has_role_and_agreement_segment():
+def test_hierarchical_stacker_has_role_phase_and_agreement_segment():
     rows = [
         MarketObservation(
             **{
                 **_row(index, index % 2 == 0).__dict__,
                 "market_role": "UNDERDOG",
+                "phase": "DECIDED",
             }
         )
         for index in range(12)
@@ -372,12 +373,34 @@ def test_hierarchical_stacker_has_role_and_agreement_segment():
     )
     key = observation_segment_key(rows[0])
     assert key in model.segment_models
+    assert "DECIDED" in key
+    assert "CONTESTED" not in key
+    assert model.segment_models[key].training_markets == 12
     assert len(model.global_model.coefficients) == 10
     assert model.global_model.feature_names[-2:] == (
         "outsider_logreg_residual",
         "outsider_lgbm_residual",
     )
     assert model.predict_one(rows[0]) is not None
+
+
+def test_hierarchical_minimum_uses_independent_markets_not_horizon_rows():
+    rows = []
+    for market_index in range(2):
+        for horizon in ("10M", "5M", "2M"):
+            rows.append(
+                MarketObservation(
+                    **{
+                        **_row(len(rows), market_index % 2 == 0).__dict__,
+                        "market_id": f"same-{market_index}",
+                        "horizon": horizon,
+                        "market_role": "UNDERDOG",
+                        "phase": "DECIDED",
+                    }
+                )
+            )
+    model = fit_hierarchical_stackers(rows, min_segment_rows=3, shrinkage=300.0)
+    assert observation_segment_key(rows[0]) not in model.segment_models
 
 
 def test_walk_forward_never_splits_one_market_between_train_and_test():
