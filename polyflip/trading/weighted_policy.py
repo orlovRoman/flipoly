@@ -509,7 +509,8 @@ def score_weighted_probability(
     # Enforce that contract in the pure scorer so every caller (runtime,
     # benchmark and shadow) cannot accidentally apply the evidence twice.
     application = str(config.mrf_application or "PROBABILITY").strip().upper()
-    if application in {"STAKE", "STAKE_ADJUSTMENT"}:
+    stake_application = application in {"STAKE", "STAKE_ADJUSTMENT"}
+    if stake_application:
         beta = 0.0
     try:
         intercept = float(config.intercept)
@@ -533,7 +534,7 @@ def score_weighted_probability(
     # A STAKE artifact must not let a learned stacker MRF feature alter
     # probability either. Keep the raw evidence for telemetry/sizing, but
     # zero it only for the probability scorer.
-    stacker_evidence = 0.0 if application == "STAKE" else signed_evidence
+    stacker_evidence = 0.0 if stake_application else signed_evidence
     stacker = _stacker_score(inputs, config, stacker_evidence)
     if stacker is not None:
         (

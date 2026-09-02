@@ -281,7 +281,7 @@ def _weighted_sizing_fields(
         )
         or "PROBABILITY"
     ).upper()
-    if application == "STAKE":
+    if application in {"STAKE", "STAKE_ADJUSTMENT"}:
         try:
             gamma = float(
                 artifact_config.get(
@@ -608,10 +608,14 @@ def _build_weighted_selection(
             policy_id=artifact.artifact_id[:64],
         )
         policy_cfg = _apply_artifact_tuning(cfg, policy_cfg)
-    application = str(policy_cfg.mrf_application or "PROBABILITY").upper()
-    if application not in {"PROBABILITY", "STAKE"}:
+    application = str(policy_cfg.mrf_application or "PROBABILITY").strip().upper()
+    if application in {"STAKE", "STAKE_ADJUSTMENT"}:
+        application = "STAKE"
+    elif application in {"PROBABILITY", "PROBABILITY_ADJUSTMENT"}:
         application = "PROBABILITY"
-        policy_cfg = replace(policy_cfg, mrf_application=application)
+    else:
+        application = "PROBABILITY"
+    policy_cfg = replace(policy_cfg, mrf_application=application)
     if application == "STAKE":
         policy_cfg = replace(policy_cfg, mrf_beta=0.0)
     if artifact_path and artifact is None:
@@ -862,8 +866,10 @@ def _weighted_benchmark_snapshot(
     # Keep shadow counterfactuals on the same MRF application path as runtime.
     # In STAKE mode the evidence changes sizing only; leaving beta enabled here
     # would silently apply the MRF twice (probability in shadow, sizing in active).
-    application = str(policy_cfg.mrf_application or "PROBABILITY").upper()
-    if application not in {"PROBABILITY", "STAKE"}:
+    application = str(policy_cfg.mrf_application or "PROBABILITY").strip().upper()
+    if application in {"STAKE", "STAKE_ADJUSTMENT"}:
+        application = "STAKE"
+    else:
         application = "PROBABILITY"
     if application == "STAKE":
         policy_cfg = replace(policy_cfg, mrf_beta=0.0, mrf_application=application)

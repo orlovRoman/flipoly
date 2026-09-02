@@ -149,6 +149,37 @@ def test_mrf_stake_application_never_changes_probability():
     assert result.mrf_adjustment_logodds == 0.0
 
 
+def test_mrf_stake_adjustment_alias_disables_learned_stacker_mrf_term():
+    feature_names = (
+        "intercept",
+        "market_logit",
+        "logreg_residual",
+        "lgbm_residual",
+        "mrf_evidence",
+        "role_outsider",
+        "models_agree",
+        "outsider_agree",
+        "outsider_logreg_residual",
+        "outsider_lgbm_residual",
+    )
+    result = score_weighted_probability(
+        p_market_yes=0.60,
+        p_logreg_yes=0.60,
+        p_lgbm_yes=0.60,
+        config=WeightedPolicyConfig(
+            stacker_feature_names=feature_names,
+            stacker_coefficients=(0.0, 1.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            mrf_beta=0.5,
+            mrf_application="STAKE_ADJUSTMENT",
+        ),
+        mrf_evidence=-1.0,
+    )
+
+    assert result.p_final_yes == 0.60
+    assert result.mrf_adjustment_logodds == 0.0
+    assert result.mrf_evidence == -1.0
+
+
 def test_mrf_stake_application_disables_learned_stacker_mrf_term():
     feature_names = (
         "intercept",
