@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, fields, replace
+from math import isfinite
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
@@ -148,6 +149,14 @@ class ActivationEvidence:
     repeat_oot_reports: int = 0
     live_fills: int = 0
     pnl_ci_lower: Optional[float] = None
+    weighted_brier: Optional[float] = None
+    market_brier: Optional[float] = None
+    legacy_brier: Optional[float] = None
+    weighted_net_pnl: Optional[float] = None
+    market_net_pnl: Optional[float] = None
+    legacy_net_pnl: Optional[float] = None
+    execution_drag: Optional[float] = None
+    calibration_error: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -164,8 +173,11 @@ def activation_gate(
     min_candidate_trades: int = 300,
     min_repeat_oot_reports: int = 1,
     min_live_fills: int = 300,
+    min_brier_improvement: float = 0.002,
+    max_execution_drag: float = 0.02,
+    max_calibration_error: float = 0.05,
 ) -> ActivationGate:
-    """Require plan evidence before permitting fixed-bet ACTIVE rollout."""
+    """Require empirical quality and execution evidence before ACTIVE rollout."""
     reasons: list[str] = []
     if evidence.shadow_days < min_shadow_days:
         reasons.append("SHADOW_DAYS_BELOW_MINIMUM")
@@ -177,6 +189,64 @@ def activation_gate(
         reasons.append("REPEAT_OOT_REPORTS_BELOW_MINIMUM")
     if evidence.live_fills < min_live_fills:
         reasons.append("LIVE_FILLS_BELOW_MINIMUM")
-    if evidence.pnl_ci_lower is not None and evidence.pnl_ci_lower <= 0.0:
+
+    if evidence.pnl_ci_lower is None:
+        reasons.append("PNL_CI_LOWER_MISSING")
+    elif not isfinite(float(evidence.pnl_ci_lower)) or evidence.pnl_ci_lower <= 0.0:
         reasons.append("PNL_CI_LOWER_NOT_POSITIVE")
+
+    brier_values = (
+        evidence.weighted_brier,
+        evidence.market_brier,
+        evidence.legacy_brier,
+    )
+    if any(value is None for value in brier_values):
+        reasons.append("BRIER_EVIDENCE_MISSING")
+    else:
+        weighted_brier, market_brier, legacy_brier = (
+            float(value) for value in brier_values
+        )
+        if not all(isfinite(value) for value in brier_values):
+            reasons.append("BRIER_EVIDENCE_INVALID")
+        else:
+            if market_brier - weighted_brier < float(min_brier_improvement):
+                reasons.append("BRIER_NOT_BETTER_THAN_MARKET")
+            if legacy_brier - weighted_brier < float(min_brier_improvement):
+                reasons.append("BRIER_NOT_BETTER_THAN_LEGACY")
+
+    pnl_values = (
+        evidence.weighted_net_pnl,
+        evidence.market_net_pnl,
+        evidence.legacy_net_pnl,
+    )
+    if any(value is None for value in pnl_values):
+        reasons.append("PNL_COMPARISON_MISSING")
+    else:
+        weighted_pnl, market_pnl, legacy_pnl = (
+            float(value) for value in pnl_values
+        )
+        if not all(isfinite(value) for value in pnl_values):
+            reasons.append("PNL_COMPARISON_INVALID")
+        else:
+            if weighted_pnl <= market_pnl:
+                reasons.append("PNL_NOT_BETTER_THAN_MARKET")
+            if weighted_pnl <= legacy_pnl:
+                reasons.append("PNL_NOT_BETTER_THAN_LEGACY")
+
+    if evidence.execution_drag is None:
+        reasons.append("EXECUTION_DRAG_MISSING")
+    elif (
+        not isfinite(float(evidence.execution_drag))
+        or float(evidence.execution_drag) > float(max_execution_drag)
+    ):
+        reasons.append("EXECUTION_DRAG_ABOVE_LIMIT")
+
+    if evidence.calibration_error is None:
+        reasons.append("CALIBRATION_ERROR_MISSING")
+    elif (
+        not isfinite(float(evidence.calibration_error))
+        or abs(float(evidence.calibration_error)) > float(max_calibration_error)
+    ):
+        reasons.append("CALIBRATION_ERROR_ABOVE_LIMIT")
+
     return ActivationGate(eligible=not reasons, reasons=tuple(reasons))
