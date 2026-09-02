@@ -265,7 +265,16 @@ class BenchmarkConfig:
     coefficient_bound: float = 5.0
     bootstrap_iterations: int = 1000
     bootstrap_seed: int = 20260901
-    candidate_min_net_ev: tuple[float, ...] = (0.0, 0.01, 0.02, 0.03, 0.05)
+    candidate_min_net_ev: tuple[float, ...] = (
+        0.01,
+        0.02,
+        0.03,
+        0.04,
+        0.05,
+        0.06,
+        0.07,
+        0.08,
+    )
     hierarchical_min_segment_rows: int = 300
     hierarchical_shrinkage: float = 300.0
     candidate_price_caps: tuple[float, ...] = (0.20, 0.25, 0.30, 0.35, 0.40)
@@ -374,6 +383,7 @@ class BenchmarkReport:
     stability: tuple[dict[str, Any], ...] = ()
     sizing_steps: tuple[dict[str, Any], ...] = ()
     kelly_fractions: tuple[dict[str, Any], ...] = ()
+    tuning: tuple[dict[str, Any], ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -397,6 +407,7 @@ class BenchmarkReport:
             "stability": [dict(item) for item in self.stability],
             "sizing_steps": [dict(item) for item in self.sizing_steps],
             "kelly_fractions": [dict(item) for item in self.kelly_fractions],
+            "tuning": [dict(item) for item in self.tuning],
         }
 
 
@@ -1774,6 +1785,56 @@ def benchmark(
         bootstrap_iterations=cfg.bootstrap_iterations,
         bootstrap_seed=cfg.bootstrap_seed,
     )
+    tuning_results: list[dict[str, Any]] = []
+    for role in ("FAVORITE", "OUTSIDER"):
+        tuning_results.append(
+            optimize_min_net_ev(
+                ordered,
+                role=role,
+                arm="FULL_WEIGHTED_MRF",
+                candidate_values=cfg.candidate_min_net_ev,
+                config=cfg.policy_config,
+                folds=folds,
+                evaluation_indices=None if folds else None,
+            ).as_dict()
+        )
+        tuning_results.append(
+            optimize_price_cap(
+                ordered,
+                role=role,
+                arm="FULL_WEIGHTED_MRF",
+                candidate_values=(
+                    cfg.candidate_favorite_price_caps
+                    if role == "FAVORITE"
+                    else cfg.candidate_price_caps
+                ),
+                config=cfg.policy_config,
+                folds=folds,
+                evaluation_indices=None if folds else None,
+            ).as_dict()
+        )
+        tuning_results.append(
+            optimize_time_window(
+                ordered,
+                role=role,
+                windows=cfg.candidate_time_windows,
+                arm="FULL_WEIGHTED_MRF",
+                config=cfg.policy_config,
+                folds=folds,
+                evaluation_indices=None if folds else None,
+            ).as_dict()
+        )
+    tuning_results.append(
+        {
+            "parameter": "mrf_application",
+            "result": compare_mrf_application(
+                ordered,
+                config=cfg.policy_config,
+                folds=folds,
+                evaluation_indices=None if folds else None,
+            ),
+        }
+    )
     kelly_fractions = compare_kelly_fractions(
         ordered,
         arm="FULL_WEIGHTED_MRF",
@@ -1803,6 +1864,7 @@ def benchmark(
         stability=stability,
         sizing_steps=sizing_steps,
         kelly_fractions=kelly_fractions,
+        tuning=tuple(tuning_results),
     )
 
 

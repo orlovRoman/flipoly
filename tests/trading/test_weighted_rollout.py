@@ -100,6 +100,16 @@ def test_stacker_is_bounded_and_benchmark_reports_cost_aware_arms():
     assert result.resolved_observations == 16
     assert {item.arm for item in result.arms} >= {"MARKET_ONLY", "FULL_WEIGHTED_MRF"}
     assert [item["stake_usdc"] for item in result.sizing_steps] == [1.0, 1.5, 2.0, 3.0]
+    assert [item["fraction_percent"] for item in result.kelly_fractions] == [2.5, 5.0, 10.0]
+    assert {item["parameter"] for item in result.tuning} >= {
+        "min_net_ev_favorite",
+        "min_net_ev_outsider",
+        "favorite_max_price",
+        "outsider_max_price",
+        "time_left_favorite",
+        "time_left_outsider",
+        "mrf_application",
+    }
 
 
 def test_legacy_arm_replays_persisted_action_instead_of_reselecting_weighted_side():
