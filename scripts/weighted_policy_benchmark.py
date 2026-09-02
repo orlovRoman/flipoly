@@ -277,6 +277,56 @@ def _report_hash(report: dict[str, Any]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _selected_tuning_parameters(tuning: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    """Export only stable OOT selections in a runtime-consumable form."""
+    selected: dict[str, Any] = {}
+    for item in tuning:
+        parameter = str(item.get("parameter") or "").strip()
+        if not parameter:
+            continue
+        if parameter == "mrf_application":
+            result = item.get("result")
+            value = result.get("selected") if isinstance(result, dict) else None
+            if value is not None:
+                selected[parameter] = value
+            continue
+        value = item.get("selected")
+        if parameter == "outsider_agreement":
+            if value is not None:
+                selected[parameter] = value
+            continue
+        if value is None:
+            continue
+        # Price/time/edge/beta tuning is eligible for deployment only when
+        # the selector reports the configured minimum number of stable folds.
+        if item.get("stable") is not True:
+            continue
+        selected[parameter] = value
+    return selected
+
+
+def _artifact_thresholds(selected_tuning: dict[str, Any], min_net_ev: float) -> dict[str, Any]:
+    """Keep selected controls both nested and at top level for old readers."""
+    thresholds: dict[str, Any] = {
+        "min_net_ev": min_net_ev,
+        "selected_tuning": dict(selected_tuning),
+    }
+    for key in (
+        "min_net_ev_favorite",
+        "min_net_ev_outsider",
+        "favorite_max_price",
+        "outsider_max_price",
+        "time_left_favorite",
+        "time_left_outsider",
+        "mrf_beta",
+        "mrf_application",
+        "outsider_agreement",
+    ):
+        if key in selected_tuning:
+            thresholds[key] = selected_tuning[key]
+    return thresholds
+
+
 async def run(args: argparse.Namespace) -> int:
     source = "json"
     if args.input:
@@ -320,20 +370,13 @@ async def run(args: argparse.Namespace) -> int:
             encoding="utf-8",
         )
     if args.artifact:
-        selected_tuning = {
-            str(item["parameter"]): item.get("selected")
-            for item in result.tuning
-            if item.get("parameter") and item.get("selected") is not None
-        }
+        selected_tuning = _selected_tuning_parameters(result.tuning)
         artifact = create_policy_artifact_from_benchmark(
             observations,
             result,
             version=args.policy_version,
             policy_config=cfg.policy_config,
-            thresholds={
-                "min_net_ev": args.min_net_ev,
-                "selected_tuning": selected_tuning,
-            },
+            thresholds=_artifact_thresholds(selected_tuning, args.min_net_ev),
             source_report_hash=_report_hash(report),
         )
         save_policy_artifact(args.artifact, artifact)

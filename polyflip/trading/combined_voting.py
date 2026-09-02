@@ -19,8 +19,10 @@ COMBINED-режим принятия решений:
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from functools import lru_cache
+from math import isfinite
 from typing import Literal, Optional, Any, TYPE_CHECKING, cast
 import structlog
 
@@ -74,11 +76,28 @@ def _weighted_policy_id(cfg: "TradingConfig") -> str:
     return str(getattr(cfg, "weighted_policy_id", "UNVERSIONED") or "UNVERSIONED")[:64]
 
 
+def _artifact_threshold(cfg: "TradingConfig", key: str) -> Any:
+    """Read a threshold from an immutable artifact, including tuned values.
+
+    Benchmark-generated artifacts keep the complete tuning report under
+    ``selected_tuning`` while older/manual artifacts commonly put a threshold
+    at the top level.  Runtime must understand both forms so exporting a
+    benchmark cannot silently discard its selected policy controls.
+    """
+    artifact = _weighted_artifact(cfg)
+    if artifact is None or not isinstance(artifact.thresholds, Mapping):
+        return None
+    value = artifact.thresholds.get(key)
+    if value is not None:
+        return value
+    selected = artifact.thresholds.get("selected_tuning")
+    if isinstance(selected, Mapping):
+        return selected.get(key)
+    return None
+
+
 def _weighted_min_net_ev(cfg: "TradingConfig", is_outsider: bool) -> float:
     fallback = float(cfg.get_weighted_min_net_ev(is_outsider))
-    artifact = _weighted_artifact(cfg)
-    if artifact is None:
-        return fallback
     keys = (
         ("min_net_ev_outsider", "min_net_ev")
         if is_outsider
@@ -86,12 +105,91 @@ def _weighted_min_net_ev(cfg: "TradingConfig", is_outsider: bool) -> float:
     )
     for key in keys:
         try:
-            value = float(artifact.thresholds.get(key))
+            value = float(_artifact_threshold(cfg, key))
         except (TypeError, ValueError, OverflowError):
             continue
-        if 0.0 <= value <= 1.0:
+        if isfinite(value) and 0.0 <= value <= 1.0:
             return value
     return fallback
+
+
+def _weighted_tuned_price_cap(
+    cfg: "TradingConfig", is_outsider: bool
+) -> Optional[float]:
+    key = "outsider_max_price" if is_outsider else "favorite_max_price"
+    try:
+        value = float(_artifact_threshold(cfg, key))
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not isfinite(value) or not 0.0 < value < 1.0:
+        return None
+    return value
+
+
+def _weighted_tuned_time_window(
+    cfg: "TradingConfig", is_outsider: bool
+) -> Optional[tuple[float, float]]:
+    key = "time_left_outsider" if is_outsider else "time_left_favorite"
+    raw = _artifact_threshold(cfg, key)
+    if not isinstance(raw, (list, tuple)) or len(raw) != 2:
+        return None
+    try:
+        lower, upper = (float(item) for item in raw)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if (
+        not isfinite(lower)
+        or not isfinite(upper)
+        or lower < 0.0
+        or upper < lower
+    ):
+        return None
+    return lower, upper
+
+
+def _weighted_tuned_mrf_beta(cfg: "TradingConfig") -> Optional[float]:
+    try:
+        value = float(_artifact_threshold(cfg, "mrf_beta"))
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not isfinite(value) or abs(value) > 10.0:
+        return None
+    return value
+
+
+def _weighted_tuned_mrf_application(cfg: "TradingConfig") -> Optional[str]:
+    raw = _artifact_threshold(cfg, "mrf_application")
+    if raw is None:
+        return None
+    normalized = str(raw).strip().upper()
+    if normalized in {"PROBABILITY", "PROBABILITY_ADJUSTMENT"}:
+        return "PROBABILITY"
+    if normalized in {"STAKE", "STAKE_ADJUSTMENT"}:
+        return "STAKE"
+    return None
+
+
+def _weighted_outsider_agreement_mode(cfg: "TradingConfig") -> Optional[str]:
+    raw = _artifact_threshold(cfg, "outsider_agreement")
+    if raw is None:
+        return None
+    normalized = str(raw).strip().upper()
+    if normalized in {"FULL_WEIGHTED_MRF", "OUTSIDER_AGREE_ONLY"}:
+        return normalized
+    return None
+
+
+def _apply_artifact_tuning(
+    cfg: "TradingConfig", policy_cfg: WeightedPolicyConfig
+) -> WeightedPolicyConfig:
+    """Apply selected OOT MRF controls from the immutable artifact."""
+    beta = _weighted_tuned_mrf_beta(cfg)
+    if beta is not None:
+        policy_cfg = replace(policy_cfg, mrf_beta=beta)
+    application = _weighted_tuned_mrf_application(cfg)
+    if application is not None:
+        policy_cfg = replace(policy_cfg, mrf_application=application)
+    return policy_cfg
 
 
 def _weighted_standard_error(
@@ -174,8 +272,10 @@ def _weighted_sizing_fields(
     else:
         multiplier = 1.0
 
+    tuned_application = _weighted_tuned_mrf_application(cfg)
     application = str(
-        artifact_config.get(
+        tuned_application
+        or artifact_config.get(
             "mrf_application",
             getattr(cfg, "weighted_mrf_application", "PROBABILITY"),
         )
@@ -507,6 +607,7 @@ def _build_weighted_selection(
             ),
             policy_id=artifact.artifact_id[:64],
         )
+        policy_cfg = _apply_artifact_tuning(cfg, policy_cfg)
     application = str(policy_cfg.mrf_application or "PROBABILITY").upper()
     if application not in {"PROBABILITY", "STAKE"}:
         application = "PROBABILITY"
@@ -532,7 +633,7 @@ def _build_weighted_selection(
             None,
             "POLICY_ARTIFACT_INVALID",
         )
-    return select_weighted_side(
+    selection = select_weighted_side(
         p_market_yes=p_market_yes,
         p_logreg_yes=p_logreg_yes,
         p_lgbm_yes=p_lgbm_yes,
@@ -549,6 +650,25 @@ def _build_weighted_selection(
         spread=spread if spread_cost is None else spread_cost,
         mrf_extreme_veto_threshold=policy_cfg.mrf_extreme_veto_threshold,
     )
+    if selection.selected is not None:
+        selected = selection.selected
+        selected_is_outsider = (
+            (selected.side == "BUY_YES" and fresh_yes_price < 0.50)
+            or (selected.side == "BUY_NO" and fresh_yes_price >= 0.50)
+        )
+        if (
+            selected_is_outsider
+            and _weighted_outsider_agreement_mode(cfg) == "OUTSIDER_AGREE_ONLY"
+            and selection.probability.models_agree is not True
+        ):
+            selection = WeightedSelection(
+                selection.probability,
+                None,
+                selection.yes_quote,
+                selection.no_quote,
+                "OUTSIDER_AGREE_GATE",
+            )
+    return selection
 
 
 def _weighted_benchmark_snapshot(
@@ -603,6 +723,7 @@ def _weighted_benchmark_snapshot(
             execution_role=execution_role,
             policy_id=artifact.artifact_id[:64],
         )
+        policy_cfg = _apply_artifact_tuning(cfg, policy_cfg)
     snapshot = benchmark_policy_arms(
         p_market_yes=probability.p_market_yes,
         p_logreg_yes=probability.p_logreg_yes,
@@ -1426,6 +1547,21 @@ def _evaluate_combined_entry_inner(
         )
 
     is_valid_time, time_reason = cfg.is_time_valid(time_left_sec, is_outsider)
+    if is_valid_time and weighted_active:
+        tuned_window = _weighted_tuned_time_window(cfg, is_outsider)
+        if tuned_window is not None:
+            lower, upper = tuned_window
+            try:
+                time_value = float(time_left_sec)
+            except (TypeError, ValueError, OverflowError):
+                time_value = float("nan")
+            if not isfinite(time_value) or not lower <= time_value <= upper:
+                role = "outsider" if is_outsider else "favorite"
+                time_reason = (
+                    f"weighted {role}: time_left={time_value:.0f}s "
+                    f"out of tuned [{lower:g}, {upper:g}]"
+                )
+                is_valid_time = False
     if not is_valid_time:
         return CombinedEntryResult(
             action="SKIP",
@@ -1539,6 +1675,20 @@ def _evaluate_combined_entry_inner(
 
     # 5. Проверка диапазона цен покупки
     is_valid_price, price_reason = cfg.is_price_valid(candidate_ask, is_outsider)
+    if is_valid_price and weighted_active:
+        tuned_cap = _weighted_tuned_price_cap(cfg, is_outsider)
+        if tuned_cap is not None:
+            try:
+                price_value = float(candidate_ask)
+            except (TypeError, ValueError, OverflowError):
+                price_value = float("nan")
+            if not isfinite(price_value) or price_value > tuned_cap:
+                role = "outsider" if is_outsider else "favorite"
+                price_reason = (
+                    f"Weighted {role} price {price_value:.3f} "
+                    f"> tuned max {tuned_cap:g}"
+                )
+                is_valid_price = False
     if not is_valid_price:
         return CombinedEntryResult(
             action="SKIP",
@@ -1704,6 +1854,10 @@ def _evaluate_combined_entry_inner(
     max_price_by_edge = round(p_candidate_win - cost_buffer - min_net_edge, 3)
     max_price_by_drift = round(candidate_ask + max_drift, 3)
     max_acceptable_price = min(max_price_by_edge, max_price_by_drift, cfg.trade_max_price)
+    if weighted_active:
+        tuned_cap = _weighted_tuned_price_cap(cfg, is_outsider)
+        if tuned_cap is not None:
+            max_acceptable_price = min(max_acceptable_price, tuned_cap)
 
     would_live_accept = (entry_model_source == "PHASE")
     if dir_status == "LGBM_FALLBACK":

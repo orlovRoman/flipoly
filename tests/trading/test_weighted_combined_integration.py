@@ -211,6 +211,171 @@ def test_weighted_active_loads_policy_artifact_and_lower_bound_sizing(tmp_path):
     assert result.bet_size_usdc == result.weighted_size_multiplier
 
 
+def test_weighted_active_applies_nested_artifact_tuning_controls(tmp_path):
+    def artifact_path(name, tuning, **policy_overrides):
+        artifact = create_policy_artifact(
+            version=name,
+            created_at="2026-01-01T00:00:00+00:00",
+            training_window={"rows": 100},
+            stacker=None,
+            policy_config=WeightedPolicyConfig(
+                fee_rate=0.0,
+                slippage_rate=0.0,
+                **policy_overrides,
+            ),
+            thresholds={"selected_tuning": tuning},
+        )
+        destination = tmp_path / f"{name}.json"
+        save_policy_artifact(destination, artifact)
+        return destination
+
+    edge_cfg = replace(
+        _weighted_cfg("WEIGHTED_ACTIVE"),
+        weighted_policy_artifact_path=str(
+            artifact_path("edge", {"min_net_ev_favorite": 0.10})
+        ),
+    )
+    edge_result = _evaluate(edge_cfg)
+    assert edge_result.action == "SKIP"
+    assert "min 0.1000" in edge_result.reason
+
+    price_cfg = replace(
+        _weighted_cfg("WEIGHTED_ACTIVE"),
+        weighted_policy_artifact_path=str(
+            artifact_path("price", {"favorite_max_price": 0.53})
+        ),
+    )
+    price_result = _evaluate(price_cfg)
+    assert price_result.action == "SKIP"
+    assert price_result.entry_status == "PRICE_OUT_OF_BOUNDS"
+    assert "tuned max 0.53" in price_result.reason
+
+    accepted_cfg = replace(
+        _weighted_cfg("WEIGHTED_ACTIVE"),
+        weighted_policy_artifact_path=str(
+            artifact_path("accepted", {"favorite_max_price": 0.56})
+        ),
+        max_price_drift=0.10,
+        weighted_min_net_ev_favorite=0.0,
+    )
+    accepted_result = _evaluate(accepted_cfg)
+    assert accepted_result.action == "BUY_YES"
+    assert accepted_result.max_acceptable_price == 0.56
+
+    time_cfg = replace(
+        _weighted_cfg("WEIGHTED_ACTIVE"),
+        weighted_policy_artifact_path=str(
+            artifact_path("time", {"time_left_favorite": [301.0, 600.0]})
+        ),
+    )
+    time_result = _evaluate(time_cfg)
+    assert time_result.action == "SKIP"
+    assert time_result.entry_status == "INVALID_TIME"
+    assert "tuned [301, 600]" in time_result.reason
+
+
+def test_weighted_active_applies_artifact_mrf_tuning_and_agreement(tmp_path):
+    def artifact_path(name, tuning, **policy_overrides):
+        artifact = create_policy_artifact(
+            version=name,
+            created_at="2026-01-01T00:00:00+00:00",
+            training_window={"rows": 100},
+            stacker=None,
+            policy_config=WeightedPolicyConfig(
+                fee_rate=0.0,
+                slippage_rate=0.0,
+                **policy_overrides,
+            ),
+            thresholds={"selected_tuning": tuning},
+        )
+        destination = tmp_path / f"{name}.json"
+        save_policy_artifact(destination, artifact)
+        return destination
+
+    beta_cfg = replace(
+        _weighted_cfg("WEIGHTED_ACTIVE"),
+        weighted_policy_artifact_path=str(
+            artifact_path("beta", {"mrf_beta": 0.40})
+        ),
+        weighted_mrf_beta=0.0,
+    )
+    beta_result = evaluate_combined_entry(
+        crypto_sig=_signal(),
+        market_phase="mid_vol",
+        entry_requested_key="BTC_mid_vol",
+        entry_model_key="BTC_mid_vol",
+        entry_model_version=4,
+        entry_model_source="PHASE",
+        p_flip=0.20,
+        fresh_yes_price=0.55,
+        yes_ask=0.54,
+        no_ask=0.46,
+        cost_buffer=0.0,
+        time_left_sec=300.0,
+        cfg=beta_cfg,
+        mrf_evidence=0.50,
+    )
+    assert beta_result.action == "BUY_YES"
+    assert beta_result.weighted_mrf_contribution_logodds == 0.2
+
+    stake_cfg = replace(
+        _weighted_cfg("WEIGHTED_ACTIVE"),
+        weighted_policy_artifact_path=str(
+            artifact_path(
+                "stake",
+                {"mrf_application": "stake_adjustment"},
+                mrf_sizing_gamma=0.50,
+            )
+        ),
+        weighted_mrf_application="PROBABILITY",
+        weighted_mrf_sizing_gamma=0.50,
+    )
+    stake_result = evaluate_combined_entry(
+        crypto_sig=_signal(),
+        market_phase="mid_vol",
+        entry_requested_key="BTC_mid_vol",
+        entry_model_key="BTC_mid_vol",
+        entry_model_version=4,
+        entry_model_source="PHASE",
+        p_flip=0.20,
+        fresh_yes_price=0.55,
+        yes_ask=0.54,
+        no_ask=0.46,
+        cost_buffer=0.0,
+        time_left_sec=300.0,
+        cfg=stake_cfg,
+        mrf_evidence=-1.0,
+    )
+    assert stake_result.action == "BUY_YES"
+    assert stake_result.weighted_mrf_contribution_logodds == 0.0
+    assert stake_result.weighted_size_multiplier == 0.5
+
+    agreement_cfg = replace(
+        _weighted_cfg("WEIGHTED_ACTIVE"),
+        weighted_policy_artifact_path=str(
+            artifact_path("agreement", {"outsider_agreement": "OUTSIDER_AGREE_ONLY"})
+        ),
+    )
+    agreement_result = evaluate_combined_entry(
+        crypto_sig=_signal(),
+        market_phase="mid_vol",
+        entry_requested_key="BTC_mid_vol",
+        entry_model_key="BTC_mid_vol",
+        entry_model_version=4,
+        entry_model_source="PHASE",
+        p_flip=0.20,
+        fresh_yes_price=0.45,
+        yes_ask=0.40,
+        no_ask=0.60,
+        cost_buffer=0.0,
+        time_left_sec=300.0,
+        cfg=agreement_cfg,
+    )
+    assert agreement_result.action == "SKIP"
+    assert agreement_result.entry_status == "WEIGHTED_SKIP"
+    assert "OUTSIDER_AGREE_GATE" in agreement_result.reason
+
+
 def test_weighted_active_stepped_edge_sizing_uses_lower_bound_and_cap():
     cfg = replace(
         _weighted_cfg("WEIGHTED_ACTIVE"),
