@@ -93,6 +93,20 @@ def sigmoid(value: float) -> float:
     return 1.0 / (1.0 + exp(-value))
 
 
+_STACKER_FEATURE_NAMES: tuple[str, ...] = (
+    "intercept",
+    "market_logit",
+    "logreg_residual",
+    "lgbm_residual",
+    "mrf_evidence",
+    "role_outsider",
+    "models_agree",
+    "outsider_agree",
+    "outsider_logreg_residual",
+    "outsider_lgbm_residual",
+)
+
+
 @dataclass(frozen=True)
 class WeightedPolicyConfig:
     """Runtime knobs for the weighted policy.
@@ -118,6 +132,10 @@ class WeightedPolicyConfig:
     execution_role: str = "TAKER"
     policy_id: str = "UNVERSIONED"
     mrf_extreme_veto_threshold: float = -1.0
+    # Optional immutable ridge-stacker payload loaded from a policy artifact.
+    # Empty tuples preserve the initial 90/5/5 residual scorer.
+    stacker_feature_names: tuple[str, ...] = ()
+    stacker_coefficients: tuple[float, ...] = ()
 
     def normalized_weights(self, available: set[str]) -> dict[str, float]:
         """Keep the market as prior and absorb missing model weight into it."""
@@ -272,6 +290,73 @@ def compute_net_ev_per_share(
     return round(probability - price - costs.total_per_share, 8)
 
 
+def _stacker_score(
+    inputs: ProbabilityInputs,
+    config: WeightedPolicyConfig,
+    signed_evidence: float,
+) -> Optional[tuple[float, float, float, float, float, float]]:
+    """Evaluate a validated artifact stacker and return auditable terms.
+
+    The feature order is shared with fit_ridge_logistic_stacker. A
+    malformed/legacy artifact falls back to the bounded residual scorer rather
+    than changing runtime behaviour.
+    """
+    names = tuple(config.stacker_feature_names or ())
+    coefficients_raw = tuple(config.stacker_coefficients or ())
+    if names != _STACKER_FEATURE_NAMES or len(coefficients_raw) != len(names):
+        return None
+    try:
+        coefficients = tuple(float(value) for value in coefficients_raw)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not all(isfinite(value) for value in coefficients):
+        return None
+    market = clamp_probability(inputs.p_market_yes)
+    if market is None:
+        return None
+    market_logit = logit(market)
+    logreg = clamp_probability(inputs.p_logreg_yes)
+    lgbm = clamp_probability(inputs.p_lgbm_yes)
+    agreement = inputs.models_agree
+    role = str(inputs.role or "").strip().upper()
+    role_outsider = 1.0 if role in {"OUTSIDER", "OUTS", "UNDERDOG"} else 0.0
+    models_agree = 1.0 if agreement is True else 0.0
+    logreg_residual = (
+        logit(logreg) - market_logit if logreg is not None else 0.0
+    )
+    lgbm_residual = (
+        logit(lgbm) - market_logit if lgbm is not None else 0.0
+    )
+    features = (
+        1.0,
+        market_logit,
+        logreg_residual,
+        lgbm_residual,
+        signed_evidence,
+        role_outsider,
+        models_agree,
+        role_outsider * models_agree,
+        role_outsider * logreg_residual,
+        role_outsider * lgbm_residual,
+    )
+    terms = tuple(
+        coefficient * feature
+        for coefficient, feature in zip(coefficients, features)
+    )
+    score = sum(terms)
+    # Keep the existing telemetry schema while exposing all terms: role and
+    # role×residual terms are grouped with the intercept contribution, and the
+    # agreement interaction is grouped with the models-agree contribution.
+    return (
+        sigmoid(score),
+        terms[1],
+        terms[2],
+        terms[3],
+        terms[4],
+        terms[0] + terms[5] + terms[8] + terms[9],
+    )
+
+
 @dataclass(frozen=True)
 class WeightedProbability:
     p_market_yes: Optional[float]
@@ -317,12 +402,22 @@ def score_weighted_probability(
     p_lgbm_yes: Optional[float],
     config: WeightedPolicyConfig,
     mrf_evidence: Optional[float] = None,
+    asset: Optional[str] = None,
+    phase: Optional[str] = None,
+    regime: Optional[str] = None,
+    role: Optional[str] = None,
+    time_left_sec: Optional[float] = None,
 ) -> WeightedProbability:
     """Apply the regularized market-prior residual formula in log-odds."""
     inputs = ProbabilityInputs(
         p_market_yes=p_market_yes,
         p_logreg_yes=p_logreg_yes,
         p_lgbm_yes=p_lgbm_yes,
+        asset=asset,
+        phase=phase,
+        regime=regime,
+        role=role,
+        time_left_sec=time_left_sec,
     )
     market = clamp_probability(inputs.p_market_yes)
     logreg = clamp_probability(inputs.p_logreg_yes)
@@ -363,7 +458,25 @@ def score_weighted_probability(
         else 0.0
     )
 
-    if market is None or sum(weights.values()) <= 0.0:
+    stacker = _stacker_score(inputs, config, signed_evidence)
+    if stacker is not None:
+        (
+            final,
+            market_contribution,
+            logreg_contribution,
+            lgbm_contribution,
+            adjustment,
+            intercept,
+        ) = stacker
+        agreement_adjustment = (
+            (
+                float(config.stacker_coefficients[6])
+                + float(config.stacker_coefficients[7])
+            )
+            if inputs.models_agree is True
+            else 0.0
+        )
+    elif market is None or sum(weights.values()) <= 0.0:
         market_contribution = 0.0
         logreg_contribution = 0.0
         lgbm_contribution = 0.0
@@ -517,6 +630,11 @@ def select_weighted_side(
     no_ask: Optional[float],
     config: WeightedPolicyConfig,
     mrf_evidence: Optional[float] = None,
+    asset: Optional[str] = None,
+    phase: Optional[str] = None,
+    regime: Optional[str] = None,
+    role: Optional[str] = None,
+    time_left_sec: Optional[float] = None,
     min_net_ev: float = 0.0,
     fee_source: str = "CONFIG_DEFAULT",
     spread: float = 0.0,
@@ -534,6 +652,11 @@ def select_weighted_side(
         p_lgbm_yes=p_lgbm_yes,
         config=config,
         mrf_evidence=mrf_evidence,
+        asset=asset,
+        phase=phase,
+        regime=regime,
+        role=role,
+        time_left_sec=time_left_sec,
     )
     yes_quote = _make_side_quote(
         BUY_YES, yes_ask, probability.p_final_yes, config, spread=spread, source=fee_source,
@@ -606,6 +729,11 @@ def benchmark_policy_arms(
     no_ask: Optional[float],
     config: WeightedPolicyConfig,
     mrf_evidence: Optional[float] = None,
+    asset: Optional[str] = None,
+    phase: Optional[str] = None,
+    regime: Optional[str] = None,
+    role: Optional[str] = None,
+    time_left_sec: Optional[float] = None,
     fee_source: str = "CONFIG_DEFAULT",
     spread: float = 0.0,
 ) -> dict[str, dict[str, Any]]:
@@ -627,15 +755,18 @@ def benchmark_policy_arms(
     arms = {
         "MARKET_ONLY": replace(
             config, market_weight=1.0, logreg_weight=0.0, lgbm_weight=0.0,
-            mrf_beta=0.0, models_agree_beta=0.0, **common,
+            mrf_beta=0.0, models_agree_beta=0.0,
+            stacker_feature_names=(), stacker_coefficients=(), **common,
         ),
         "MARKET_LOGREG": replace(
             config, market_weight=0.8, logreg_weight=0.2, lgbm_weight=0.0,
-            mrf_beta=0.0, models_agree_beta=0.0, **common,
+            mrf_beta=0.0, models_agree_beta=0.0,
+            stacker_feature_names=(), stacker_coefficients=(), **common,
         ),
         "MARKET_LGBM": replace(
             config, market_weight=0.8, logreg_weight=0.0, lgbm_weight=0.2,
-            mrf_beta=0.0, models_agree_beta=0.0, **common,
+            mrf_beta=0.0, models_agree_beta=0.0,
+            stacker_feature_names=(), stacker_coefficients=(), **common,
         ),
         "FULL_WEIGHTED": replace(
             config, mrf_beta=0.0, models_agree_beta=0.0, **common,
@@ -668,6 +799,11 @@ def benchmark_policy_arms(
             no_ask=no_ask,
             config=arm_config,
             mrf_evidence=mrf_evidence if name == "FULL_WEIGHTED_MRF" else None,
+            asset=asset,
+            phase=phase,
+            regime=regime,
+            role=role,
+            time_left_sec=time_left_sec,
             min_net_ev=0.0,
             fee_source=fee_source,
             spread=spread,

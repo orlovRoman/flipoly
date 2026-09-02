@@ -4,6 +4,7 @@ from polyflip.crypto.predictor import CryptoSignal
 from polyflip.trading.combined_voting import evaluate_combined_entry
 from polyflip.trading.policy_artifact import create_policy_artifact, save_policy_artifact
 from polyflip.trading.trading_config import parse_trading_settings
+from polyflip.trading.weighted_benchmark import StackerModel
 from polyflip.trading.weighted_policy import WeightedPolicyConfig
 
 
@@ -245,3 +246,49 @@ def test_weighted_mrf_stake_mode_does_not_double_adjust_probability():
     assert result.weighted_mrf_contribution_logodds == 0.0
     assert result.weighted_size_multiplier == 0.5
     assert result.bet_size_usdc == 0.5
+
+
+def test_weighted_active_applies_stacker_coefficients_from_artifact(tmp_path):
+    feature_names = (
+        "intercept",
+        "market_logit",
+        "logreg_residual",
+        "lgbm_residual",
+        "mrf_evidence",
+        "role_outsider",
+        "models_agree",
+        "outsider_agree",
+        "outsider_logreg_residual",
+        "outsider_lgbm_residual",
+    )
+    stacker = StackerModel(
+        feature_names=feature_names,
+        coefficients=(1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+        training_rows=100,
+        ridge_lambda=1.0,
+        coefficient_bound=5.0,
+    )
+    artifact = create_policy_artifact(
+        version="runtime-stacker-v1",
+        created_at="2026-01-01T00:00:00+00:00",
+        training_window={"rows": 100, "oof_standard_error": 0.0},
+        stacker=stacker,
+        policy_config=WeightedPolicyConfig(
+            fee_rate=0.0,
+            slippage_rate=0.0,
+        ),
+        thresholds={"min_net_ev_favorite": 0.0},
+    )
+    artifact_path = tmp_path / "weighted-stacker-policy.json"
+    save_policy_artifact(artifact_path, artifact)
+    cfg = replace(
+        _weighted_cfg("WEIGHTED_ACTIVE"),
+        weighted_policy_artifact_path=str(artifact_path),
+        weighted_min_net_ev_favorite=0.0,
+    )
+
+    result = _evaluate(cfg)
+
+    assert result.action == "BUY_YES"
+    assert result.weighted_p_final_yes == 0.73105858
+    assert result.weighted_p_final_yes != 0.57026632

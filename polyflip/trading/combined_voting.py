@@ -418,6 +418,7 @@ def _build_weighted_selection(
     fee_source: str = "CONFIG_DEFAULT",
     spread: float = 0.0,
     spread_cost: Optional[float] = None,
+    phase: Optional[str] = None,
 ) -> WeightedSelection:
     """Build the shared weighted-policy result for active or shadow mode."""
     lgbm_available = bool(
@@ -519,6 +520,10 @@ def _build_weighted_selection(
             p_lgbm_yes=p_lgbm_yes,
             config=policy_cfg,
             mrf_evidence=mrf_evidence,
+            asset=getattr(crypto_sig, "symbol", None),
+            phase=phase,
+            regime=getattr(crypto_sig, "regime", None),
+            role="OUTSIDER" if fresh_yes_price < 0.50 else "FAVORITE",
         )
         return WeightedSelection(
             probability,
@@ -535,6 +540,10 @@ def _build_weighted_selection(
         no_ask=no_ask,
         config=policy_cfg,
         mrf_evidence=mrf_evidence,
+        asset=getattr(crypto_sig, "symbol", None),
+        phase=phase,
+        regime=getattr(crypto_sig, "regime", None),
+        role="OUTSIDER" if fresh_yes_price < 0.50 else "FAVORITE",
         min_net_ev=0.0,
         fee_source=fee_source,
         spread=spread if spread_cost is None else spread_cost,
@@ -546,6 +555,7 @@ def _weighted_benchmark_snapshot(
     selection: WeightedSelection,
     cfg: "TradingConfig",
     *,
+    fresh_yes_price: float,
     legacy_action: Optional[str],
 ) -> dict[str, dict[str, Any]]:
     """Build compact same-snapshot counterfactual arms for shadow telemetry."""
@@ -577,6 +587,22 @@ def _weighted_benchmark_snapshot(
         policy_id=_weighted_policy_id(cfg),
         mrf_extreme_veto_threshold=float(getattr(cfg, "weighted_mrf_extreme_veto_threshold", -1.0)),
     )
+    artifact = _weighted_artifact(cfg)
+    if artifact is not None:
+        policy_cfg = weighted_policy_config_from_artifact(
+            artifact,
+            fallback=policy_cfg,
+        )
+        policy_cfg = replace(
+            policy_cfg,
+            fee_rate=fee_rate,
+            maker_fee_rate=maker_fee_rate,
+            fee_exponent=fee_exponent,
+            slippage_rate=slippage_rate,
+            latency_buffer=latency_buffer,
+            execution_role=execution_role,
+            policy_id=artifact.artifact_id[:64],
+        )
     snapshot = benchmark_policy_arms(
         p_market_yes=probability.p_market_yes,
         p_logreg_yes=probability.p_logreg_yes,
@@ -585,6 +611,7 @@ def _weighted_benchmark_snapshot(
         no_ask=selection.no_quote.ask if selection.no_quote else None,
         config=policy_cfg,
         mrf_evidence=probability.mrf_evidence,
+        role="OUTSIDER" if fresh_yes_price < 0.50 else "FAVORITE",
         fee_source=quoted.cost.source if quoted else "CONFIG_DEFAULT",
         spread=quoted.cost.spread_per_share if quoted else 0.0,
     )
@@ -655,7 +682,10 @@ def _weighted_result_fields(
         "weighted_selection_reason": selection.reason,
         "weighted_fee_source": quoted.cost.source if quoted else None,
         "weighted_benchmark_json": _weighted_benchmark_snapshot(
-            selection, cfg, legacy_action=legacy_action
+            selection,
+            cfg,
+            fresh_yes_price=fresh_yes_price,
+            legacy_action=legacy_action,
         ),
         **_weighted_sizing_fields(cfg, selection, fresh_yes_price),
     }
@@ -738,6 +768,7 @@ def evaluate_combined_entry(
             fee_source=weighted_fee_source,
             spread=spread or 0.0,
             spread_cost=spread_cost,
+            phase=market_phase,
         )
         result = replace(
             result,
@@ -857,6 +888,7 @@ def _evaluate_combined_entry_inner(
             fee_source=weighted_fee_source,
             spread=spread or 0.0,
             spread_cost=spread_cost,
+            phase=market_phase,
         )
         if weighted_selection.selected is None:
             consensus = DirectionConsensus(

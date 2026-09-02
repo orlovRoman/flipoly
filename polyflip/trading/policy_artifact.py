@@ -118,6 +118,35 @@ def weighted_policy_config_from_artifact(
         if value is not None and not isinstance(value, (str, int, float, bool)):
             continue
         values[key] = value
+
+    # The trained stacker is stored in artifact.model rather than in the
+    # scalar runtime config. Copy only the exact feature contract emitted by
+    # the benchmark; malformed/legacy models deliberately fall back to the
+    # initial residual scorer.
+    model = artifact.model if isinstance(artifact.model, Mapping) else {}
+    names = model.get("feature_names")
+    coefficients = model.get("coefficients")
+    expected_names = (
+        "intercept",
+        "market_logit",
+        "logreg_residual",
+        "lgbm_residual",
+        "mrf_evidence",
+        "role_outsider",
+        "models_agree",
+        "outsider_agree",
+        "outsider_logreg_residual",
+        "outsider_lgbm_residual",
+    )
+    if isinstance(names, (list, tuple)) and isinstance(coefficients, (list, tuple)):
+        try:
+            parsed_coefficients = tuple(float(value) for value in coefficients)
+        except (TypeError, ValueError, OverflowError):
+            parsed_coefficients = ()
+        if tuple(str(value) for value in names) == expected_names and len(parsed_coefficients) == len(expected_names):
+            values["stacker_feature_names"] = expected_names
+            values["stacker_coefficients"] = parsed_coefficients
+
     values["policy_id"] = artifact.artifact_id[:64]
     return replace(base, **values)
 
