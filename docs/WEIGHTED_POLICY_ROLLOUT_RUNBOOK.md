@@ -48,6 +48,14 @@ never uses a future quote for an entry decision. It uses observed filled cost
 when it is present in an input row; otherwise it uses the shared fee/slippage
 estimate.
 
+When `decision_funnel_log` does not contain an explicit horizon, the PostgreSQL
+loader derives one canonical observation for each market at 10M, 5M and 2M
+from `market_snapshots.time_left_min`. It selects the nearest snapshot within
+0.25 minutes and the nearest funnel event within 30 seconds, then records the
+horizon label and quote from that snapshot. The baseline metadata reports the
+per-horizon counts and duplicate `market_id`/horizon rows so repeated snapshots
+cannot be treated as independent observations.
+
 ## 3. Offline acceptance
 
 The benchmark compares MARKET_ONLY, LEGACY, MARKET_LOGREG, MARKET_LGBM,
