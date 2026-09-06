@@ -70,6 +70,13 @@ async def _fetch_funnel_rows(connection, days: int) -> list[dict[str, Any]]:
     f = lambda names, fallback="NULL": _expr(funnel, "f", names, fallback)
     s = lambda names, fallback="NULL": _expr(snapshots, "q", names, fallback)
     m = lambda names, fallback="NULL": _expr(markets, "lm", names, fallback)
+    snapshot_horizon_mode = (
+        "horizon" not in funnel
+        and "market_horizon" not in funnel
+        and "timeframe" not in funnel
+        and {"market_id", "recorded_at", "time_left_min"}.issubset(snapshots)
+    )
+    with_prefix = ""
     final_expr = m(["final_outcome"])
     quote_join = ""
     outcome_join = ""
@@ -78,7 +85,7 @@ async def _fetch_funnel_rows(connection, days: int) -> list[dict[str, Any]]:
     quote_bid_yes = "NULL"
     quote_bid_no = "NULL"
     spread = "0.0"
-    if "market_id" in snapshots:
+    if "market_id" in snapshots and not snapshot_horizon_mode:
         snapshot_time = _expr(snapshots, "q", ["recorded_at", "market_timestamp"])
         quote_columns = [
             f"{s(['poly_up_best_ask'])} AS snapshot_yes_ask",
@@ -181,7 +188,79 @@ async def _fetch_funnel_rows(connection, days: int) -> list[dict[str, Any]]:
         + actionable_order
         + ", f.created_at ASC, f.id ASC) f "
     )
-    query = text(
+    if snapshot_horizon_mode:
+        # Select one snapshot nearest each fixed horizon, then attach the
+        # nearest funnel event. This avoids treating repeated snapshots or
+        # repeated funnel events as independent observations.
+        snapshot_time_left = s(["time_left_min"])
+        snapshot_yes_ask = s(["poly_up_best_ask", "poly_up_mid"])
+        snapshot_no_ask = s(["poly_down_best_ask", "poly_down_mid"])
+        snapshot_yes_bid = s(["poly_up_best_bid"])
+        snapshot_no_bid = s(["poly_down_best_bid"])
+        snapshot_spread = s(["spread"], "0.0")
+        with_prefix = (
+            "WITH horizon_targets(horizon, target_min, tolerance_min) AS ("
+            "VALUES ('10M'::text, 10.0, 0.25), "
+            "('5M'::text, 5.0, 0.25), "
+            "('2M'::text, 2.0, 0.25)), "
+            "target_snapshots AS ("
+            "SELECT DISTINCT ON (q.market_id, h.horizon) "
+            "q.market_id, q.recorded_at AS target_recorded_at, "
+            "h.horizon AS target_horizon, "
+            f"{snapshot_time_left} AS target_time_left_min, "
+            f"{snapshot_yes_ask} AS target_yes_ask, "
+            f"{snapshot_no_ask} AS target_no_ask, "
+            f"{snapshot_yes_bid} AS target_yes_bid, "
+            f"{snapshot_no_bid} AS target_no_bid, "
+            f"{snapshot_spread} AS target_spread "
+            "FROM market_snapshots q "
+            "CROSS JOIN horizon_targets h "
+            "WHERE q.recorded_at >= now() - (:days * interval '1 day') "
+            f"AND {snapshot_time_left} BETWEEN h.target_min - h.tolerance_min "
+            "AND h.target_min + h.tolerance_min "
+            "ORDER BY q.market_id, h.horizon, "
+            f"ABS({snapshot_time_left} - h.target_min), q.recorded_at DESC), "
+            "canonical_funnel AS ("
+            "SELECT DISTINCT ON (row.market_id, ts.target_horizon) "
+            "row.*, ts.target_horizon AS __weighted_horizon, "
+            "ts.target_time_left_min AS __weighted_time_left_min, "
+            "ts.target_yes_ask AS __weighted_yes_ask, "
+            "ts.target_no_ask AS __weighted_no_ask, "
+            "ts.target_yes_bid AS __weighted_yes_bid, "
+            "ts.target_no_bid AS __weighted_no_bid, "
+            "ts.target_spread AS __weighted_spread "
+            "FROM target_snapshots ts "
+            "JOIN LATERAL ("
+            "SELECT f.* FROM decision_funnel_log f "
+            "WHERE f.market_id = ts.market_id "
+            "AND f.created_at >= ts.target_recorded_at - interval '30 seconds' "
+            "AND f.created_at <= ts.target_recorded_at + interval '30 seconds' "
+            "ORDER BY ABS(EXTRACT(EPOCH FROM "
+            "(f.created_at - ts.target_recorded_at))), "
+            f"{actionable_order}, f.created_at ASC, f.id ASC LIMIT 1"
+            ") row ON TRUE) "
+        )
+        quote_yes = "f.__weighted_yes_ask"
+        quote_no = "f.__weighted_no_ask"
+        quote_bid_yes = "f.__weighted_yes_bid"
+        quote_bid_no = "f.__weighted_no_bid"
+        spread = "COALESCE(f.__weighted_spread, 0.0)"
+        horizon = "f.__weighted_horizon"
+        horizon_key = "f.__weighted_horizon"
+        time_left = "(f.__weighted_time_left_min * 60.0)"
+        if "final_outcome" in snapshots:
+            outcome_time = _expr(snapshots, "o", ["recorded_at", "market_timestamp"])
+            outcome_join = (
+                " LEFT JOIN LATERAL (SELECT o.final_outcome AS resolved_outcome "
+                "FROM market_snapshots o WHERE o.market_id = f.market_id "
+                "AND o.final_outcome IN ('YES', 'NO')"
+            )
+            if outcome_time != "NULL":
+                outcome_join += f" ORDER BY {outcome_time} DESC"
+            outcome_join += " LIMIT 1) outcome ON TRUE"
+            final_expr = "COALESCE(" + final_expr + ", outcome.resolved_outcome)"
+        ranked_funnel = "FROM canonical_funnel f "
+    query = text(with_prefix +
         f"SELECT {f(['market_id'])} AS market_id, {f(['created_at'])} AS timestamp, "
         f"{f(['asset'])} AS asset, {yes_ask} AS yes_ask, {no_ask} AS no_ask, "
         f"{quote_bid_yes} AS yes_bid, {quote_bid_no} AS no_bid, "
@@ -396,12 +475,25 @@ async def run(args: argparse.Namespace) -> int:
     )
     result = benchmark(observations, config=cfg)
     report = result.as_dict()
+    horizon_counts = {
+        label: sum(1 for item in observations if item.horizon == label)
+        for label in ("10M", "5M", "2M")
+    }
+    fixed_horizon_observations = sum(horizon_counts.values())
     report["input"] = {
         "source": source,
         "requested_days": args.days,
         "raw_rows": len(raw_rows),
         "market_observations": len(observations),
         "resolved": sum(item.outcome_yes is not None for item in observations),
+        "horizon_counts": horizon_counts,
+        "fixed_horizon_observations": fixed_horizon_observations,
+        "horizon_labels_complete": fixed_horizon_observations == len(observations),
+        "horizon_source": (
+            "market_snapshots.time_left_min"
+            if source == "decision_funnel_log"
+            else "input"
+        ),
     }
     if args.export_observations:
         Path(args.export_observations).parent.mkdir(parents=True, exist_ok=True)

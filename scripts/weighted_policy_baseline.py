@@ -15,7 +15,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.weighted_policy_benchmark import _policy_config, load_from_database
-from polyflip.trading.weighted_benchmark import BenchmarkConfig, MarketObservation, benchmark
+from polyflip.trading.weighted_benchmark import (
+    BenchmarkConfig,
+    MarketObservation,
+    benchmark,
+    normalize_horizon,
+)
 
 
 async def run(args: argparse.Namespace) -> int:
@@ -39,10 +44,25 @@ async def run(args: argparse.Namespace) -> int:
                 bootstrap_iterations=args.bootstrap_iterations,
             ),
         )
+        horizon_counts = {
+            label: sum(
+                normalize_horizon(item.horizon) == label for item in observations
+            )
+            for label in ("10M", "5M", "2M")
+        }
+        horizon_keys = {
+            (item.market_id, normalize_horizon(item.horizon))
+            for item in observations
+        }
         windows[str(days)] = {
             "source": source,
             "raw_rows": len(raw_rows),
             "market_observations": len(observations),
+            "horizon_counts": horizon_counts,
+            "fixed_horizon_observations": sum(horizon_counts.values()),
+            "horizon_labels_complete": sum(horizon_counts.values()) == len(observations),
+            "duplicate_market_horizon_rows": len(observations) - len(horizon_keys),
+            "horizon_source": "market_snapshots.time_left_min" if source == "decision_funnel_log" else "input",
             "report": report.as_dict(),
         }
     payload = {
