@@ -484,6 +484,37 @@ def test_activation_gate_rejects_missing_quality_evidence():
     assert "CALIBRATION_ERROR_MISSING" not in gate.reasons
 
 
+def test_activation_gate_rejects_non_numeric_evidence_without_raising():
+    gate = activation_gate(
+        ActivationEvidence(
+            shadow_days="unknown",
+            shadow_resolved_markets="1000",
+            shadow_candidate_trades=300,
+            repeat_oot_reports=1,
+            live_fills="unknown",
+            pnl_ci_lower="unknown",
+            weighted_brier="unknown",
+            market_brier=0.10,
+            legacy_brier=0.10,
+            weighted_net_pnl="unknown",
+            market_net_pnl=1.0,
+            legacy_net_pnl=1.0,
+            execution_drag="unknown",
+            calibration_error="unknown",
+        ),
+        require_live_validation=True,
+    )
+
+    assert not gate.eligible
+    assert "SHADOW_DAYS_INVALID" in gate.reasons
+    assert "LIVE_FILLS_INVALID" in gate.reasons
+    assert "PNL_CI_LOWER_NOT_POSITIVE" in gate.reasons
+    assert "BRIER_EVIDENCE_INVALID" in gate.reasons
+    assert "PNL_COMPARISON_INVALID" in gate.reasons
+    assert "EXECUTION_DRAG_ABOVE_LIMIT" in gate.reasons
+    assert "CALIBRATION_ERROR_ABOVE_LIMIT" in gate.reasons
+
+
 def test_activation_gate_allows_first_fixed_bet_before_live_validation():
     gate = activation_gate(
         ActivationEvidence(

@@ -265,6 +265,40 @@ def test_weighted_active_loads_policy_artifact_and_lower_bound_sizing(tmp_path):
     assert result.bet_size_usdc == result.weighted_size_multiplier
 
 
+def test_weighted_sizing_falls_back_to_base_when_artifact_uncertainty_missing(tmp_path):
+    artifact = create_policy_artifact(
+        version="missing-oof-se",
+        created_at="2026-01-01T00:00:00+00:00",
+        training_window={"rows": 100},
+        stacker=None,
+        policy_config=WeightedPolicyConfig(
+            fee_rate=0.0,
+            slippage_rate=0.0,
+        ),
+        thresholds={"min_net_ev_favorite": 0.0},
+    )
+    artifact_path = tmp_path / "missing-oof-se.json"
+    save_policy_artifact(artifact_path, artifact)
+    cfg = replace(
+        _weighted_cfg("WEIGHTED_ACTIVE"),
+        weighted_policy_artifact_path=str(artifact_path),
+        weighted_sizing_mode="LOWER_BOUND_KELLY",
+        weighted_standard_error=0.0,
+        weighted_kelly_fraction=1.0,
+        weighted_min_net_ev_favorite=0.0,
+        weighted_fixed_bet_usdc=1.0,
+        weighted_size_cap_usdc=3.0,
+    )
+
+    result = _evaluate(cfg)
+
+    assert result.action == "BUY_YES"
+    assert result.weighted_size_multiplier == 1.0
+    assert result.bet_size_usdc == 1.0
+    assert result.weighted_edge_lower_bound is not None
+    assert result.weighted_edge_lower_bound < 0.0
+
+
 def test_weighted_active_applies_nested_artifact_tuning_controls(tmp_path):
     def artifact_path(name, tuning, **policy_overrides):
         artifact = create_policy_artifact(

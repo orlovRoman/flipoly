@@ -195,21 +195,35 @@ def _apply_artifact_tuning(
 def _weighted_standard_error(
     cfg: "TradingConfig",
     artifact: Optional[PolicyArtifact],
-) -> float:
-    """Prefer the immutable artifact's OOF uncertainty when present."""
+) -> Optional[float]:
+    """Return calibrated uncertainty, or ``None`` when it is unknown.
+
+    An artifact without an OOF standard error must not be interpreted as a
+    zero-error model.  A positive operator-provided fallback remains useful
+    for manually managed artifacts; the historical zero default is retained
+    only for the no-artifact compatibility path.
+    """
     if artifact is not None:
         raw = artifact.training_window.get("oof_standard_error")
         try:
             value = float(raw)
         except (TypeError, ValueError, OverflowError):
             value = None
-        if value is not None and value >= 0.0 and value == value:
+        if value is not None and isfinite(value) and value >= 0.0:
             return min(0.5, value)
+        # A non-zero configured fallback is an explicit uncertainty estimate;
+        # zero means that no estimate was supplied and therefore stays unknown.
     try:
         value = float(getattr(cfg, "weighted_standard_error", 0.0))
     except (TypeError, ValueError, OverflowError):
-        value = 0.0
-    return max(0.0, min(0.5, value))
+        value = float("nan")
+    if isfinite(value) and value > 0.0:
+        return min(0.5, value)
+    if artifact is None and value == 0.0:
+        # Preserve the legacy/manual no-artifact path.  Once an immutable
+        # artifact is selected, missing OOF uncertainty is fail-closed below.
+        return 0.0
+    return None
 
 
 
@@ -250,7 +264,12 @@ def _weighted_sizing_fields(
         min_edge_lower=-1.0,
     )
     edge_lower = lower_bound.edge_lower
-    if mode == "LOWER_BOUND_KELLY":
+    if standard_error is None and mode in {"LOWER_BOUND_KELLY", "STEPPED_EDGE"}:
+        # Unknown OOF uncertainty is not a reason to scale from the point
+        # estimate.  Keep the configured base stake until a calibrated error
+        # estimate is available in the artifact (T58/T59).
+        multiplier = 1.0
+    elif mode == "LOWER_BOUND_KELLY":
         sizing = conservative_size(
             selected.p_win,
             price=selected.ask,

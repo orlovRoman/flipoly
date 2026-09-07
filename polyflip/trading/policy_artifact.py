@@ -20,6 +20,15 @@ def artifact_hash(payload: Mapping[str, Any]) -> str:
     return hashlib.sha256(_canonical(payload).encode("utf-8")).hexdigest()
 
 
+def _finite_number(value: Any) -> Optional[float]:
+    """Coerce evidence to a finite number without leaking conversion errors."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number if isfinite(number) else None
+
+
 @dataclass(frozen=True)
 class PolicyArtifact:
     artifact_id: str
@@ -285,20 +294,37 @@ def activation_gate(
             reasons.append("POLICY_IDS_MIXED")
         elif next(iter(observed)) != expected:
             reasons.append("POLICY_ID_MISMATCH")
-    if evidence.shadow_days < min_shadow_days:
+    shadow_days = _finite_number(evidence.shadow_days)
+    if shadow_days is None:
+        reasons.append("SHADOW_DAYS_INVALID")
+    elif shadow_days < min_shadow_days:
         reasons.append("SHADOW_DAYS_BELOW_MINIMUM")
-    if evidence.shadow_resolved_markets < min_resolved_markets:
+    shadow_resolved_markets = _finite_number(evidence.shadow_resolved_markets)
+    if shadow_resolved_markets is None:
+        reasons.append("SHADOW_RESOLVED_MARKETS_INVALID")
+    elif shadow_resolved_markets < min_resolved_markets:
         reasons.append("SHADOW_RESOLVED_MARKETS_BELOW_MINIMUM")
-    if evidence.shadow_candidate_trades < min_candidate_trades:
+    shadow_candidate_trades = _finite_number(evidence.shadow_candidate_trades)
+    if shadow_candidate_trades is None:
+        reasons.append("SHADOW_CANDIDATE_TRADES_INVALID")
+    elif shadow_candidate_trades < min_candidate_trades:
         reasons.append("SHADOW_CANDIDATE_TRADES_BELOW_MINIMUM")
-    if evidence.repeat_oot_reports < min_repeat_oot_reports:
+    repeat_oot_reports = _finite_number(evidence.repeat_oot_reports)
+    if repeat_oot_reports is None:
+        reasons.append("REPEAT_OOT_REPORTS_INVALID")
+    elif repeat_oot_reports < min_repeat_oot_reports:
         reasons.append("REPEAT_OOT_REPORTS_BELOW_MINIMUM")
-    if require_live_validation and evidence.live_fills < min_live_fills:
-        reasons.append("LIVE_FILLS_BELOW_MINIMUM")
+    if require_live_validation:
+        live_fills = _finite_number(evidence.live_fills)
+        if live_fills is None:
+            reasons.append("LIVE_FILLS_INVALID")
+        elif live_fills < min_live_fills:
+            reasons.append("LIVE_FILLS_BELOW_MINIMUM")
 
+    pnl_ci_lower = _finite_number(evidence.pnl_ci_lower)
     if evidence.pnl_ci_lower is None:
         reasons.append("PNL_CI_LOWER_MISSING")
-    elif not isfinite(float(evidence.pnl_ci_lower)) or evidence.pnl_ci_lower <= 0.0:
+    elif pnl_ci_lower is None or pnl_ci_lower <= 0.0:
         reasons.append("PNL_CI_LOWER_NOT_POSITIVE")
 
     brier_values = (
@@ -309,12 +335,11 @@ def activation_gate(
     if any(value is None for value in brier_values):
         reasons.append("BRIER_EVIDENCE_MISSING")
     else:
-        weighted_brier, market_brier, legacy_brier = (
-            float(value) for value in brier_values
-        )
-        if not all(isfinite(value) for value in brier_values):
+        parsed_brier = tuple(_finite_number(value) for value in brier_values)
+        if any(value is None for value in parsed_brier):
             reasons.append("BRIER_EVIDENCE_INVALID")
         else:
+            weighted_brier, market_brier, legacy_brier = parsed_brier
             if market_brier - weighted_brier < float(min_brier_improvement):
                 reasons.append("BRIER_NOT_BETTER_THAN_MARKET")
             if legacy_brier - weighted_brier < float(min_brier_improvement):
@@ -328,12 +353,11 @@ def activation_gate(
     if any(value is None for value in pnl_values):
         reasons.append("PNL_COMPARISON_MISSING")
     else:
-        weighted_pnl, market_pnl, legacy_pnl = (
-            float(value) for value in pnl_values
-        )
-        if not all(isfinite(value) for value in pnl_values):
+        parsed_pnl = tuple(_finite_number(value) for value in pnl_values)
+        if any(value is None for value in parsed_pnl):
             reasons.append("PNL_COMPARISON_INVALID")
         else:
+            weighted_pnl, market_pnl, legacy_pnl = parsed_pnl
             if weighted_pnl <= market_pnl:
                 reasons.append("PNL_NOT_BETTER_THAN_MARKET")
             if weighted_pnl <= legacy_pnl:
@@ -342,19 +366,20 @@ def activation_gate(
     if require_live_validation:
         if evidence.execution_drag is None:
             reasons.append("EXECUTION_DRAG_MISSING")
-        elif (
-            not isfinite(float(evidence.execution_drag))
-            or float(evidence.execution_drag) > float(max_execution_drag)
-        ):
-            reasons.append("EXECUTION_DRAG_ABOVE_LIMIT")
+        else:
+            execution_drag = _finite_number(evidence.execution_drag)
+            if execution_drag is None or execution_drag > float(max_execution_drag):
+                reasons.append("EXECUTION_DRAG_ABOVE_LIMIT")
 
         if evidence.calibration_error is None:
             reasons.append("CALIBRATION_ERROR_MISSING")
-        elif (
-            not isfinite(float(evidence.calibration_error))
-            or abs(float(evidence.calibration_error)) > float(max_calibration_error)
-        ):
-            reasons.append("CALIBRATION_ERROR_ABOVE_LIMIT")
+        else:
+            calibration_error = _finite_number(evidence.calibration_error)
+            if (
+                calibration_error is None
+                or abs(calibration_error) > float(max_calibration_error)
+            ):
+                reasons.append("CALIBRATION_ERROR_ABOVE_LIMIT")
 
     if require_rollout_quality:
         if evidence.stability_ok is not True:
