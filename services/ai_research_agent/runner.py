@@ -265,7 +265,7 @@ async def process_one_run(client: AILabApiClient, llm: OpenCodeClient) -> bool:
                         run.id,
                         proposal_bundle["proposal"],
                         client_request_id=(
-                            f"proposal-{run.id}-{run.experiments_completed}"
+                            f"proposal-{run.id}-{run.experiments_completed}-{getattr(client, 'claim_nonce', 'legacy')}"
                         ),
                         telemetry=proposal_bundle.get("telemetry"),
                     )
@@ -274,6 +274,12 @@ async def process_one_run(client: AILabApiClient, llm: OpenCodeClient) -> bool:
                     client.drop_lease()
                     return False
                 except AgentAPIError as exc:
+                    logger.error(
+                        "submit proposal failed: %s; proposal=%s",
+                        str(exc),
+                        proposal_bundle.get("proposal"),
+                        extra={"run_id": run.id},
+                    )
                     if exc.status_code >= 500:
                         await asyncio.sleep(POLL_SECONDS)
                         continue
@@ -345,12 +351,26 @@ async def process_one_run(client: AILabApiClient, llm: OpenCodeClient) -> bool:
                         if isinstance(phase_data, dict)
                         else None
                     )
-                    await client.submit_decision(
-                        run.id,
-                        decision_bundle["decision"],
-                        client_request_id=f"decision-{run.id}-{result_id}",
-                        telemetry=decision_bundle.get("telemetry"),
-                    )
+                    try:
+                        await client.submit_decision(
+                            run.id,
+                            decision_bundle["decision"],
+                            client_request_id=f"decision-{run.id}-{result_id}",
+                            telemetry=decision_bundle.get("telemetry"),
+                        )
+                    except AgentAPIError as exc:
+                        logger.error(
+                            "submit decision failed: %s; decision=%s",
+                            str(exc),
+                            decision_bundle.get("decision"),
+                            extra={
+                                "run_id": run.id,
+                                "result_id": result_id,
+                                "error": str(exc),
+                                "decision": decision_bundle.get("decision"),
+                            },
+                        )
+                        raise
                     # Update local run for budget
                     run.experiments_completed = (run.experiments_completed or 0) + 1
                     continue

@@ -10,13 +10,52 @@ from __future__ import annotations
 import json
 import os
 import time
+import uuid
 from typing import Any
 
 import httpx
 
 DEFAULT_RESPONSES_ENDPOINT = "https://opencode.ai/zen/v1/responses"
 DEFAULT_CHAT_ENDPOINT = "https://opencode.ai/zen/v1/chat/completions"
+DEFAULT_GO_RESPONSES_ENDPOINT = "https://opencode.ai/zen/go/v1/responses"
+DEFAULT_GO_CHAT_ENDPOINT = "https://opencode.ai/zen/go/v1/chat/completions"
 DEFAULT_CHAT_MODELS = {"big-pickle", "nemotron-3-ultra-free"}
+
+# OpenCode Go models are served from a separate gateway. Keeping this
+# routing in the worker is important because a Go model sent to the regular
+# Zen endpoint is rejected with HTTP 401 even when the API key is valid.
+DEFAULT_GO_RESPONSES_MODELS = {
+    "grok-4.6",
+    "gpt-5.6-luna",
+    "muse-spark-1.3-contributor",
+    "muse-spark-1.3-contributor-free",
+    "muse-spark-1.2-contributor",
+    "muse-spark-1.2-contributor-free",
+}
+
+OPENCODE_MODEL_ALIASES = {"muse-spark-1.2-contributor-free": "muse-spark-1.2-contributor", "muse-spark-1.3-contributor-free": "muse-spark-1.3-contributor"}
+
+def _canonical_model_id(model: str) -> str:
+    model_id = str(model).strip().removeprefix("opencode-go/")
+    return OPENCODE_MODEL_ALIASES.get(model_id, model_id)
+DEFAULT_GO_CHAT_MODELS = {
+    "glm-5.3-flash",
+    "glm-5.3",
+    "glm-5.2",
+    "glm-5.1",
+    "kimi-k3",
+    "kimi-k2.7-code",
+    "kimi-k2.6",
+    "longcat-2.0",
+    "deepseek-v4-pro",
+    "deepseek-v4-flash",
+    "deepseek-v4-flash-vision-exp",
+    "mimo-v2.5",
+    "mimo-v2.5-pro",
+    "hy4-preview",
+    "hy3",
+    "omen-alpha",
+}
 
 
 def _kv_schema() -> dict[str, Any]:
@@ -197,18 +236,51 @@ class OpenCodeClient:
         self.chat_endpoint = os.getenv(
             "AI_LAB_OPENCODE_CHAT_ENDPOINT", DEFAULT_CHAT_ENDPOINT
         )
+        self.go_responses_endpoint = os.getenv(
+            "AI_LAB_OPENCODE_GO_RESPONSES_ENDPOINT", DEFAULT_GO_RESPONSES_ENDPOINT
+        )
+        self.go_chat_endpoint = os.getenv(
+            "AI_LAB_OPENCODE_GO_CHAT_ENDPOINT", DEFAULT_GO_CHAT_ENDPOINT
+        )
         chat_models_csv = os.getenv("AI_LAB_OPENCODE_CHAT_MODELS", "")
         self.chat_models = {
             item.strip() for item in chat_models_csv.split(",") if item.strip()
         } or set(DEFAULT_CHAT_MODELS)
+        self._session_ids: dict[str, str] = {}
+        self.timeout_seconds = float(os.getenv("AI_LAB_LLM_TIMEOUT_SECONDS", "180"))
+
+    def _session_id(self, context: dict[str, Any]) -> str:
+        root = context.get("context") if isinstance(context, dict) else context
+        root = root if isinstance(root, dict) else {}
+        run = root.get("run") if isinstance(root.get("run"), dict) else {}
+        run_id = root.get("run_id") or root.get("runId") or run.get("id") or "worker"
+        key = str(run_id)
+        return self._session_ids.setdefault(
+            key,
+            f"polyflip-ai-research-{uuid.uuid5(uuid.NAMESPACE_URL, key)}",
+        )
 
     def _endpoint_for(self, model: str) -> tuple[str, bool]:
-        is_chat = model in self.chat_models
+        model_id = _canonical_model_id(model)
+        if model_id in DEFAULT_GO_RESPONSES_MODELS:
+            return (self.go_responses_endpoint, False)
+        if model_id in DEFAULT_GO_CHAT_MODELS:
+            return (self.go_chat_endpoint, True)
+        is_chat = model_id in self.chat_models
         return (
             (self.chat_endpoint, True) if is_chat else (self.responses_endpoint, False)
         )
 
-    def _endpoint_for_protocol(self, protocol: str | None) -> tuple[str, bool]:
+    def _endpoint_for_protocol(
+        self, protocol: str | None, model: str | None = None
+    ) -> tuple[str, bool]:
+        if model:
+            model_id = _canonical_model_id(model)
+            if (
+                model_id in DEFAULT_GO_RESPONSES_MODELS
+                or model_id in DEFAULT_GO_CHAT_MODELS
+            ):
+                return self._endpoint_for(model_id)
         if protocol == "chat_completions":
             return (self.chat_endpoint, True)
         if protocol == "responses":
@@ -270,9 +342,10 @@ class OpenCodeClient:
             payload = self._mock_payload(schema_name, context)
             return payload, _usage_telemetry({}, 0, model=model)
 
+        model = _canonical_model_id(model)
         # Use explicit protocol when provided (snapshot-provided), else guess via model.
         if protocol:
-            endpoint, is_chat = self._endpoint_for_protocol(protocol)
+            endpoint, is_chat = self._endpoint_for_protocol(protocol, model)
         else:
             endpoint, is_chat = self._endpoint_for(model)
         user_content = json.dumps(context, indent=2, default=str)
@@ -310,13 +383,17 @@ class OpenCodeClient:
                 "store": False,
             }
         started = time.monotonic()
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        request_headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "User-Agent": "polyflip-ai-research-agent/1.0",
+        }
+        if endpoint.startswith("https://opencode.ai/zen/go/"):
+            request_headers["x-opencode-session"] = self._session_id(context)
+        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             response = await client.post(
                 endpoint,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
+                headers=request_headers,
                 json=body,
             )
             response.raise_for_status()

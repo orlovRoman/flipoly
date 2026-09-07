@@ -8,11 +8,22 @@ from __future__ import annotations
 
 from typing import Any, Literal, TypeAlias
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ClaimedRun(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
+
+    @field_validator(
+        "budget_experiments",
+        "budget_seconds",
+        "experiments_completed",
+        mode="before",
+    )
+    @classmethod
+    def _null_progress_defaults(cls, value: Any) -> Any:
+        """Accept legacy API payloads with explicit JSON null counters."""
+        return 0 if value is None else value
 
     id: int
     status: str

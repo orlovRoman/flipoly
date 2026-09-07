@@ -51,6 +51,15 @@ class TestAILabAgentPhase10(unittest.TestCase):
         self.assertEqual(proposal.model_family, "LogisticRegression")
         self.assertEqual(proposal.feature_set, "FS_D1")
 
+    def test_hypothesis_schema_normalizes_model_family_case(self):
+        proposal = HypothesisProposal(
+            hypothesis="Lowercase model family should remain a valid agent output",
+            asset="BTC",
+            model_family="logreg",
+            feature_set="FS_D0",
+        )
+        self.assertEqual(proposal.model_family, "LogisticRegression")
+
     def test_hypothesis_schema_rejects_disallowed_family(self):
         with self.assertRaises(ValidationError):
             HypothesisProposal(

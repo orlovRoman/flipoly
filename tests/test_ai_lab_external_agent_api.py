@@ -17,6 +17,7 @@ from polyflip.api.ai_lab_agent import (
     DecisionRequest,
     HeartbeatRequest,
     ProposalRequest,
+    _claimed_run_payload,
     _acquire_lease,
     get_agent_phase,
     claim_next_agent_run,
@@ -113,6 +114,31 @@ async def test_claim_transitions_to_running_and_returns_lease(db_session):
     assert stored.status == "RUNNING"
     lease = (await db_session.execute(sa.select(AIWorkerLease))).scalar_one()
     assert lease.owner_token == claimed["lease_token"]
+
+
+def test_claim_payload_normalizes_legacy_null_progress_fields():
+    run = SimpleNamespace(
+        id=15,
+        status="RUNNING",
+        objective="legacy AI Lab run",
+        scope=None,
+        mode="RESEARCH",
+        autonomy_level="EXPERIMENT",
+        budget_experiments=None,
+        budget_seconds=None,
+        experiments_completed=None,
+        llm_provider="mock",
+        llm_research_model="grok-4.6",
+        llm_summary_model=None,
+        llm_snapshot=None,
+    )
+
+    claimed = _claimed_run_payload(run, "lease-token")
+
+    assert claimed["budget_experiments"] == 0
+    assert claimed["budget_seconds"] == 0
+    assert claimed["experiments_completed"] == 0
+    assert claimed["lease_token"] == "lease-token"
 
 
 @pytest.mark.asyncio

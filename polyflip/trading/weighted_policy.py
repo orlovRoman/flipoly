@@ -278,6 +278,8 @@ class WeightedProbability:
     lgbm_weight: float
     mrf_evidence: float
     mrf_adjustment_logodds: float
+    # Legacy constructor/storage name retained for compatibility. Semantically
+    # this value is the unweighted market-prior reference log-odds.
     market_contribution_logodds: float
     logreg_contribution_logodds: float
     lgbm_contribution_logodds: float
@@ -286,10 +288,15 @@ class WeightedProbability:
     missing_components: tuple[str, ...]
 
     @property
+    def market_reference_logodds(self) -> float:
+        """Canonical name for the market-prior reference log-odds."""
+        return self.market_contribution_logodds
+
+    @property
     def contributions(self) -> dict[str, float]:
         """Return additive log-odds contributions for telemetry."""
         return {
-            "market": self.market_contribution_logodds,
+            "market_reference": self.market_reference_logodds,
             "logreg": self.logreg_contribution_logodds,
             "lgbm": self.lgbm_contribution_logodds,
             "mrf": self.mrf_adjustment_logodds,
@@ -298,6 +305,7 @@ class WeightedProbability:
 
     def as_dict(self) -> dict[str, Any]:
         result = asdict(self)
+        result["market_reference_logodds"] = self.market_reference_logodds
         result["missing_components"] = list(self.missing_components)
         result["contributions"] = self.contributions
         return result
@@ -346,13 +354,13 @@ def score_weighted_probability(
     adjustment = beta * signed_evidence
 
     if market is None or sum(weights.values()) <= 0.0:
-        market_contribution = 0.0
+        market_reference_logodds = 0.0
         logreg_contribution = 0.0
         lgbm_contribution = 0.0
         final = 0.5
     else:
         market_logit = logit(market)
-        market_contribution = market_logit
+        market_reference_logodds = market_logit
         logreg_contribution = (
             weights["logreg"] * (logit(logreg) - market_logit)
             if logreg is not None and weights["logreg"] > 0.0
@@ -364,7 +372,7 @@ def score_weighted_probability(
             else 0.0
         )
         final = sigmoid(
-            market_contribution
+            market_reference_logodds
             + logreg_contribution
             + lgbm_contribution
             + adjustment
@@ -381,7 +389,7 @@ def score_weighted_probability(
         lgbm_weight=round(weights["lgbm"], 8),
         mrf_evidence=round(signed_evidence, 8),
         mrf_adjustment_logodds=round(adjustment, 8),
-        market_contribution_logodds=round(market_contribution, 8),
+        market_contribution_logodds=round(market_reference_logodds, 8),
         logreg_contribution_logodds=round(logreg_contribution, 8),
         lgbm_contribution_logodds=round(lgbm_contribution, 8),
         intercept_contribution_logodds=round(intercept, 8),

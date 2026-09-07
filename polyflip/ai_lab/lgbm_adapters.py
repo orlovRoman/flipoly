@@ -53,6 +53,9 @@ REGIMES = ("low_vol", "mid_vol", "high_vol")
 CANONICAL_TARGET_SOURCE = "POLYMARKET_FINAL_OUTCOME"
 CANONICAL_BACKTEST_MODE = "POLYMARKET_OOF"
 DEFAULT_FEATURE_PIPELINE_VERSION = "CRYPTO_FEATURES_V2"
+RESEARCH_TEST_PLAN_KEYS = frozenset(
+    {"oot_windows", "min_markets", "execution_mode"}
+)
 
 
 def _json_mapping(value: Any) -> dict[str, Any]:
@@ -81,6 +84,16 @@ def _normalized_config(context: StepContext) -> dict[str, Any]:
     if not calibration:
         calibration = _json_mapping(strategy.get("calibration"))
     payload = _json_mapping(context.input_payload)
+    raw_backtest = _json_mapping(context.backtest_params)
+    # The LLM test_plan also contains evaluation controls. They are used by
+    # OOT window/quality-gate logic, but are not CryptoModelTrainer backtest
+    # parameters and must not be sent to the strict experiment-config
+    # validator (for example, min_markets).
+    trainer_backtest = {
+        key: value
+        for key, value in raw_backtest.items()
+        if key not in RESEARCH_TEST_PLAN_KEYS
+    }
     if not calibration:
         calibration = _json_mapping(payload.get("calibration"))
     return normalize_experiment_config(
@@ -88,7 +101,7 @@ def _normalized_config(context: StepContext) -> dict[str, Any]:
             "feature_set": context.feature_set or "A",
             "model": _json_mapping(context.model_params),
             "calibration": calibration,
-            "backtest": _json_mapping(context.backtest_params),
+            "backtest": trainer_backtest,
         }
     )
 

@@ -156,8 +156,12 @@ class CombinedEntryResult:
     p_flip_effective: Optional[float] = None
     entry_model_ece: float = 0.0
     would_live_accept: Optional[bool] = None
-    # Weighted policy telemetry.  These fields are also populated in shadow
+    # Weighted policy telemetry. weighted_market_reference_logodds is the
+    # canonical name: it is the unweighted market-prior logit. The old field
+    # remains as a compatibility alias for the existing DB column/API.
+    weighted_market_reference_logodds: Optional[float] = None
     weighted_market_contribution_logodds: Optional[float] = None
+    # These fields are also populated in shadow
     weighted_logreg_contribution_logodds: Optional[float] = None
     weighted_lgbm_contribution_logodds: Optional[float] = None
     weighted_mrf_contribution_logodds: Optional[float] = None
@@ -309,7 +313,8 @@ def _weighted_result_fields(
         "weighted_market_weight": probability.market_weight,
         "weighted_logreg_weight": probability.logreg_weight,
         "weighted_lgbm_weight": probability.lgbm_weight,
-        "weighted_market_contribution_logodds": probability.market_contribution_logodds,
+        "weighted_market_reference_logodds": probability.market_reference_logodds,
+        "weighted_market_contribution_logodds": probability.market_reference_logodds,
         "weighted_logreg_contribution_logodds": probability.logreg_contribution_logodds,
         "weighted_lgbm_contribution_logodds": probability.lgbm_contribution_logodds,
         "weighted_mrf_contribution_logodds": probability.mrf_adjustment_logodds,
@@ -357,6 +362,7 @@ def evaluate_combined_entry(
     spread: Optional[float] = None,
 ) -> CombinedEntryResult:
     """Обёртка для переноса флагов LightGBM в результат."""
+    weighted_selection_holder: dict[str, WeightedSelection] = {}
     result = _evaluate_combined_entry_inner(
         crypto_sig=crypto_sig,
         market_phase=market_phase,
@@ -381,11 +387,20 @@ def evaluate_combined_entry(
         weighted_fee_exponent=weighted_fee_exponent,
         weighted_fee_source=weighted_fee_source,
         spread=spread,
+        weighted_selection_holder=weighted_selection_holder,
     )
     policy_mode = str(getattr(cfg, "trading_policy_mode", "LEGACY") or "LEGACY").upper()
-    if policy_mode in {"WEIGHTED_SHADOW", "WEIGHTED_ACTIVE"}:
-        # Compute once at the wrapper boundary so SHADOW has identical maths
-        # to ACTIVE without changing the legacy result returned by ``inner``.
+    if policy_mode == "WEIGHTED_ACTIVE":
+        # ACTIVE already built this selection inside inner for the actual
+        # decision. Reuse it for telemetry instead of evaluating it twice.
+        weighted_selection = weighted_selection_holder.get("selection")
+        if weighted_selection is None:
+            logger.error("weighted_selection_missing_for_active_telemetry")
+        else:
+            result = replace(result, **_weighted_result_fields(policy_mode, weighted_selection, str(getattr(cfg, "weighted_policy_id", "UNVERSIONED") or "UNVERSIONED")[:64]))
+    elif policy_mode == "WEIGHTED_SHADOW":
+        # SHADOW does not enter the weighted path in inner; evaluate it
+        # once here while keeping the legacy action unchanged.
         shadow_p_flip = result.p_flip_effective if result.p_flip_effective is not None else p_flip
         weighted_selection = _build_weighted_selection(
             crypto_sig=crypto_sig,
@@ -439,6 +454,7 @@ def _evaluate_combined_entry_inner(
     weighted_fee_exponent: Optional[float] = None,
     weighted_fee_source: str = "CONFIG_DEFAULT",
     spread: Optional[float] = None,
+    weighted_selection_holder: Optional[dict[str, WeightedSelection]] = None,
 ) -> CombinedEntryResult:
     """Внутренняя логика оценки."""
 
@@ -503,6 +519,8 @@ def _evaluate_combined_entry_inner(
             fee_source=weighted_fee_source,
             spread=spread or 0.0,
         )
+        if weighted_selection_holder is not None:
+            weighted_selection_holder["selection"] = weighted_selection
         if weighted_selection.selected is None:
             consensus = DirectionConsensus(
                 "SKIP",

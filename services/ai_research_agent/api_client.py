@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
 import httpx
+from pydantic import ValidationError
 
 from schemas import AgentContext, ClaimedRun, ExperimentResult
 
@@ -40,6 +42,7 @@ class AILabApiClient:
         self._timeout_seconds = timeout_seconds
         self._poll_seconds = poll_seconds
         self._lease_token: str | None = None
+        self._claim_nonce = uuid.uuid4().hex
 
     async def _request(
         self,
@@ -77,6 +80,10 @@ class AILabApiClient:
     def drop_lease(self) -> None:
         self._lease_token = None
 
+    @property
+    def claim_nonce(self) -> str:
+        return self._claim_nonce
+
     # --- lifecycle -------------------------------------------------------
     async def claim(self) -> ClaimedRun | None:
         import os
@@ -90,7 +97,15 @@ class AILabApiClient:
         if not run:
             return None
         self._lease_token = run.get("lease_token")
-        return ClaimedRun.model_validate(run)
+        self._claim_nonce = uuid.uuid4().hex
+        try:
+            return ClaimedRun.model_validate(run)
+        except ValidationError:
+            # Do not retain a token for a payload we could not safely parse.
+            # The next poll can reclaim the expired lease after the server
+            # repairs or requeues the malformed run.
+            self.drop_lease()
+            raise
 
     async def heartbeat(self, run_id: int) -> float:
         data = await self._request(

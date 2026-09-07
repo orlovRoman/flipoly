@@ -619,6 +619,44 @@ function renderDiffTables(diff) {
   `;
 }
 
+function formatRevisionTimestamp(value) {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleString("ru-RU");
+}
+
+function renderActiveRevision(revisions) {
+  const titleEl = document.getElementById("hero-active-title");
+  const metaEl = document.getElementById("hero-active-meta");
+  if (!titleEl && !metaEl) return;
+
+  const rows = Array.isArray(revisions) ? revisions : [];
+  const active = rows.find((row) => String(row.status || "").toUpperCase() === "ACTIVE");
+  if (!active) {
+    if (titleEl) titleEl.textContent = "Активной ревизии нет";
+    if (metaEl) {
+      metaEl.textContent = rows.length
+        ? "Записей ревизий: " + rows.length + " · LIVE-активация отключена"
+        : "Deployment revisions ещё не созданы · LIVE-активация отключена";
+    }
+    return;
+  }
+
+  if (titleEl) titleEl.textContent = active.revision_key || ("Ревизия #" + active.id);
+  if (metaEl) {
+    metaEl.textContent =
+      "#" + active.id +
+      " · ACTIVE · активирована " +
+      formatRevisionTimestamp(active.activated_at || active.created_at);
+  }
+}
+
+function renderActiveRevisionError(error) {
+  const titleEl = document.getElementById("hero-active-title");
+  const metaEl = document.getElementById("hero-active-meta");
+  if (titleEl) titleEl.textContent = "Ревизия недоступна";
+  if (metaEl) metaEl.textContent = "Ошибка загрузки: " + (error?.message || "неизвестная ошибка");
+}
 // 5. Deployment Revisions & Hash Chain Rollback
 async function loadRevisions(silent = false) {
   const tbody = document.getElementById("revisions-table-body");
@@ -633,6 +671,7 @@ async function loadRevisions(silent = false) {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     const revs = Array.isArray(data) ? data : (data.revisions || []);
+    renderActiveRevision(revs);
     const stageDeployments = document.getElementById("stage9-deployments");
     if (stageDeployments) stageDeployments.innerHTML = revs.length ? `<table class="opt-table"><thead><tr><th>ID</th><th>Key</th><th>Status</th><th>Created</th></tr></thead><tbody>${revs.map((r) => `<tr><td>#${escapeHtml(r.id)}</td><td>${escapeHtml(r.revision_key || "—")}</td><td>${formatStatusBadge(r.status)}</td><td>${escapeHtml(r.created_at || "—")}</td></tr>`).join("")}</tbody></table>` : '<div class="unavailable">Ревизии отсутствуют.</div>';
 
@@ -672,6 +711,7 @@ async function loadRevisions(silent = false) {
       .join("");
   } catch (err) {
     console.error("loadRevisions error:", err);
+    renderActiveRevisionError(err);
     if (!silent) {
       tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--color-failed); padding: 2rem;">Ошибка загрузки ревизий: ${escapeHtml(err.message)}</td></tr>`;
     }

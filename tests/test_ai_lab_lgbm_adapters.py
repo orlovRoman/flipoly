@@ -58,6 +58,23 @@ def test_normalized_config_uses_saved_strategy_calibration():
     assert config["calibration"]["method"] == "PLATT"
     assert config["backtest"]["min_edge"] == 0.05
 
+def test_normalized_config_separates_research_test_plan_controls():
+    config = lgbm_adapters._normalized_config(
+        _context(
+            backtest_params={
+                "oot_windows": 3,
+                "min_markets": 50,
+                "execution_mode": "PAPER_REALISTIC",
+                "min_edge": 0.05,
+            }
+        )
+    )
+
+    assert config["backtest"]["min_edge"] == 0.05
+    assert "oot_windows" not in config["backtest"]
+    assert "min_markets" not in config["backtest"]
+    assert "execution_mode" not in config["backtest"]
+
 
 def test_polymarket_oot_replays_saved_canonical_variant(monkeypatch):
     row = SimpleNamespace(

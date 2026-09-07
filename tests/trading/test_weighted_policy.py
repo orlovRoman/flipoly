@@ -10,6 +10,7 @@ from polyflip.trading.weighted_policy import (
     select_weighted_side,
     sigmoid,
 )
+from polyflip.trading.weighted_telemetry import weighted_telemetry_from_details
 
 
 def test_logit_residual_formula_uses_market_as_prior():
@@ -160,6 +161,9 @@ def test_contributions_sum_to_final_log_odds_and_record_agreement():
     )
 
     assert result.models_agree is False
+    assert result.market_reference_logodds == result.market_contribution_logodds
+    assert "market_reference" in result.contributions
+    assert "market" not in result.contributions
     assert math.isclose(
         sum(result.contributions.values()),
         logit(result.p_final_yes),
@@ -186,3 +190,14 @@ def test_net_ev_and_compatibility_edge_use_per_share_usdc():
     )
     assert selection.selected is not None
     assert selection.selected.net_edge == selection.selected.net_ev_per_share
+
+
+def test_market_reference_telemetry_uses_existing_storage_key():
+    details = {
+        "weighted_policy_mode": "WEIGHTED_SHADOW",
+        "weighted_market_reference_logodds": 0.42,
+    }
+    telemetry = weighted_telemetry_from_details(details)
+
+    assert telemetry["weighted_market_contribution_logodds"] == 0.42
+    assert "weighted_market_reference_logodds" not in telemetry

@@ -95,6 +95,22 @@ def _as_utc(value):
     return value.astimezone(__import__("datetime").timezone.utc)
 
 
+def _non_negative_int(value: Any, default: int = 0) -> int:
+    """Return a safe integer for progress counters coming from the database.
+
+    Older AI Lab rows can contain NULL despite the current ORM defaults. The
+    external agent protocol is typed, so normalize legacy values at the API
+    boundary instead of emitting JSON null and letting the worker fail while
+    validating its claim.
+    """
+    if value is None:
+        return default
+    try:
+        return max(int(value), 0)
+    except (TypeError, ValueError):
+        return default
+
+
 def _normalize_asset(raw: Any) -> str | None:
     """Normalize asset symbol: strip, upper, remove USDT suffix."""
     if not isinstance(raw, str):
@@ -360,6 +376,13 @@ def _claimed_run_payload(run: AIOptimizationRun, lease_token: str) -> dict[str, 
             "model_id": run.llm_summary_model,
             "protocol": snap.get("protocol") or "responses",
         }
+    budget_experiments = _non_negative_int(
+        getattr(run, "budget_experiments", None)
+    )
+    budget_seconds = _non_negative_int(getattr(run, "budget_seconds", None))
+    experiments_completed = _non_negative_int(
+        getattr(run, "experiments_completed", None)
+    )
     return {
         "id": run.id,
         "status": run.status,
@@ -367,9 +390,9 @@ def _claimed_run_payload(run: AIOptimizationRun, lease_token: str) -> dict[str, 
         "scope": run.scope or {},
         "mode": run.mode,
         "autonomy_level": run.autonomy_level,
-        "budget_experiments": run.budget_experiments,
-        "budget_seconds": run.budget_seconds,
-        "experiments_completed": run.experiments_completed,
+        "budget_experiments": budget_experiments,
+        "budget_seconds": budget_seconds,
+        "experiments_completed": experiments_completed,
         "llm_provider": run.llm_provider,
         "llm_research_model": run.llm_research_model,
         "llm_summary_model": run.llm_summary_model,
@@ -659,6 +682,13 @@ async def get_agent_context(
         "min_positive_oot_windows": int(qg.get("min_positive_oot_windows", 2)),
     }
 
+    budget_experiments = _non_negative_int(
+        getattr(run, "budget_experiments", None)
+    )
+    experiments_completed = _non_negative_int(
+        getattr(run, "experiments_completed", None)
+    )
+
     return {
         "run": {
             "id": run.id,
@@ -666,9 +696,9 @@ async def get_agent_context(
             "objective": run.objective,
             "scope": run.scope or {},
             "autonomy_level": run.autonomy_level,
-            "iteration": run.experiments_completed,
+            "iteration": experiments_completed,
             "budget_remaining_steps": max(
-                run.budget_experiments - run.experiments_completed, 0
+                budget_experiments - experiments_completed, 0
             ),
         },
         "active_models": active_models,

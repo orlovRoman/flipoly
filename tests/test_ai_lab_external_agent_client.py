@@ -81,3 +81,46 @@ def test_drop_lease_clears_local_token():
     client._lease_token = "abc"
     # runner should call drop_lease, not direct assignment — verify method exists
     assert hasattr(client, "_lease_token")
+
+
+def test_claimed_run_normalizes_null_progress_counters():
+    from schemas import ClaimedRun
+
+    run = ClaimedRun.model_validate(
+        {
+            "id": 15,
+            "status": "RUNNING",
+            "budget_experiments": None,
+            "budget_seconds": None,
+            "experiments_completed": None,
+        }
+    )
+
+    assert run.budget_experiments == 0
+    assert run.budget_seconds == 0
+    assert run.experiments_completed == 0
+
+
+@pytest.mark.asyncio
+async def test_claim_validation_error_drops_lease_token():
+    from pydantic import ValidationError
+    from api_client import AILabApiClient
+
+    client = AILabApiClient("http://test", "tok")
+
+    async def patched(method, path, *, json_body=None, params=None, expected=(200,)):
+        return {
+            "run": {
+                "id": "not-an-integer",
+                "status": "RUNNING",
+                "budget_experiments": None,
+                "budget_seconds": None,
+                "experiments_completed": None,
+                "lease_token": "server-lease",
+            }
+        }
+
+    client._request = patched  # type: ignore[method-assign]
+    with pytest.raises(ValidationError):
+        await client.claim()
+    assert client._lease_token is None

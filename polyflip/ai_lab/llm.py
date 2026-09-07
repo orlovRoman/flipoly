@@ -175,11 +175,15 @@ class HypothesisProposal(BaseModel):
     @field_validator("model_family")
     @classmethod
     def validate_family(cls, v: str) -> str:
-        if v not in ALLOWED_MODEL_FAMILIES:
+        aliases = {
+            "logreg": "LogisticRegression",
+            "logisticregression": "LogisticRegression",
+            "lightgbm": "LightGBM",
+        }
+        canonical = aliases.get(str(v).strip().casefold())
+        if canonical is None:
             raise ValueError(f"Disallowed model family '{v}'. Must be in {ALLOWED_MODEL_FAMILIES}")
-        if v.upper().startswith("LOG"):
-            return "LogisticRegression"
-        return "LightGBM"
+        return canonical
 
     @field_validator("feature_set")
     @classmethod
@@ -192,7 +196,10 @@ class HypothesisProposal(BaseModel):
     @field_validator("market_role")
     @classmethod
     def validate_role(cls, v: str) -> str:
-        v_upper = v.upper()
+        raw = str(v).strip().upper()
+        if raw.endswith(("_TAKER", "_MAKER")) or raw in {"TAKER", "MAKER", "YES", "NO"}:
+            raw = "DIRECTION_ONLY"
+        v_upper = raw
         if v_upper not in ALLOWED_MARKET_ROLES:
             raise ValueError(f"Invalid market role '{v}'. Must be in {ALLOWED_MARKET_ROLES}")
         return v_upper
@@ -225,9 +232,15 @@ class AgentDecision(BaseModel):
             "REQUEST_LIVE_APPROVAL",
             "STOP_BUDGET_EXHAUSTED",
         }
-        if v.upper() not in allowed:
-            raise ValueError(f"Invalid agent action '{v}'. Must be one of {sorted(allowed)}")
-        return v.upper()
+        raw = str(v).strip().upper()
+        if raw in allowed:
+            return raw
+        base = raw.split(" - ", 1)[0].strip()
+        if base in allowed:
+            return base
+        if any(marker in raw for marker in ("HOLD", "PAPER", "REJECT_LIVE", "DO_NOT_PROMOTE", "NO_LIVE", "DO NOT RETRY")):
+            return "CONTINUE_RESEARCH"
+        return "CONTINUE_RESEARCH"
 
 
 class LLMUsageStats(BaseModel):
@@ -464,7 +477,10 @@ class OpenAIResponsesProvider:
                 "properties": {
                     "hypothesis": {"type": "string"},
                     "asset": {"type": "string"},
-                    "market_role": {"type": "string"},
+                    "market_role": {
+                        "type": "string",
+                        "enum": ["ALL", "DIRECTION_ONLY", "COMBINED", "FAVORITE", "OUTSIDER"],
+                    },
                     "model_family": {"type": "string"},
                     "feature_set": {"type": "string"},
                     "parameter_changes": kv,
@@ -503,7 +519,15 @@ class OpenAIResponsesProvider:
         return {
             "type": "object",
             "properties": {
-                "action": {"type": "string"},
+                "action": {
+                    "type": "string",
+                    "enum": [
+                        "CONTINUE_RESEARCH", "MUTATE_HYPOTHESIS",
+                        "RECOMMEND_SHADOW", "FINALIZE_NO_WINNER",
+                        "APPLY_OVERLAY", "REQUEST_LIVE_APPROVAL",
+                        "STOP_BUDGET_EXHAUSTED",
+                    ],
+                },
                 "rationale": {"type": "string"},
                 "key_findings": {"type": "array", "items": {"type": "string"}},
                 "recommended_config_id": {"type": ["integer", "null"]},

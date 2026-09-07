@@ -1,5 +1,7 @@
 from dataclasses import replace
+from unittest.mock import patch
 
+import polyflip.trading.combined_voting as combined_voting
 from polyflip.crypto.predictor import CryptoSignal
 from polyflip.trading.combined_voting import evaluate_combined_entry
 from polyflip.trading.trading_config import parse_trading_settings
@@ -97,3 +99,15 @@ def test_weighted_shadow_records_score_without_changing_legacy_action():
     assert result.weighted_policy_mode == "WEIGHTED_SHADOW"
     assert result.weighted_selected_side == "BUY_YES"
     assert result.weighted_p_final_yes is not None
+
+
+def test_weighted_active_builds_selection_once_for_decision_and_telemetry():
+    cfg = _weighted_cfg("WEIGHTED_ACTIVE")
+    with patch.object(
+        combined_voting,
+        "_build_weighted_selection",
+        wraps=combined_voting._build_weighted_selection,
+    ) as build:
+        result = _evaluate(cfg)
+
+    assert build.call_count == 1

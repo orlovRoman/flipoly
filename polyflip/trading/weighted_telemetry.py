@@ -10,7 +10,8 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
-# These names intentionally match the SQLAlchemy columns on both telemetry tables.
+# Persistence keys intentionally match the SQLAlchemy columns on both telemetry
+# tables; the canonical market-reference runtime key is mapped below.
 WEIGHTED_TELEMETRY_FIELDS: tuple[str, ...] = (
     "p_market_yes",
     "p_logreg_yes",
@@ -50,10 +51,18 @@ WEIGHTED_TELEMETRY_FIELDS: tuple[str, ...] = (
 )
 
 
+WEIGHTED_TELEMETRY_ALIASES: dict[str, str] = {
+    "weighted_market_contribution_logodds": "weighted_market_reference_logodds",
+}
+
+
 def _value(details: Mapping[str, Any], key: str) -> Any:
     """Read a canonical key, then its flat weighted alias."""
     if key in details:
         return details[key]
+    canonical_key = WEIGHTED_TELEMETRY_ALIASES.get(key)
+    if canonical_key is not None and canonical_key in details:
+        return details[canonical_key]
     return details.get(f"weighted_{key}")
 
 
@@ -80,6 +89,7 @@ def weighted_telemetry_from_details(
             "weighted_p_lgbm_yes",
             "weighted_p_final_yes",
             "weighted_selected_side",
+            "weighted_market_reference_logodds",
         )
     )
     if not weighted_keys_present:
@@ -87,14 +97,7 @@ def weighted_telemetry_from_details(
 
     result: dict[str, Any] = {}
     for key in WEIGHTED_TELEMETRY_FIELDS:
-        if key == "p_market_yes":
-            value = _value(details, "p_market_yes")
-        elif key == "p_logreg_yes":
-            value = _value(details, "p_logreg_yes")
-        elif key == "p_lgbm_yes":
-            value = _value(details, "p_lgbm_yes")
-        else:
-            value = details.get(key)
+        value = _value(details, key)
         if value is not None:
             result[key] = value
 
@@ -122,5 +125,7 @@ def weighted_telemetry_from_object(obj: Any) -> dict[str, Any]:
     # when all values are null so a SKIP remains auditable.
     if not details.get("weighted_policy_mode") and hasattr(obj, "weighted_policy_mode"):
         details["weighted_policy_mode"] = getattr(obj, "weighted_policy_mode")
+    if hasattr(obj, "weighted_market_reference_logodds"):
+        details["weighted_market_reference_logodds"] = getattr(obj, "weighted_market_reference_logodds")
     return weighted_telemetry_from_details(details)
 
