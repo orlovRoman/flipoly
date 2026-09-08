@@ -257,3 +257,274 @@ def compute_point_in_time_features(
     out = out.drop(columns=["_orig_row_pos", "_rec_dt", "_market_dummy", "_is_causal"], errors="ignore")
     out.index = orig_index
     return out
+
+
+def compute_normalized_strike_distance(
+    underlying_price: float | np.ndarray,
+    strike_price: float | np.ndarray,
+    sigma_1m: float | np.ndarray,
+    tau_min: float | np.ndarray,
+    candidate_side: str | Sequence[str],
+    clip_bounds: tuple[float, float] | None = None,
+) -> tuple[np.ndarray | float, np.ndarray | bool]:
+    """
+    Computes normalized distance to strike (Item 2.2):
+      z_outsider = s * log(S_t / K) / (sigma_1m * sqrt(tau_min))
+    where s = +1 for candidate UP (or YES on UP strike), -1 for DOWN.
+
+    Properties:
+    - S_t == K => z = 0
+    - UP vs DOWN flips sign: z_DOWN = -z_UP
+    - Increasing tau or sigma decreases |z|
+    - Safe handling for tau -> 0 and zero/undefined sigma with explicit missing flag
+    """
+    s_arr = np.asarray(underlying_price, dtype=float)
+    k_arr = np.asarray(strike_price, dtype=float)
+    sigma_arr = np.asarray(sigma_1m, dtype=float)
+    tau_arr = np.asarray(tau_min, dtype=float)
+
+    is_scalar = (
+        np.ndim(underlying_price) == 0
+        and np.ndim(strike_price) == 0
+        and np.ndim(sigma_1m) == 0
+        and np.ndim(tau_min) == 0
+        and isinstance(candidate_side, str)
+    )
+
+    if isinstance(candidate_side, str):
+        sides = np.full(s_arr.shape, candidate_side)
+    else:
+        sides = np.asarray(candidate_side)
+
+    # Determine direction factor: +1 for UP/YES, -1 for DOWN/NO
+    direction = np.where(
+        np.char.upper(sides.astype(str)) == "DOWN",
+        -1.0,
+        np.where(np.char.upper(sides.astype(str)) == "NO", -1.0, 1.0)
+    )
+
+    # Valid mask: positive finite prices, positive finite volatility, non-negative tau
+    valid_mask = (
+        np.isfinite(s_arr) & (s_arr > 0.0) &
+        np.isfinite(k_arr) & (k_arr > 0.0) &
+        np.isfinite(sigma_arr) & (sigma_arr > 1e-9) &
+        np.isfinite(tau_arr)
+    )
+
+    z = np.zeros_like(s_arr, dtype=float)
+
+    if np.any(valid_mask):
+        s_v = s_arr[valid_mask]
+        k_v = k_arr[valid_mask]
+        sig_v = sigma_arr[valid_mask]
+        # Protect tau -> 0: effective minimum time step is 1e-4 minutes (~6ms)
+        tau_eff = np.maximum(tau_arr[valid_mask], 1e-4)
+        dir_v = direction[valid_mask]
+
+        denom = sig_v * np.sqrt(tau_eff)
+        # Avoid division by zero
+        denom_safe = np.where(denom > 1e-9, denom, 1e-9)
+        z_vals = dir_v * np.log(s_v / k_v) / denom_safe
+
+        if clip_bounds is not None:
+            z_vals = np.clip(z_vals, clip_bounds[0], clip_bounds[1])
+
+        z[valid_mask] = z_vals
+
+    if is_scalar:
+        return float(z.item()), bool(valid_mask.item())
+    return z, valid_mask
+
+
+def compute_directional_momentum(
+    underlying_current: float | np.ndarray,
+    underlying_lagged: float | np.ndarray,
+    candidate_side: str | Sequence[str],
+    has_ref: bool | np.ndarray = True,
+) -> tuple[np.ndarray | float, np.ndarray | bool]:
+    """
+    Computes directed short momentum (Item 2.3):
+      ret_outsider = s * log(S_t / S_{t - delta_t})
+    where s = +1 for candidate UP/YES, -1 for DOWN/NO.
+
+    Movement towards the winning side of the outsider always yields a positive value.
+    """
+    s_curr = np.asarray(underlying_current, dtype=float)
+    s_lag = np.asarray(underlying_lagged, dtype=float)
+    ref_mask = np.asarray(has_ref, dtype=bool)
+
+    is_scalar = (
+        np.ndim(underlying_current) == 0
+        and np.ndim(underlying_lagged) == 0
+        and isinstance(candidate_side, str)
+    )
+
+    if isinstance(candidate_side, str):
+        sides = np.full(s_curr.shape, candidate_side)
+    else:
+        sides = np.asarray(candidate_side)
+
+    direction = np.where(
+        np.char.upper(sides.astype(str)) == "DOWN",
+        -1.0,
+        np.where(np.char.upper(sides.astype(str)) == "NO", -1.0, 1.0)
+    )
+
+    valid_mask = (
+        ref_mask &
+        np.isfinite(s_curr) & (s_curr > 0.0) &
+        np.isfinite(s_lag) & (s_lag > 0.0)
+    )
+
+    ret = np.zeros_like(s_curr, dtype=float)
+    if np.any(valid_mask):
+        sc_v = s_curr[valid_mask]
+        sl_v = s_lag[valid_mask]
+        dir_v = direction[valid_mask]
+        ret[valid_mask] = dir_v * np.log(sc_v / sl_v)
+
+    if is_scalar:
+        return float(ret.item()), bool(valid_mask.item())
+    return ret, valid_mask
+
+
+def compute_outsider_model_features(
+    df: pd.DataFrame,
+    underlying_observations: Sequence[Any] | None = None,
+    minute_candles: pd.DataFrame | None = None,
+    sigma_window_candles: int = 60,
+    z_clip_bounds: tuple[float, float] = (-5.0, 5.0),
+) -> pd.DataFrame:
+    """
+    Computes transformed features for Model A1 and Model B1 (Items 2.2, 2.3, 2.6, 2.7).
+
+    Features added:
+    - logit_mid_price: logit(clip(outsider_mid, 1e-4, 1 - 1e-4))
+    - log_time_left: log1p(clip(time_left_min, 0.0, None))
+    - candidate_spread: spread of the candidate contract
+    - logit_price_x_log_time: interaction term logit_mid_price * log_time_left
+    - z_outsider: normalized distance to strike (Item 2.2)
+    - has_z_ref: validity indicator for strike distance
+    - ret_outsider_30s: 30-second directional momentum (Item 2.3)
+    - has_ret_30s_ref: validity indicator for 30s momentum
+    - ret_outsider_120s: 120-second directional momentum (Item 2.3)
+    - has_ret_120s_ref: validity indicator for 120s momentum
+    """
+    out = df.copy()
+
+    # Determine mid price
+    mid = out["mid_price"] if "mid_price" in out.columns else out.get("outsider_mid", 0.5)
+    mid_vals = pd.to_numeric(mid, errors="coerce").fillna(0.5).to_numpy()
+
+    # Logit transform with numerical contract limits [1e-4, 1 - 1e-4]
+    p_clip = np.clip(mid_vals, 1e-4, 1.0 - 1e-4)
+    out["logit_mid_price"] = np.log(p_clip / (1.0 - p_clip))
+
+    # Time transform log1p(time_left_min)
+    time_left = out["time_left_min"] if "time_left_min" in out.columns else 15.0
+    t_vals = pd.to_numeric(time_left, errors="coerce").fillna(15.0).to_numpy()
+    out["log_time_left"] = np.log1p(np.maximum(t_vals, 0.0))
+
+    # Spread
+    spread = out["spread"] if "spread" in out.columns else out.get("candidate_spread", 0.02)
+    out["candidate_spread"] = pd.to_numeric(spread, errors="coerce").fillna(0.02).to_numpy()
+
+    # Interaction
+    out["logit_price_x_log_time"] = out["logit_mid_price"] * out["log_time_left"]
+
+    # Candidate side ("UP" or "DOWN", default "UP")
+    candidate_sides = out.get("candidate_side", "UP")
+    if isinstance(candidate_sides, pd.Series):
+        sides_arr = candidate_sides.fillna("UP").astype(str).to_numpy()
+    else:
+        sides_arr = np.full(len(out), str(candidate_sides))
+
+    # Strike price
+    if "strike_value" in out.columns:
+        strike_series = out["strike_value"]
+    elif "strike_price" in out.columns:
+        strike_series = out["strike_price"]
+    else:
+        strike_series = pd.Series(np.nan, index=out.index)
+    strike_vals = pd.to_numeric(strike_series, errors="coerce").to_numpy()
+
+    # Underlying price S_t
+    und_series = out["underlying_price"] if "underlying_price" in out.columns else pd.Series(np.nan, index=out.index)
+    underlying_vals = pd.to_numeric(und_series, errors="coerce").to_numpy()
+
+    # Volatility sigma_1m
+    sig_series = out["sigma_1m"] if "sigma_1m" in out.columns else pd.Series(np.nan, index=out.index)
+    sigma_vals = pd.to_numeric(sig_series, errors="coerce").to_numpy()
+    if np.isnan(sigma_vals).all() and minute_candles is not None and len(minute_candles) >= 10:
+        # Compute rolling 1m return std over window
+        close_series = pd.Series(minute_candles["close"]).astype(float)
+        ret_1m = np.log(close_series / close_series.shift(1))
+        # Use ddof=1 sample standard deviation
+        est_sigma = float(ret_1m.tail(sigma_window_candles).std(ddof=1))
+        sigma_vals = np.full(len(out), est_sigma if np.isfinite(est_sigma) else 0.0)
+    elif np.isnan(sigma_vals).all():
+        # Default fallback volatility (e.g. 0.001 per minute ~ 3.8% daily BTC vol)
+        sigma_vals = np.full(len(out), 0.001)
+
+    # Compute z_outsider
+    z_out, z_valid = compute_normalized_strike_distance(
+        underlying_price=underlying_vals,
+        strike_price=strike_vals,
+        sigma_1m=sigma_vals,
+        tau_min=t_vals,
+        candidate_side=sides_arr,
+        clip_bounds=z_clip_bounds,
+    )
+    out["z_outsider"] = z_out
+    out["has_z_ref"] = z_valid
+
+    # Momentum features
+    has_ret_30 = np.zeros(len(out), dtype=bool)
+    ret_30 = np.zeros(len(out), dtype=float)
+    has_ret_120 = np.zeros(len(out), dtype=bool)
+    ret_120 = np.zeros(len(out), dtype=float)
+
+    # Check if pre-computed lagged underlying prices are present
+    if "underlying_lag_30s" in out.columns:
+        lag30 = pd.to_numeric(out["underlying_lag_30s"], errors="coerce").to_numpy()
+        ret_30, has_ret_30 = compute_directional_momentum(
+            underlying_current=underlying_vals,
+            underlying_lagged=lag30,
+            candidate_side=sides_arr,
+            has_ref=np.isfinite(lag30) & (lag30 > 0.0),
+        )
+    elif underlying_observations:
+        from polyflip.crypto.underlying_observations import compute_underlying_return
+        for idx in range(len(out)):
+            t_ref = out["recorded_at"].iloc[idx] if "recorded_at" in out.columns else datetime.now(timezone.utc)
+            r30, ok30 = compute_underlying_return(underlying_observations, as_of=t_ref, horizon_seconds=30.0)
+            if ok30 and r30 is not None:
+                s_factor = -1.0 if str(sides_arr[idx]).upper() in ("DOWN", "NO") else 1.0
+                ret_30[idx] = s_factor * r30
+                has_ret_30[idx] = True
+
+    if "underlying_lag_120s" in out.columns:
+        lag120 = pd.to_numeric(out["underlying_lag_120s"], errors="coerce").to_numpy()
+        ret_120, has_ret_120 = compute_directional_momentum(
+            underlying_current=underlying_vals,
+            underlying_lagged=lag120,
+            candidate_side=sides_arr,
+            has_ref=np.isfinite(lag120) & (lag120 > 0.0),
+        )
+    elif underlying_observations:
+        from polyflip.crypto.underlying_observations import compute_underlying_return
+        for idx in range(len(out)):
+            t_ref = out["recorded_at"].iloc[idx] if "recorded_at" in out.columns else datetime.now(timezone.utc)
+            r120, ok120 = compute_underlying_return(underlying_observations, as_of=t_ref, horizon_seconds=120.0)
+            if ok120 and r120 is not None:
+                s_factor = -1.0 if str(sides_arr[idx]).upper() in ("DOWN", "NO") else 1.0
+                ret_120[idx] = s_factor * r120
+                has_ret_120[idx] = True
+
+    out["ret_outsider_30s"] = ret_30
+    out["has_ret_30s_ref"] = has_ret_30
+    out["ret_outsider_120s"] = ret_120
+    out["has_ret_120s_ref"] = has_ret_120
+
+    return out
+

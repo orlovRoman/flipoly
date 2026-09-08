@@ -11,7 +11,7 @@ import hashlib
 from dataclasses import dataclass
 from typing import Sequence
 
-OUTSIDER_BUILDER_VERSION = "1.1.0"
+OUTSIDER_BUILDER_VERSION = "2.0.0"
 
 
 @dataclass(frozen=True)
@@ -32,11 +32,30 @@ def feature_schema_hash(features: Sequence[str]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
 
-# Model A: compact outsider probability model based on contract price, time left, and spread
+# Model A (v1 backward-compatible compact contract)
 MODEL_A_FEATURES: tuple[str, ...] = (
     "mid_price",
     "time_left_min",
     "spread",
+)
+
+# Model A1: Explicit transformed features (Item 2.6)
+MODEL_A1_FEATURES: tuple[str, ...] = (
+    "logit_mid_price",
+    "log_time_left",
+    "candidate_spread",
+    "logit_price_x_log_time",
+)
+
+# Model B1: Model A1 + normalized strike distance + 30s/120s directional momentum (Items 2.2, 2.3, 2.7)
+MODEL_B1_FEATURES: tuple[str, ...] = (
+    "logit_mid_price",
+    "log_time_left",
+    "candidate_spread",
+    "logit_price_x_log_time",
+    "z_outsider",
+    "ret_outsider_30s",
+    "ret_outsider_120s",
 )
 
 # Legacy LogReg feature set
@@ -61,6 +80,24 @@ OUTSIDER_FEATURE_SETS: dict[str, OutsiderFeatureSet] = {
         features=MODEL_A_FEATURES,
         description="Compact outsider win probability based on mid_price, time_left_min, spread",
     ),
+    "MODEL_A1": OutsiderFeatureSet(
+        key="MODEL_A1",
+        version="model-a1-compact-v2",
+        features=MODEL_A1_FEATURES,
+        description="Model A1: logit(mid_price), log1p(time_left_min), candidate_spread, interaction",
+    ),
+    "MODEL_B": OutsiderFeatureSet(
+        key="MODEL_B",
+        version="model-b1-momentum-v1",
+        features=MODEL_B1_FEATURES,
+        description="Model B: Model A1 + z_outsider strike distance + 30s/120s directional momentum",
+    ),
+    "MODEL_B1": OutsiderFeatureSet(
+        key="MODEL_B1",
+        version="model-b1-momentum-v1",
+        features=MODEL_B1_FEATURES,
+        description="Model B1: Model A1 + z_outsider strike distance + 30s/120s directional momentum",
+    ),
     "LEGACY": OutsiderFeatureSet(
         key="LEGACY",
         version="legacy-logreg-v1",
@@ -76,3 +113,4 @@ def get_outsider_feature_set(key_or_name: str) -> OutsiderFeatureSet:
         return OUTSIDER_FEATURE_SETS[normalized]
     # Fallback to Model A if unknown
     return OUTSIDER_FEATURE_SETS["MODEL_A"]
+

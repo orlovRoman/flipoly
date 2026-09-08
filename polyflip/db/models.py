@@ -113,6 +113,8 @@ class MarketSnapshot(Base):
     strike_source = Column(String(64), nullable=True)
     strike_effective_at = Column(DateTime(timezone=True), nullable=True)
     strike_received_at = Column(DateTime(timezone=True), nullable=True)
+    oracle_price = Column(Float, nullable=True)
+    binance_price = Column(Float, nullable=True)
 
 
 class TradeHistory(Base):
@@ -421,6 +423,8 @@ class LiveMarket(Base):
     strike_source = Column(String(64), nullable=True)
     strike_effective_at = Column(DateTime(timezone=True), nullable=True)
     strike_received_at = Column(DateTime(timezone=True), nullable=True)
+    oracle_price = Column(Float, nullable=True)
+    binance_price = Column(Float, nullable=True)
 
 
 class OpenPosition(Base):
@@ -1907,4 +1911,27 @@ class AILLMModelCatalog(Base):
             "provider", "model_id", name="uix_ai_llm_catalog_provider_model"
         ),
         Index("idx_ai_llm_catalog_provider", "provider"),
+    )
+
+
+class UnderlyingObservation(Base):
+    """
+    High-frequency price observations of underlying assets (e.g. BTC spot, Pyth/Chainlink oracle).
+    Used for 30s/120s returns, strike distance, and point-in-time market state reconstruction.
+    """
+
+    __tablename__ = "underlying_observations"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    instrument = Column(String(32), nullable=False, index=True)  # e.g. "BTC"
+    source = Column(String(32), nullable=False, index=True)      # e.g. "BINANCE", "ORACLE", "PYTH", "CHAINLINK"
+    price = Column(Float, nullable=False)
+    event_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    received_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    extra_data = Column("extra_data", JSON().with_variant(JSONB, "postgresql"), nullable=True)
+
+    __table_args__ = (
+        Index("idx_underlying_obs_lookup", "instrument", "source", "event_at"),
+        Index("idx_underlying_obs_received", "instrument", "received_at"),
+        UniqueConstraint("instrument", "source", "event_at", "received_at", name="uix_underlying_obs_dedup"),
     )

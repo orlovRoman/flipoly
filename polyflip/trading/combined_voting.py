@@ -2286,3 +2286,183 @@ def combine_votes(
         lgbm_features_ok=True,
         bet_size_multiplier=0.0,
     )
+
+
+def evaluate_lgbm_outsider_interaction(
+    df: pd.DataFrame,
+    min_edge: float = 0.02,
+    fee_rate: float = 0.002,
+    lgbm_dir_col: str = "lgbm_direction",
+    lgbm_prob_col: str = "lgbm_oof_prob",
+    p_b_col: str = "p_b_win",
+    target_col: str = "target",
+    ask_col: str = "executable_ask",
+) -> dict[str, Any]:
+    """
+    Evaluates the three interaction paradigms between Outsider Model B and LightGBM (Item 2.9):
+    1. B_ONLY: Model B standalone
+    2. B_PLUS_LGBM_VETO: Veto when opening LightGBM direction conflicts with outsider candidate
+    3. B_PLUS_LGBM_INPUT: Meta-model combining Model B logit with OOF LightGBM probability
+
+    Includes full counterfactual tracking for all vetoed trades:
+      n_accepted + n_vetoed == n_total_candidates
+    """
+    from polyflip.crypto.edge import compute_net_ev_per_share
+    from sklearn.linear_model import LogisticRegression
+    import numpy as np
+    import pandas as pd
+
+    n = len(df)
+    if n == 0:
+        return {"status": "EMPTY_DATASET"}
+
+    p_b = pd.to_numeric(df.get(p_b_col, df.get("outsider_mid", 0.5)), errors="coerce").fillna(0.5).to_numpy()
+    asks = pd.to_numeric(df.get(ask_col, 0.35), errors="coerce").fillna(0.35).to_numpy()
+    targets = pd.to_numeric(df.get(target_col, 0), errors="coerce").fillna(0).to_numpy()
+    sides = df.get("candidate_side", pd.Series(["UP"] * n)).astype(str).str.upper().to_numpy()
+    lgbm_dirs = df.get(lgbm_dir_col, pd.Series(["NONE"] * n)).astype(str).str.upper().to_numpy()
+    lgbm_probs = pd.to_numeric(df.get(lgbm_prob_col, 0.5), errors="coerce").fillna(0.5).to_numpy()
+
+    # 1. Identify Model B candidate trades
+    candidate_indices = []
+    for i in range(n):
+        net_ev = compute_net_ev_per_share(p_b[i], asks[i], fee_per_share=asks[i] * fee_rate)
+        if net_ev >= min_edge and asks[i] < 0.95:
+            candidate_indices.append(i)
+
+    candidate_indices = np.array(candidate_indices, dtype=int)
+    n_candidates = len(candidate_indices)
+
+    # 2. Paradigm 1: B_ONLY
+    pnl_b_only = 0.0
+    wins_b_only = 0
+    trade_records_b_only = []
+
+    for idx in candidate_indices:
+        ask = asks[idx]
+        fee = ask * fee_rate
+        outcome = targets[idx]
+        pnl = (1.0 - ask - fee) if outcome == 1 else (-ask - fee)
+        pnl_b_only += pnl
+        if outcome == 1:
+            wins_b_only += 1
+        trade_records_b_only.append(pnl)
+
+    # 3. Paradigm 2: B_PLUS_LGBM_VETO
+    accepted_indices = []
+    vetoed_indices = []
+
+    for idx in candidate_indices:
+        c_side = sides[idx]
+        l_dir = lgbm_dirs[idx]
+
+        # Veto condition: opening LightGBM has strong conviction against the candidate side
+        # (e.g. candidate is UP, but opening LightGBM predicted DOWN)
+        is_vetoed = False
+        if c_side in ("UP", "YES") and l_dir == "DOWN":
+            is_vetoed = True
+        elif c_side in ("DOWN", "NO") and l_dir == "UP":
+            is_vetoed = True
+
+        if is_vetoed:
+            vetoed_indices.append(idx)
+        else:
+            accepted_indices.append(idx)
+
+    # Invariant: n_accepted + n_vetoed == n_candidates
+    assert len(accepted_indices) + len(vetoed_indices) == n_candidates, "Veto partition invariant violated!"
+
+    pnl_veto_accepted = 0.0
+    wins_veto_accepted = 0
+    for idx in accepted_indices:
+        ask = asks[idx]
+        fee = ask * fee_rate
+        outcome = targets[idx]
+        pnl = (1.0 - ask - fee) if outcome == 1 else (-ask - fee)
+        pnl_veto_accepted += pnl
+        if outcome == 1:
+            wins_veto_accepted += 1
+
+    # Counterfactual tracking of vetoed trades
+    pnl_vetoed_counterfactual = 0.0
+    wins_vetoed_counterfactual = 0
+    saved_losses_pnl = 0.0
+    missed_gains_pnl = 0.0
+
+    for idx in vetoed_indices:
+        ask = asks[idx]
+        fee = ask * fee_rate
+        outcome = targets[idx]
+        pnl = (1.0 - ask - fee) if outcome == 1 else (-ask - fee)
+        pnl_vetoed_counterfactual += pnl
+        if outcome == 1:
+            wins_vetoed_counterfactual += 1
+            missed_gains_pnl += pnl
+        else:
+            saved_losses_pnl += abs(pnl)
+
+    net_veto_economic_impact = pnl_veto_accepted - pnl_b_only
+
+    # 4. Paradigm 3: B_PLUS_LGBM_INPUT (Meta-Model on OOF Predictions)
+    # Meta-features: logit(p_b), logit(lgbm_probs)
+    p_b_clip = np.clip(p_b, 1e-4, 1.0 - 1e-4)
+    l_p_clip = np.clip(lgbm_probs, 1e-4, 1.0 - 1e-4)
+    X_meta = np.column_stack([
+        np.log(p_b_clip / (1.0 - p_b_clip)),
+        np.log(l_p_clip / (1.0 - l_p_clip)),
+    ])
+
+    meta_model = LogisticRegression(C=1.0, solver="lbfgs", max_iter=500, random_state=42)
+    meta_model.fit(X_meta, targets)
+    meta_probs = meta_model.predict_proba(X_meta)[:, 1]
+
+    pnl_meta = 0.0
+    wins_meta = 0
+    n_meta_trades = 0
+    for i in range(n):
+        net_ev = compute_net_ev_per_share(meta_probs[i], asks[i], fee_per_share=asks[i] * fee_rate)
+        if net_ev >= min_edge and asks[i] < 0.95:
+            n_meta_trades += 1
+            outcome = targets[i]
+            fee = asks[i] * fee_rate
+            pnl = (1.0 - asks[i] - fee) if outcome == 1 else (-asks[i] - fee)
+            pnl_meta += pnl
+            if outcome == 1:
+                wins_meta += 1
+
+    return {
+        "n_total_candidates": n_candidates,
+        "b_only": {
+            "n_trades": n_candidates,
+            "win_rate": round(wins_b_only / n_candidates, 4) if n_candidates > 0 else 0.0,
+            "total_pnl": round(pnl_b_only, 4),
+            "expectancy": round(pnl_b_only / n_candidates, 6) if n_candidates > 0 else 0.0,
+        },
+        "b_plus_lgbm_veto": {
+            "n_accepted": len(accepted_indices),
+            "n_vetoed": len(vetoed_indices),
+            "win_rate": round(wins_veto_accepted / len(accepted_indices), 4) if accepted_indices else 0.0,
+            "total_pnl": round(pnl_veto_accepted, 4),
+            "expectancy": round(pnl_veto_accepted / len(accepted_indices), 6) if accepted_indices else 0.0,
+            "net_veto_impact_pnl": round(net_veto_economic_impact, 4),
+            "counterfactual": {
+                "n_vetoed": len(vetoed_indices),
+                "vetoed_wins": wins_vetoed_counterfactual,
+                "vetoed_pnl_counterfactual": round(pnl_vetoed_counterfactual, 4),
+                "saved_losses_pnl": round(saved_losses_pnl, 4),
+                "missed_gains_pnl": round(missed_gains_pnl, 4),
+            },
+        },
+        "b_plus_lgbm_input": {
+            "n_trades": n_meta_trades,
+            "win_rate": round(wins_meta / n_meta_trades, 4) if n_meta_trades > 0 else 0.0,
+            "total_pnl": round(pnl_meta, 4),
+            "expectancy": round(pnl_meta / n_meta_trades, 6) if n_meta_trades > 0 else 0.0,
+            "meta_weights": {
+                "w_model_b": round(float(meta_model.coef_[0][0]), 4),
+                "w_lgbm": round(float(meta_model.coef_[0][1]), 4),
+                "intercept": round(float(meta_model.intercept_[0]), 4),
+            },
+        },
+    }
+
