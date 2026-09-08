@@ -100,7 +100,18 @@ def load_real_btc_outsider_data() -> tuple[pd.DataFrame, dict[str, Any]]:
             continue
 
         spread = float(o.get("spread", 0.02))
-        time_left_min = float(o.get("time_left_sec", 300) or 300) / 60.0
+        
+        # Remove artificial 300 fallback
+        raw_time = o.get("time_left_sec")
+        if raw_time is None or raw_time == "":
+            time_left_min = np.nan
+            time_valid = False
+            time_source = "MISSING"
+        else:
+            time_left_min = float(raw_time) / 60.0
+            time_valid = True
+            time_source = "PROVIDED"
+            
         p_lgbm_val = float(o.get("p_lgbm_yes")) if o.get("p_lgbm_yes") is not None else np.nan
 
         rows.append({
@@ -116,6 +127,8 @@ def load_real_btc_outsider_data() -> tuple[pd.DataFrame, dict[str, Any]]:
             "executable_ask": ask,
             "spread": spread,
             "time_left_min": time_left_min,
+            "time_valid": time_valid,
+            "time_source": time_source,
             "p_lgbm": p_lgbm_val,
             # Model B features are genuinely absent in the historical observation log
             "underlying_price": np.nan,
@@ -140,11 +153,11 @@ def load_real_btc_outsider_data() -> tuple[pd.DataFrame, dict[str, Any]]:
         "date_max": str(df["decision_at"].max()) if not df.empty else None,
         "feature_coverage": {
             "model_a_features": {
-                "outsider_mid": 1.0,
-                "spread": 1.0,
-                "time_left_min": 1.0,
-                "canonical_yes_mid": 1.0,
-                "executable_ask": 1.0,
+                "outsider_mid": float(df["outsider_mid"].notna().mean()) if len(df) else 0.0,
+                "spread": float(df["spread"].notna().mean()) if len(df) else 0.0,
+                "time_left_min": float(df["time_left_min"].notna().mean()) if len(df) else 0.0,
+                "canonical_yes_mid": float(df["canonical_yes_mid"].notna().mean()) if len(df) else 0.0,
+                "executable_ask": float(df["executable_ask"].notna().mean()) if len(df) else 0.0,
             },
             "model_b_features": {
                 "underlying_price": 0.0,

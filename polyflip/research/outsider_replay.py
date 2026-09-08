@@ -155,8 +155,20 @@ class OutsiderReplayEngine:
                 continue
             p_win = float(p_win)
 
-            fee_rate = float(row.get("fee_rate", self.policy.default_fee_rate))
-            fee_per_share = ask * fee_rate
+            if fee_schedule is not None:
+                fee_info = fee_schedule.get_fee(
+                    market_id=m_id, 
+                    decision_at=dec_at, 
+                    size_usd=self.policy.stake_usdc, 
+                    execution_role="TAKER"
+                )
+                fee_per_share = fee_info.get("fee_usd", 0.0) / (self.policy.stake_usdc / ask) if self.policy.stake_usdc > 0 else 0.0
+                fee_rate = fee_info.get("fee_rate", self.policy.default_fee_rate)
+                fee_source = fee_info.get("source", "EXPLICIT_SCHEDULE")
+            else:
+                fee_rate = float(row.get("fee_rate", self.policy.default_fee_rate))
+                fee_per_share = ask * fee_rate
+                fee_source = "DEFAULT_ASSUMPTION"
 
             net_ev = compute_net_ev_per_share(p_win=p_win, ask_price=ask, fee_per_share=fee_per_share)
             if pd.isna(net_ev) or net_ev < self.policy.min_edge:
@@ -244,7 +256,16 @@ class OutsiderReplayEngine:
             stake = self.policy.stake_usdc
             fill_price = ask
             shares = stake / fill_price
-            entry_fee = stake * fee_rate
+            entry_fee = fee_per_share * shares
+
+            if stake + entry_fee > ledger.cash_remaining:
+                ledger.skipped_decisions.append({
+                    "market_id": m_id,
+                    "decision_at": dec_at,
+                    "reason": "INSUFFICIENT_CAPITAL",
+                    "time_left_min": tl,
+                })
+                continue
 
             payout = shares * 1.0 if outcome == 1 else 0.0
             trade_pnl = payout - stake - entry_fee
@@ -268,6 +289,7 @@ class OutsiderReplayEngine:
                 "size_shares": round(shares, 4),
                 "spent_usdc": round(stake, 4),
                 "entry_fee": round(entry_fee, 4),
+                "fee_source": fee_source,
                 "settlement_payout": round(payout, 4),
                 "realized_pnl": round(trade_pnl, 4),
                 "outcome": outcome,

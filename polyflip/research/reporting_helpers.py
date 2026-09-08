@@ -18,7 +18,7 @@ def compute_drawdown(pnls: Sequence[float], initial_equity: float = 0.0) -> floa
     """
     if not pnls or len(pnls) == 0:
         return 0.0
-    equity = np.insert(np.cumsum(pnls), 0, initial_equity)
+    equity = np.insert(np.cumsum(pnls) + initial_equity, 0, initial_equity)
     running_max = np.maximum.accumulate(equity)
     drawdowns = running_max - equity
     return round(float(np.max(drawdowns)), 4) if len(drawdowns) > 0 else 0.0
