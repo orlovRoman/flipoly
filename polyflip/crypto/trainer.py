@@ -7,7 +7,7 @@ LightGBM-тренер для крипто-модели Up/Down на OHLCV-све
 """
 from __future__ import annotations
 
-import asyncio, hashlib, json, pickle, time
+import asyncio, hashlib, json, pickle, time, uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import numpy as np, pandas as pd, structlog
@@ -107,16 +107,20 @@ def _evaluate_quality_gate(
     model_bytes: bytes,
     val_auc: float,
     baseline_auc: float,
-    ece: float,
-    threshold: float,
-    threshold_down: float,
+    ece: float | None = None,
+    threshold: float = 0.55,
+    threshold_down: float = 0.45,
     features: tuple[str, ...] | list[str] | None = None,
     active_accuracy: float | None = None,
     active_version: int | None = None,
 ) -> tuple[bool, list[str], float, float]:
     """Validate artifact compatibility; quality metrics remain advisory diagnostics."""
     reasons: list[str] = []
-    metrics = {"accuracy": val_auc, "baseline": baseline_auc, "ece": ece}
+    metrics = {"accuracy": val_auc, "baseline": baseline_auc}
+    if ece is not None:
+        metrics["ece"] = ece
+    else:
+        reasons.append("Advisory: Model has no valid calibration error (ECE is None)")
     invalid_metrics = [name for name, value in metrics.items() if not np.isfinite(value)]
     if invalid_metrics:
         reasons.append(f"Advisory: Non-finite quality metrics: {', '.join(invalid_metrics)}")
@@ -127,7 +131,7 @@ def _evaluate_quality_gate(
                 f"Advisory: Negative lift vs baseline: {lift:+.4f} "
                 f"(accuracy={val_auc:.4f}, baseline={baseline_auc:.4f})"
             )
-        if ece > QUALITY_GATE_MAX_ECE:
+        if ece is not None and ece > QUALITY_GATE_MAX_ECE:
             reasons.append(
                 f"Advisory: Excessive ECE calibration error: {ece:.4f} > {QUALITY_GATE_MAX_ECE:.2f}"
             )
@@ -192,7 +196,7 @@ class LGBMFitResult:
     baseline_auc: float
     threshold: float
     threshold_down: float
-    ece: float
+    ece: float | None
     feature_importance: dict[str, int]
     precision: float
     recall: float
@@ -236,7 +240,7 @@ class CalibratedLightGBMModel:
         self,
         raw_model,
         calibrated_model,
-        calibration_method: str,
+        calibration_method: str = "NONE",
         ordered_feature_names: tuple[str, ...] | list[str] | None = None,
         target: str = "UP",
         positive_class: int = 1,
@@ -245,15 +249,39 @@ class CalibratedLightGBMModel:
         self.calibrated_model = calibrated_model
         self.calibration_method = str(calibration_method).upper()
         self.n_features_in_ = getattr(raw_model, "n_features_in_", None)
+        if self.n_features_in_ is None and hasattr(calibrated_model, "n_features_in_"):
+            self.n_features_in_ = getattr(calibrated_model, "n_features_in_", None)
         self.feature_importances_ = getattr(raw_model, "feature_importances_", None)
+        if self.feature_importances_ is None and hasattr(calibrated_model, "feature_importances_"):
+            self.feature_importances_ = getattr(calibrated_model, "feature_importances_", None)
         self.target = target
         self.positive_class = positive_class
         if ordered_feature_names is not None:
             self.ordered_feature_names = tuple(ordered_feature_names)
         elif hasattr(raw_model, "feature_names_in_"):
             self.ordered_feature_names = tuple(raw_model.feature_names_in_)
+        elif hasattr(calibrated_model, "feature_names_in_"):
+            self.ordered_feature_names = tuple(calibrated_model.feature_names_in_)
         else:
             self.ordered_feature_names = ()
+
+    @classmethod
+    def from_legacy(
+        cls,
+        legacy_model,
+        ordered_feature_names: tuple[str, ...] | list[str] | None = None,
+        target: str = "UP",
+        positive_class: int = 1,
+    ) -> "CalibratedLightGBMModel":
+        """Wrap legacy uncalibrated artifact into CalibratedLightGBMModel contract."""
+        return cls(
+            raw_model=None,
+            calibrated_model=legacy_model,
+            calibration_method="NONE",
+            ordered_feature_names=ordered_feature_names,
+            target=target,
+            positive_class=positive_class,
+        )
 
     @property
     def base_estimator(self):
@@ -265,17 +293,23 @@ class CalibratedLightGBMModel:
 
     @property
     def classes_(self) -> np.ndarray:
-        if hasattr(self.calibrated_model, "classes_"):
+        if hasattr(self.calibrated_model, "classes_") and self.calibrated_model is not None:
             return np.asarray(self.calibrated_model.classes_)
-        if hasattr(self.raw_model, "classes_"):
+        if hasattr(self.raw_model, "classes_") and self.raw_model is not None:
             return np.asarray(self.raw_model.classes_)
         return np.array([0, 1])
 
     def predict_raw_proba(self, rows):
+        if self.raw_model is None:
+            raise RuntimeError("raw_unavailable")
         return self.raw_model.predict_proba(rows)
 
     def predict_proba(self, rows):
-        return self.calibrated_model.predict_proba(rows)
+        if self.calibrated_model is not None:
+            return self.calibrated_model.predict_proba(rows)
+        if self.raw_model is not None:
+            return self.raw_model.predict_proba(rows)
+        raise RuntimeError("model_unavailable")
 
 
 def _make_lgbm(**params) -> LGBMClassifier:
@@ -446,7 +480,7 @@ def _fit_lgbm_and_serialize(
         ece_res, _ = expected_calibration_error(y_valid, p_valid, n_bins=20)
         calibration_comparison[method] = {
             "brier": float(brier_score(y_valid, p_valid)),
-            "ece": float(ece_res) if ece_res is not None else 0.0,
+            "ece": float(ece_res) if ece_res is not None else None,
             "log_loss": method_log_loss,
             "polymarket_pnl": method_pnl,
         }
@@ -462,13 +496,15 @@ def _fit_lgbm_and_serialize(
             or isotonic.get("polymarket_pnl") is None
             or isotonic["polymarket_pnl"] >= platt.get("polymarket_pnl", -np.inf)
         )
+        iso_ece = isotonic.get("ece") if isotonic.get("ece") is not None else np.inf
+        platt_ece = platt.get("ece") if platt.get("ece") is not None else np.inf
         if (
             isotonic.get("brier", np.inf) <= platt.get("brier", np.inf)
-            and isotonic.get("ece", np.inf) <= platt.get("ece", np.inf)
+            and iso_ece <= platt_ece
             and pnl_ok
             and (
                 isotonic.get("brier", np.inf) < platt.get("brier", np.inf)
-                or isotonic.get("ece", np.inf) < platt.get("ece", np.inf)
+                or iso_ece < platt_ece
                 or isotonic.get("polymarket_pnl", -np.inf) > platt.get("polymarket_pnl", -np.inf)
             )
         ):
@@ -477,11 +513,12 @@ def _fit_lgbm_and_serialize(
         selected_method = calibration_methods[0]
     oof_scores = calibration_oof[selected_method].copy()
     valid_mask = np.isfinite(oof_scores)
-    ece = calibration_comparison.get(selected_method, {}).get("ece", 0.0) or 0.0
+    raw_ece = calibration_comparison.get(selected_method, {}).get("ece")
+    ece = float(raw_ece) if raw_ece is not None else None
     logger.info(
         "crypto_calibration",
         method=selected_method,
-        ece=round(float(ece), 4),
+        ece=round(float(ece), 4) if ece is not None else None,
         comparison=calibration_comparison,
     )
 
@@ -990,7 +1027,6 @@ class CryptoModelTrainer:
         )
 
         # 7. Outer chronological split & synchronized volatility regime tertiles (Item 1.10 & 1.11)
-        import uuid
         now = datetime.now(timezone.utc)
         bundle_id = f"bundle_{symbol}_{int(now.timestamp())}_{uuid.uuid4().hex[:8]}"
         regime_formula_version = "1.1.0"
@@ -1032,7 +1068,7 @@ class CryptoModelTrainer:
 
         # Разбиваем датасет на 3 режима по vol_policy
         # Step 1.10: Train models strictly on outer train split to avoid test leakage
-        df_train_regimes = df_train_outer if len(df_train_outer) >= 150 else df_filtered
+        df_train_regimes = df_train_outer
         df_low  = df_train_regimes[df_train_regimes["vol_trend"].apply(lambda v: vol_policy.classify(v) == "low_vol")]
         df_mid  = df_train_regimes[df_train_regimes["vol_trend"].apply(lambda v: vol_policy.classify(v) == "mid_vol")]
         df_high = df_train_regimes[df_train_regimes["vol_trend"].apply(lambda v: vol_policy.classify(v) == "high_vol")]
@@ -1220,7 +1256,7 @@ class CryptoModelTrainer:
                     val_auc=round(val_auc, 4),
                     baseline=round(baseline_auc, 4),
                     threshold=round(threshold, 4),
-                    ece=round(ece, 4),
+                    ece=round(ece, 4) if ece is not None else None,
                 )
 
                 regime_asset = f"{symbol}_{regime}"

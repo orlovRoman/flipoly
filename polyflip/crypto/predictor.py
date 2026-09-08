@@ -535,9 +535,17 @@ class CryptoPredictor:
             # LightGBM score is the only source of the direction vote.
             p_up_calibrated = float(model.predict_proba([fv_array])[0][1])
             raw_predictor = getattr(model, "predict_raw_proba", None)
-            p_up_score = float(
-                (raw_predictor([fv_array]) if callable(raw_predictor) else model.predict_proba([fv_array]))[0][1]
-            )
+            try:
+                raw_pred = raw_predictor([fv_array]) if callable(raw_predictor) else None
+            except Exception as exc:
+                if "raw_unavailable" in str(exc):
+                    raw_pred = None
+                else:
+                    raise
+            if raw_pred is not None:
+                p_up_score = float(raw_pred[0][1])
+            else:
+                p_up_score = p_up_calibrated
             p_down_calibrated = 1.0 - p_up_calibrated
             p_down_score = 1.0 - p_up_score
 

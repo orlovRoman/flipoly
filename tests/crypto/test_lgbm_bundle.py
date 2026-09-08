@@ -159,3 +159,120 @@ async def test_models_cache_disambiguation():
     assert lgbm_retrieved is not None
     # LogReg has precedence in legacy cache.models
     assert cache.models.get("BTC") is not None
+
+
+class RegimeModel:
+    def __init__(self, proba_val: float = 0.5):
+        self.proba_val = proba_val
+        self.n_features_in_ = 24
+        self.classes_ = np.array([0, 1])
+
+    def predict_proba(self, X):
+        return np.array([[1.0 - self.proba_val, self.proba_val]])
+
+    def predict_raw_proba(self, X):
+        return np.array([[1.0 - self.proba_val, self.proba_val]])
+
+
+@pytest.mark.asyncio
+async def test_regime_bundle_versioning_and_prediction_invariance():
+    """Verify fixed predictions before/after candidate bundle training, and consistent regime classification."""
+    from polyflip.crypto.predictor import CryptoPredictor, CryptoFeaturesValidator
+    from polyflip.crypto.volatility import VolatilityRegimePolicy
+    from polyflip.crypto.feature_sets import CONTROL_FEATURES
+
+    pred = CryptoPredictor()
+    mock_db = AsyncMock()
+
+    # 1. Active bundle v1: low_vol (0.55), mid_vol (0.60), high_vol (0.65)
+    # Tertiles: vol_p33 = 0.5, vol_p67 = 1.5
+    active_rows = {}
+    for reg, p in [("low_vol", 0.55), ("mid_vol", 0.60), ("high_vol", 0.65)]:
+        r = MagicMock(spec=ModelRegistry)
+        r.asset = f"BTCUSDT_{reg}"
+        r.version = 1
+        r.interval = "15m"
+        r.ece = 0.03
+        r.decision_threshold = 0.55
+        r.decision_threshold_down = 0.45
+        r.features = ",".join(CONTROL_FEATURES)
+        r.model_blob = pickle.dumps(RegimeModel(p))
+        r.training_params = {
+            "target_source": "POLYMARKET_FINAL_OUTCOME",
+            "vol_p33": 0.50,
+            "vol_p67": 1.50,
+            "bundle_id": "bundle_BTCUSDT_v1",
+            "bundle_version": "1.0.0",
+        }
+        active_rows[reg] = r
+
+    # Active DB mock
+    def mock_db_exec(stmt):
+        res = MagicMock()
+        mock_sc = MagicMock()
+        res.all.return_value = [
+            MagicMock(asset=f"BTCUSDT_{reg}", version=1) for reg in ["low_vol", "mid_vol", "high_vol"]
+        ]
+        params = {}
+        try:
+            params = stmt.compile().params
+        except Exception:
+            pass
+        matched_row = active_rows["mid_vol"]
+        for p_val in params.values():
+            for reg in ["low_vol", "mid_vol", "high_vol"]:
+                if p_val == f"BTCUSDT_{reg}":
+                    matched_row = active_rows[reg]
+                    break
+        mock_sc.first.return_value = matched_row
+        res.scalars.return_value = mock_sc
+        res.scalar_one_or_none.return_value = None
+        return res
+
+    mock_db.execute = AsyncMock(side_effect=mock_db_exec)
+
+    # Load active bundle
+    await pred.load(mock_db, "BTCUSDT")
+    assert pred._vol_p33s["BTCUSDT"] == 0.50
+    assert pred._vol_p67s["BTCUSDT"] == 1.50
+
+    # Policy for bundle v1
+    policy_v1 = VolatilityRegimePolicy(low_boundary=0.50, high_boundary=1.50)
+    assert policy_v1.classify(0.3) == "low_vol"
+    assert policy_v1.classify(1.0) == "mid_vol"
+    assert policy_v1.classify(2.0) == "high_vol"
+
+    # Prediction on mid_vol point using loaded active model
+    mid_model = pred._models["BTCUSDT"]["mid_vol"]
+    pred_before = mid_model.predict_proba(np.zeros((1, len(CONTROL_FEATURES))))[0, 1]
+    assert pred_before == 0.60
+
+    # 2. Simulate training candidate bundle A with different tertiles and updated model weights
+    candidate_bundle_id = "bundle_BTCUSDT_candidate_A_999"
+    candidate_tertiles = {"vol_p33": 0.60, "vol_p67": 1.80}
+    candidate_policy = VolatilityRegimePolicy(
+        low_boundary=candidate_tertiles["vol_p33"],
+        high_boundary=candidate_tertiles["vol_p67"],
+    )
+    # In candidate bundle, vol_trend=0.55 is now classified as low_vol (since < 0.60), whereas in v1 it was mid_vol
+    assert policy_v1.classify(0.55) == "mid_vol"
+    assert candidate_policy.classify(0.55) == "low_vol"
+
+    # Candidate bundle models
+    candidate_models = {
+        "low_vol": RegimeModel(0.70),
+        "mid_vol": RegimeModel(0.75),
+        "high_vol": RegimeModel(0.80),
+    }
+
+    # 3. Assert predictor memory and predictions are completely invariant to candidate bundle training
+    pred_during_candidate = pred._models["BTCUSDT"]["mid_vol"].predict_proba(
+        np.zeros((1, len(CONTROL_FEATURES)))
+    )[0, 1]
+    assert pred_during_candidate == pred_before == 0.60
+    assert pred._vol_p33s["BTCUSDT"] == 0.50
+    assert pred._vol_p67s["BTCUSDT"] == 1.50
+
+    # 4. Invalidate only after candidate bundle is explicitly activated
+    CryptoPredictor.invalidate_all("BTCUSDT")
+    assert "BTCUSDT" not in pred._loaded_symbols

@@ -329,7 +329,20 @@ def _fit_and_serialize(
     # Always normalize total influence per market. `sample_weight` remains
     # the optional row-level policy; balancing prevents heavily sampled
     # markets from dominating either policy.
-    sample_weight = market_balanced_weights(groups, sample_weight)
+    #
+    # Documentation on class_weight=None and SimpleImputer:
+    # 1. SimpleImputer(strategy="median"): replaces missing/NaN values from lag features
+    #    or early market history with medians computed strictly from the training slice,
+    #    preventing future leakage while enabling stable scikit-learn pipeline execution.
+    # 2. class_weight=None: intentionally avoids artificial distortion of posterior probabilities
+    #    introduced by class_weight="balanced" on skewed market data. True win-rate calibration
+    #    is preserved. Market balance is enforced via market_balanced_weights(groups), guaranteeing
+    #    that every market receives equal influence and sample_weight is always strictly non-None.
+    if sample_weight is None:
+        sample_weight = market_balanced_weights(groups)
+    else:
+        sample_weight = market_balanced_weights(groups, sample_weight)
+    assert sample_weight is not None, "sample_weight must not be None when class_weight=None"
 
     if sample_weight is not None:
         logger.info(
@@ -527,15 +540,19 @@ def _fit_and_serialize(
         # Fallback to uncalibrated model on entire dataset if split is invalid
         final_base = _build_logreg_pipeline(best_C)
         try:
-            sw_all = sample_weight if sample_weight is not None else None
+            if sample_weight is None:
+                sample_weight = market_balanced_weights(groups)
+            sw_all = sample_weight
             final_base.fit(X, y, model__sample_weight=sw_all)
         except Exception:
             return None # Impossible to fit
         final_model = final_base
     else:
         final_base = _build_logreg_pipeline(best_C)
-        tr_cal_weight = sample_weight[train_idx] if sample_weight is not None else None
-        cal_weight = sample_weight[cal_idx] if sample_weight is not None else None
+        if sample_weight is None:
+            sample_weight = market_balanced_weights(groups)
+        tr_cal_weight = sample_weight[train_idx]
+        cal_weight = sample_weight[cal_idx]
         final_base.fit(X_train_cal, y_train_cal, model__sample_weight=tr_cal_weight)
         
         try:

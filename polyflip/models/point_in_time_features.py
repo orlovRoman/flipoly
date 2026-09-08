@@ -78,14 +78,53 @@ def compute_point_in_time_features(
     price_dist_from_max = []
     history_age_sec = []
 
+    def _find_as_of_reference(
+        times_sec: np.ndarray,
+        prices: np.ndarray,
+        i: int,
+        t_curr_sec: float,
+        p_curr: float,
+        target_sec: float,
+        tolerance_min: float,
+        max_reference_age: float,
+    ) -> tuple[float, float]:
+        if i <= 0:
+            return np.nan, 0.0
+        t_min = t_curr_sec - max_reference_age
+        t_max = t_curr_sec - tolerance_min
+        if t_max < 0:
+            return np.nan, 0.0
+
+        left = int(np.searchsorted(times_sec[:i], t_min, side="left"))
+        right = int(np.searchsorted(times_sec[:i], t_max, side="right"))
+        if left >= right:
+            return np.nan, 0.0
+
+        target_t = t_curr_sec - target_sec
+        idx = int(np.searchsorted(times_sec[left:right], target_t, side="right"))
+        best_j = -1
+        best_diff = float("inf")
+        for cand in (left + idx, left + idx - 1):
+            if left <= cand < right:
+                diff = abs((t_curr_sec - times_sec[cand]) - target_sec)
+                if diff < best_diff:
+                    best_diff = diff
+                    best_j = cand
+
+        if best_j >= 0:
+            return p_curr - float(prices[best_j]), 1.0
+        return np.nan, 0.0
+
     for group_key, grp in out.groupby(market_col, sort=False):
         times = grp["_rec_dt"].values
         prices = grp["mid_price"].values
         is_causal = grp["_is_causal"].values
+        times_sec = (times - times[0]) / np.timedelta64(1, "s") if len(times) > 0 else np.array([])
 
         exp_max = 0.0
         for i in range(len(grp)):
             t_curr = times[i]
+            t_curr_sec = float(times_sec[i])
             p_curr = float(prices[i])
 
             if not is_causal[i]:
@@ -114,43 +153,31 @@ def compute_point_in_time_features(
             else:
                 legacy_last_poll_delta.append(0.0)
 
-            # 60s as-of reference search: target ~60s ago
-            # Acceptable age delta: [TOLERANCE_60S_MIN, max_reference_age_60s]
-            val_60 = np.nan
-            has_60 = 0.0
-            best_diff_60 = float("inf")
-            for j in range(i - 1, -1, -1):
-                delta_s = float((t_curr - times[j]) / np.timedelta64(1, "s"))
-                if delta_s < TOLERANCE_60S_MIN:
-                    continue
-                if delta_s > max_reference_age_60s:
-                    break
-                diff = abs(delta_s - 60.0)
-                if diff < best_diff_60:
-                    best_diff_60 = diff
-                    val_60 = p_curr - float(prices[j])
-                    has_60 = 1.0
-
+            # 60s as-of reference search: target ~60s ago via binary search
+            val_60, has_60 = _find_as_of_reference(
+                times_sec=times_sec,
+                prices=prices,
+                i=i,
+                t_curr_sec=t_curr_sec,
+                p_curr=p_curr,
+                target_sec=60.0,
+                tolerance_min=TOLERANCE_60S_MIN,
+                max_reference_age=max_reference_age_60s,
+            )
             pm_change_60s.append(val_60)
             has_60s_ref.append(has_60)
 
-            # 180s as-of reference search: target ~180s ago
-            # Acceptable age delta: [TOLERANCE_180S_MIN, max_reference_age_180s]
-            val_180 = np.nan
-            has_180 = 0.0
-            best_diff_180 = float("inf")
-            for j in range(i - 1, -1, -1):
-                delta_s = float((t_curr - times[j]) / np.timedelta64(1, "s"))
-                if delta_s < TOLERANCE_180S_MIN:
-                    continue
-                if delta_s > max_reference_age_180s:
-                    break
-                diff = abs(delta_s - 180.0)
-                if diff < best_diff_180:
-                    best_diff_180 = diff
-                    val_180 = p_curr - float(prices[j])
-                    has_180 = 1.0
-
+            # 180s as-of reference search: target ~180s ago via binary search
+            val_180, has_180 = _find_as_of_reference(
+                times_sec=times_sec,
+                prices=prices,
+                i=i,
+                t_curr_sec=t_curr_sec,
+                p_curr=p_curr,
+                target_sec=180.0,
+                tolerance_min=TOLERANCE_180S_MIN,
+                max_reference_age=max_reference_age_180s,
+            )
             pm_change_180s.append(val_180)
             has_180s_ref.append(has_180)
 

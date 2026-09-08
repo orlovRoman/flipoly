@@ -12,6 +12,15 @@ from polyflip.db.models import ModelRegistry
 logger = structlog.get_logger(__name__)
 
 
+def _model_type_aliases(model_type: str | None) -> list[str]:
+    m = str(model_type or "logreg").strip().lower()
+    if m in ("lgbm", "lightgbm"):
+        return [m, "lightgbm", "lgbm"]
+    if m in ("logreg", "logisticregression", "logistic_regression"):
+        return [m, "logisticregression", "logreg"]
+    return [m]
+
+
 @dataclass
 class ModelsCache:
     models: dict[str, Any] = field(default_factory=dict)
@@ -19,18 +28,45 @@ class ModelsCache:
     features: dict[str, list[str]] = field(default_factory=dict)
     eces: dict[str, float] = field(default_factory=dict) # BUG-AO
     entries: dict[tuple[str, str, int], Any] = field(default_factory=dict)
+    features_by_type: dict[tuple[str, str], list[str]] = field(default_factory=dict)
+    features_by_entry: dict[tuple[str, str, int], list[str]] = field(default_factory=dict)
 
     def get(self, asset: str, model_type: str = "logreg", version: int | None = None) -> Any | None:
-        m_type = model_type.lower()
+        aliases = _model_type_aliases(model_type)
         if version is not None:
-            return self.entries.get((m_type, asset, version))
+            for alias in aliases:
+                if (alias, asset, version) in self.entries:
+                    return self.entries[(alias, asset, version)]
         v = self.versions.get(asset)
-        if v is not None and (m_type, asset, v) in self.entries:
-            return self.entries[(m_type, asset, v)]
+        if v is not None:
+            for alias in aliases:
+                if (alias, asset, v) in self.entries:
+                    return self.entries[(alias, asset, v)]
         for (mtype, a, ver), model in self.entries.items():
-            if mtype == m_type and a == asset:
+            if mtype in aliases and a == asset:
                 return model
         return self.models.get(asset)
+
+    def get_features(
+        self,
+        asset: str,
+        model_type: str = "logreg",
+        version: int | None = None,
+    ) -> list[str]:
+        aliases = _model_type_aliases(model_type)
+        if version is not None:
+            for alias in aliases:
+                if (alias, asset, version) in self.features_by_entry:
+                    return self.features_by_entry[(alias, asset, version)]
+        for alias in aliases:
+            if (alias, asset) in self.features_by_type:
+                return self.features_by_type[(alias, asset)]
+        v = self.versions.get(asset)
+        if v is not None:
+            for alias in aliases:
+                if (alias, asset, v) in self.features_by_entry:
+                    return self.features_by_entry[(alias, asset, v)]
+        return self.features.get(asset, [])
 
     def put(
         self,
@@ -41,12 +77,18 @@ class ModelsCache:
         features: list[str] | None = None,
         ece: float = 0.0,
     ) -> None:
-        m_type = model_type.lower()
+        m_type = str(model_type or "logreg").strip().lower()
+        feats = list(features) if features else []
         self.entries[(m_type, asset, version)] = model
-        if m_type == "logreg" or asset not in self.models:
+        self.features_by_entry[(m_type, asset, version)] = feats
+        self.features_by_type[(m_type, asset)] = feats
+        # Also register under normalized aliases so lookup never fails
+        for alias in _model_type_aliases(m_type):
+            self.features_by_type[(alias, asset)] = feats
+        if m_type in ("logreg", "logisticregression") or asset not in self.models:
             self.models[asset] = model
             self.versions[asset] = version
-            self.features[asset] = features or []
+            self.features[asset] = feats
             self.eces[asset] = ece
 
 _models_cache = None
@@ -54,12 +96,22 @@ _models_cache = None
 def get_models_cache() -> ModelsCache:
     global _models_cache
     if _models_cache is None:
-        _models_cache = ModelsCache(models={}, versions={}, features={}, eces={}, entries={})
+        _models_cache = ModelsCache(
+            models={},
+            versions={},
+            features={},
+            eces={},
+            entries={},
+            features_by_type={},
+            features_by_entry={},
+        )
     return _models_cache
 
-def clear_models_cache() -> None:
+def reset_models_cache() -> None:
     global _models_cache
     _models_cache = None
+
+clear_models_cache = reset_models_cache
 
 async def populate_models_cache(db_session: AsyncSession) -> None:
     cache = get_models_cache()
@@ -70,15 +122,24 @@ async def populate_models_cache(db_session: AsyncSession) -> None:
     active_info = res.all()
     
     active_keys = {
-        ((row.model_type or "logreg").lower(), row.asset, row.version)
+        (str(row.model_type or "logreg").strip().lower(), row.asset, row.version)
         for row in active_info
     }
+    active_type_keys = {(k[0], k[1]) for k in active_keys}
+    for k in list(active_keys):
+        for alias in _model_type_aliases(k[0]):
+            active_type_keys.add((alias, k[1]))
     db_assets = {row.asset for row in active_info}
     
     # 2. Удаляем из кэша модели, которые больше не активны в базе
     for cached_key in list(cache.entries.keys()):
         if cached_key not in active_keys:
             cache.entries.pop(cached_key, None)
+            cache.features_by_entry.pop(cached_key, None)
+
+    for cached_type_key in list(cache.features_by_type.keys()):
+        if cached_type_key not in active_type_keys:
+            cache.features_by_type.pop(cached_type_key, None)
 
     for cached_asset in list(cache.models.keys()):
         if cached_asset not in db_assets:
@@ -90,7 +151,7 @@ async def populate_models_cache(db_session: AsyncSession) -> None:
     # 3. Находим модели, версии которых изменились или которых нет в кэше
     to_load = []
     for row in active_info:
-        m_type = (row.model_type or "logreg").lower()
+        m_type = str(row.model_type or "logreg").strip().lower()
         if (m_type, row.asset, row.version) not in cache.entries:
             to_load.append(row.asset)
             
@@ -107,18 +168,23 @@ async def populate_models_cache(db_session: AsyncSession) -> None:
     for m in models_to_load:
         try:
             model_obj = pickle.loads(m.model_blob)
-            m_type = (m.model_type or "logreg").lower()
+            m_type = str(m.model_type or "logreg").strip().lower()
             cache.entries[(m_type, m.asset, m.version)] = model_obj
+
+            m_feats = [f.strip() for f in m.features.split(",") if f.strip()] if m.features else []
+            if not m_feats and hasattr(model_obj, "feature_names_in_"):
+                m_feats = list(model_obj.feature_names_in_)
+            cache.features_by_entry[(m_type, m.asset, m.version)] = m_feats
+            cache.features_by_type[(m_type, m.asset)] = m_feats
+            for alias in _model_type_aliases(m_type):
+                cache.features_by_type[(alias, m.asset)] = m_feats
+                cache.features_by_entry[(alias, m.asset, m.version)] = m_feats
 
             # LogReg takes precedence in legacy cache.models to prevent clobbering by LGBM
             if m.asset not in cache.models or m_type in ("logreg", "logisticregression"):
                 cache.models[m.asset] = model_obj
                 cache.versions[m.asset] = m.version
                 cache.eces[m.asset] = m.ece or 0.0
-                
-                m_feats = [f.strip() for f in m.features.split(",") if f.strip()] if m.features else []
-                if not m_feats and hasattr(model_obj, "feature_names_in_"):
-                    m_feats = list(model_obj.feature_names_in_)
                 cache.features[m.asset] = m_feats
 
             logger.info("model_cache_updated", asset=m.asset, version=m.version, model_type=m_type)
@@ -303,6 +369,11 @@ def run_model_inference(
         if classes is not None:
             classes = list(classes)
 
+    # Directly check for single-class output from proba shape
+    if hasattr(proba, "shape") and len(proba.shape) == 2 and proba.shape[1] == 1:
+        single_val = classes[0] if (classes and len(classes) == 1) else None
+        return 1.0 if single_val in (1, True) else 0.0
+
     if classes is not None:
         if 1 in classes:
             pos_idx = classes.index(1)
@@ -317,7 +388,16 @@ def run_model_inference(
 
     try:
         p_flip = float(proba[row_idx][pos_idx])
-    except (IndexError, KeyError):
+    except (IndexError, KeyError) as e:
+        logger.warning(
+            "inference_prediction_index_error",
+            error=str(e),
+            row_idx=row_idx,
+            pos_idx=pos_idx,
+            proba_shape=getattr(proba, "shape", None),
+            model_type=type(model).__name__,
+            classes=classes,
+        )
         p_flip = 0.0
 
     return p_flip

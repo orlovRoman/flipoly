@@ -38,16 +38,20 @@ class StrikeProvenance:
 @dataclass(frozen=True)
 class VolumeResult:
     volume: float | None
-    status: str  # "VALID", "HTTP_ERROR", "AUTH_REQUIRED", "PARSE_ERROR", "UNAVAILABLE"
+    status: str  # "VALID", "HTTP_ERROR", "AUTH_REQUIRED", "PARSE_ERROR", "UNAVAILABLE", "VALID_ZERO"
     timestamp: datetime
     source: str = "CLOB_TRADES"
 
     def __float__(self) -> float:
-        return float(self.volume or 0.0)
+        if self.volume is None:
+            raise TypeError("Cannot cast unavailable VolumeResult to float")
+        return float(self.volume)
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, (int, float)):
-            return float(self) == float(other)
+            if self.volume is None or self.status not in ("VALID", "VALID_ZERO"):
+                return False
+            return float(self.volume) == float(other)
         return super().__eq__(other)
 
 
@@ -350,6 +354,7 @@ class PolymarketClient:
                         "asset": matched_asset,
                         "end_date_iso": market.get("endDate"),
                         "underlying_price": _canonical_strike(market, event),
+                        "strike_provenance": _canonical_strike_provenance(market, event),
                     })
                         
         except Exception as e:
@@ -488,26 +493,40 @@ class PolymarketClient:
             trades = response.json()
             if not isinstance(trades, list):
                 # Иногда API отдает словарь с ключом data или history
-                trades = trades.get("data", []) or trades.get("trades", [])
+                trades = trades.get("data", []) or trades.get("trades", []) or []
+            if not trades:
+                return VolumeResult(volume=0.0, status="VALID_ZERO", timestamp=now)
 
             total_volume = 0.0
             
             for t in trades:
-                # Парсим время сделки. Формат обычно ISO8601
-                timestamp_str = t.get("timestamp") or t.get("created_at")
-                if not timestamp_str:
+                # Парсим время сделки. Поддерживает как ISO8601, так и unix epoch (сек/мс)
+                ts_val = t.get("timestamp") or t.get("created_at")
+                if not ts_val:
                     continue
                 
-                # Приводим к UTC
-                trade_time = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+                try:
+                    if isinstance(ts_val, (int, float)) or (isinstance(ts_val, str) and ts_val.isdigit()):
+                        sec = float(ts_val)
+                        if sec > 1e11:  # milliseconds
+                            sec /= 1000.0
+                        trade_time = datetime.fromtimestamp(sec, tz=timezone.utc)
+                    else:
+                        trade_time = datetime.fromisoformat(str(ts_val).replace("Z", "+00:00"))
+                except Exception:
+                    continue
+
+                if trade_time.tzinfo is None:
+                    trade_time = trade_time.replace(tzinfo=timezone.utc)
                 delta_minutes = (now - trade_time).total_seconds() / 60.0
                 
                 if delta_minutes <= minutes:
                     size = float(t.get("size", 0))
-                    price = float(t.get("price", 0))
+                    price = float(t.get("price", 1.0))
                     total_volume += size * price # Учитываем объем в долларах (USDC)
                     
-            return VolumeResult(volume=total_volume, status="VALID", timestamp=now)
+            status = "VALID_ZERO" if total_volume == 0.0 else "VALID"
+            return VolumeResult(volume=total_volume, status=status, timestamp=now)
             
         except Exception as e:
             logger.error("error_fetching_clob_trades", token_id=yes_token_id, error=str(e))

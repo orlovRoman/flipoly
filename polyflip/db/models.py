@@ -108,6 +108,11 @@ class MarketSnapshot(Base):
     final_outcome = Column(String(16), nullable=False)  # "YES", "NO", "INVALID", "PENDING"
     flip_vs_final = Column(Boolean, nullable=True)
     recorded_at = Column(DateTime(timezone=True), nullable=False)
+    volume_status = Column(String(32), nullable=True, default="VALID")
+    strike_value = Column(Float, nullable=True)
+    strike_source = Column(String(64), nullable=True)
+    strike_effective_at = Column(DateTime(timezone=True), nullable=True)
+    strike_received_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class TradeHistory(Base):
@@ -411,6 +416,11 @@ class LiveMarket(Base):
     resolved_at = Column(DateTime(timezone=True), nullable=True)
     resolution_checked_at = Column(DateTime(timezone=True), nullable=True)
     resolution_source = Column(String(32), nullable=True)
+    volume_status = Column(String(32), nullable=True, default="VALID")
+    strike_value = Column(Float, nullable=True)
+    strike_source = Column(String(64), nullable=True)
+    strike_effective_at = Column(DateTime(timezone=True), nullable=True)
+    strike_received_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class OpenPosition(Base):

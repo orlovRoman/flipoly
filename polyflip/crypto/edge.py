@@ -55,8 +55,8 @@ def compute_net_ev_per_share(
 def compute_economic_edge(
     p_win: float,
     executable_ask: float,
-    fee_rate: float = 0.0,
-    slippage_rate: float = 0.0,
+    fee_rate: float,
+    slippage_rate: float,
     latency_buffer: float = 0.0,
 ) -> float:
     """

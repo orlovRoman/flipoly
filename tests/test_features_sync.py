@@ -168,3 +168,37 @@ def test_ddof_discrepancy_reproduced_with_legacy():
     assert np.isclose(ratio, np.sqrt(6.0 / 5.0), rtol=1e-4)
 
 
+def test_btc_800_points_batch_inference_perfect_sync():
+    """1.2: Checking 800 BTC-points yields 0/800 mismatches instead of 112/800."""
+    import json
+    from pathlib import Path
+    import numpy as np
+    import pandas as pd
+    from polyflip.crypto.feature_builder import build_features, build_crypto_features, CRYPTO_FEATURE_COLUMNS
+    from polyflip.crypto.volatility import VolatilityRegimePolicy
+
+    fixture_path = Path(__file__).resolve().parent / "fixtures" / "model_audit" / "btc_800_points.json"
+    with open(fixture_path, "r", encoding="utf-8") as f:
+        df = pd.DataFrame(json.load(f))
+    df["open_time"] = pd.to_datetime(df["open_time"], utc=True)
+
+    vol_policy = VolatilityRegimePolicy(low_boundary=0.8, high_boundary=1.2)
+    vol_trend_idx = CRYPTO_FEATURE_COLUMNS.index("vol_trend")
+
+    routing_mismatches = 0
+    total_checked = 0
+    for end_idx in range(100, len(df) + 1, 5):
+        sub_df = df.iloc[:end_idx]
+        b = build_features(sub_df, ddof=1)
+        inf = build_crypto_features(sub_df, min_candles=100, ddof=1)
+        b_trend = float(b.iloc[-1]["vol_trend"])
+        inf_trend = float(inf.features[0][vol_trend_idx])
+        assert np.isclose(b_trend, inf_trend, rtol=1e-8, atol=1e-10)
+        if vol_policy.classify(b_trend) != vol_policy.classify(inf_trend):
+            routing_mismatches += 1
+        total_checked += 1
+
+    assert routing_mismatches == 0, f"Discrepancies found: {routing_mismatches}/{total_checked}"
+
+
+

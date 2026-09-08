@@ -56,6 +56,25 @@ async def run_collector_cycle(db_session: AsyncSession):
 
             # BUG-003 FIX: Расчет реального объема через историю сделок CLOB
             volume_5min = await client.get_recent_trades_volume(yes_token_id, minutes=5)
+            vol_val = 0.0
+            vol_status = "UNKNOWN"
+            if hasattr(volume_5min, "volume"):
+                vol_val = float(volume_5min.volume) if volume_5min.volume is not None else 0.0
+                vol_status = getattr(volume_5min, "status", "VALID")
+            elif volume_5min is not None:
+                try:
+                    vol_val = float(volume_5min)
+                    vol_status = "VALID"
+                except (TypeError, ValueError):
+                    vol_val = 0.0
+                    vol_status = "UNKNOWN"
+
+            prov = m_data.get("strike_provenance")
+            strike_val = getattr(prov, "strike_value", None) if prov else m_data.get("underlying_price")
+            strike_src = getattr(prov, "strike_source", None) if prov else ("UNKNOWN" if strike_val is not None else None)
+            strike_eff = getattr(prov, "strike_effective_at", None) if prov else None
+            strike_rec = getattr(prov, "strike_received_at", None) if prov else current_time
+
             price_velocity = 0.0
 
             if live_m:
@@ -67,13 +86,19 @@ async def run_collector_cycle(db_session: AsyncSession):
                 live_m.current_no_price = prices["current_no_price"]
                 live_m.current_spread = spread
                 live_m.price_velocity = price_velocity
-                live_m.volume_5min = volume_5min
+                live_m.volume_5min = vol_val
+                live_m.volume_status = vol_status
                 live_m.last_updated = current_time
                 # На всякий случай обновляем token_id, если добавились
                 live_m.yes_token_id = yes_token_id
                 live_m.no_token_id = m_data["no_token_id"]
                 if getattr(live_m, "underlying_price", None) is None:
-                    live_m.underlying_price = m_data.get("underlying_price")
+                    live_m.underlying_price = strike_val
+                if getattr(live_m, "strike_value", None) is None:
+                    live_m.strike_value = strike_val
+                    live_m.strike_source = strike_src
+                    live_m.strike_effective_at = strike_eff
+                    live_m.strike_received_at = strike_rec
             else:
                 # Создаем новую запись в LiveMarket
                 live_m = LiveMarket(
@@ -86,10 +111,15 @@ async def run_collector_cycle(db_session: AsyncSession):
                     current_yes_price=mid_price,
                     current_no_price=prices["current_no_price"],
                     current_spread=spread,
-                    volume_5min=volume_5min,
+                    volume_5min=vol_val,
+                    volume_status=vol_status,
                     price_velocity=0.0,
                     last_updated=current_time,
-                    underlying_price=m_data.get("underlying_price"),
+                    underlying_price=strike_val,
+                    strike_value=strike_val,
+                    strike_source=strike_src,
+                    strike_effective_at=strike_eff,
+                    strike_received_at=strike_rec,
                 )
                 db_session.add(live_m)
 
@@ -104,12 +134,17 @@ async def run_collector_cycle(db_session: AsyncSession):
                 spread=spread,
                 best_bid=prices.get("best_bid"),
                 best_ask=prices.get("best_ask"),
-                volume_5min=volume_5min,
+                volume_5min=vol_val,
+                volume_status=vol_status,
                 price_velocity=price_velocity,
                 hour_of_day=current_time.hour,
                 final_outcome="PENDING",
                 flip_vs_final=False, # Обновится позже
-                recorded_at=current_time
+                recorded_at=current_time,
+                strike_value=strike_val,
+                strike_source=strike_src,
+                strike_effective_at=strike_eff,
+                strike_received_at=strike_rec,
             )
             db_session.add(snapshot)
             markets_saved += 1
