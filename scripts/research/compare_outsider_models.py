@@ -58,7 +58,7 @@ def select_candidate_configuration(
     If all models have net_pnl <= 0 or their expectancy CI crosses zero,
     returns ("EDGE_NOT_SUPPORTED", None) or ("INCONCLUSIVE", None).
     Only when a candidate achieves robust positive net expectancy and CI lower > 0
-    is EDGE_SUPPORTED declared.
+    is CANDIDATE_SELECTED declared.
     """
     if str(source_kind).upper() in ("SYNTHETIC", "DEMO", "DEMO_ONLY"):
         return "DEMO_ONLY", None
@@ -85,7 +85,7 @@ def select_candidate_configuration(
 
     # Select highest net PnL among viable
     best = max(viable, key=lambda x: float(x.get("net_pnl", 0.0)))
-    return "EDGE_SUPPORTED", best.get("model")
+    return "CANDIDATE_SELECTED", best.get("model")
 
 
 def compare_all_models(
@@ -305,7 +305,7 @@ def compare_all_models(
         status = "DEMO_ONLY"
         selected_config = None
         rationale = "Synthetic demo run completed: no edge claims permitted on synthetic data"
-    elif status == "EDGE_SUPPORTED" and winner is not None:
+    elif status == "CANDIDATE_SELECTED" and winner is not None:
         selected_config = winner
         rationale = f"Candidate {winner} confirmed with positive net expectancy and 95% CI > 0"
     else:

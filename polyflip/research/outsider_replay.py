@@ -77,6 +77,7 @@ class OutsiderReplayEngine:
     def __init__(self, policy: ReplayPolicy | None = None):
         self.policy = policy or ReplayPolicy()
 
+
     def run(
         self,
         decision_rows: Sequence[dict[str, Any]] | pd.DataFrame,
@@ -104,12 +105,35 @@ class OutsiderReplayEngine:
         cum_pnl = 0.0
         saved_losses = 0.0
         missed_gains = 0.0
+        
+        pending_settlements = []
+
+        def process_settlements(current_time):
+            nonlocal cum_pnl
+            resolved = []
+            for settle in pending_settlements:
+                if current_time >= settle["settlement_at"]:
+                    payout = settle["payout"]
+                    stake = settle["stake"]
+                    entry_fee = settle["entry_fee"]
+                    trade_pnl = payout - stake - entry_fee
+                    
+                    cum_pnl += trade_pnl
+                    ledger.cash_remaining += payout
+                    ledger.total_pnl = round(cum_pnl, 4)
+                    ledger.equity_curve.append(round(ledger.initial_capital + cum_pnl, 4))
+                    resolved.append(settle)
+            for r in resolved:
+                pending_settlements.remove(r)
 
         for row in records:
             m_id = str(row.get("market_id", ""))
             side = str(row.get("candidate_side", "UP")).upper()
             tl = float(row.get("time_left_min", 0.0))
             dec_at = pd.to_datetime(row.get("decision_at", pd.Timestamp.now(tz="UTC")), utc=True)
+            
+            # Process settlements before new decision
+            process_settlements(dec_at)
 
             current_entries = market_entry_counts.get(m_id, 0)
             if not self.policy.allow_reentry and current_entries >= self.policy.max_positions_per_market:
@@ -229,6 +253,20 @@ class OutsiderReplayEngine:
                     # Crucially do NOT increment market_entry_counts[m_id], allowing later decision points to enter
                     continue
 
+            # Capital Constraints Check (Item 14)
+            stake = self.policy.stake_usdc
+            fill_price = ask
+            shares = stake / fill_price
+            entry_fee = fee_per_share * shares
+            if ledger.cash_remaining < stake + entry_fee:
+                ledger.skipped_decisions.append({
+                    "market_id": m_id,
+                    "decision_at": dec_at,
+                    "reason": "INSUFFICIENT_FUNDS",
+                    "time_left_min": tl,
+                })
+                continue
+
             # Resolve settlement target (Item 1.04, 1.23: never settle unresolved as loss)
             target_val = row.get("target", row.get("y_candidate_win"))
             outcome = None
@@ -253,28 +291,28 @@ class OutsiderReplayEngine:
                 })
                 continue
 
-            stake = self.policy.stake_usdc
-            fill_price = ask
-            shares = stake / fill_price
-            entry_fee = fee_per_share * shares
-
-            if stake + entry_fee > ledger.cash_remaining:
-                ledger.skipped_decisions.append({
-                    "market_id": m_id,
-                    "decision_at": dec_at,
-                    "reason": "INSUFFICIENT_CAPITAL",
-                    "time_left_min": tl,
-                })
-                continue
-
             payout = shares * 1.0 if outcome == 1 else 0.0
-            trade_pnl = payout - stake - entry_fee
 
-            cum_pnl += trade_pnl
-            ledger.cash_remaining = ledger.cash_remaining - stake - entry_fee + payout
+            # Deduct cash now, put payout in pending settlements
+            ledger.cash_remaining -= (stake + entry_fee)
             ledger.total_invested += stake
-            ledger.total_pnl = round(cum_pnl, 4)
-            ledger.equity_curve.append(round(ledger.initial_capital + cum_pnl, 4))
+            
+            settlement_at = row.get("market_end_at")
+            tl_valid = float(tl) if (tl is not None and np.isfinite(tl) and tl > 0) else 15.0
+            if settlement_at is None or pd.isna(settlement_at):
+                settlement_at = dec_at + pd.Timedelta(minutes=tl_valid)
+            else:
+                settlement_at = pd.to_datetime(settlement_at, utc=True)
+                if settlement_at < dec_at:
+                    settlement_at = dec_at + pd.Timedelta(minutes=tl_valid)
+                    
+            pending_settlements.append({
+                "market_id": m_id,
+                "settlement_at": settlement_at,
+                "payout": payout,
+                "stake": stake,
+                "entry_fee": entry_fee
+            })
 
             market_entry_counts[m_id] = current_entries + 1
             open_markets[m_id] = side
@@ -291,12 +329,16 @@ class OutsiderReplayEngine:
                 "entry_fee": round(entry_fee, 4),
                 "fee_source": fee_source,
                 "settlement_payout": round(payout, 4),
-                "realized_pnl": round(trade_pnl, 4),
+                "realized_pnl": round(payout - stake - entry_fee, 4),
                 "outcome": outcome,
                 "net_ev": round(net_ev, 4),
                 "p_win": p_win,
+                "fill_provenance": "OBSERVED_QUOTE" if pd.notna(row.get("executable_ask")) else "COUNTERFACTUAL_ASK",
             }
             ledger.executed_trades.append(trade_record)
+            
+        # Process remaining settlements at the end of time
+        process_settlements(pd.Timestamp.max.tz_localize("UTC"))
 
         ledger.saved_losses_pnl = round(saved_losses, 4)
         ledger.missed_gains_pnl = round(missed_gains, 4)

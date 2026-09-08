@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-09-08T12:13:26.497289+00:00",
+  "timestamp": "2026-09-08T16:28:25.053681+00:00",
   "item": "2.10",
   "dataset_source": "artifacts/weighted_policy/observations_30d.json",
   "asset": "BTC",
@@ -11,7 +11,7 @@
   ],
   "selection_status": "EDGE_NOT_SUPPORTED",
   "selected_configuration": null,
-  "decision_rationale": "Model A1 achieved net PnL +11.61 USDC across 528 trades on 30-day BTC outsider data, but its 95% cluster-robust confidence interval spans [-0.0784, +0.1180], crossing zero. Per the pre-registered protocol rule (requiring positive lower CI bound), statistical edge is INCONCLUSIVE. Model B is marked BLOCKED_DATA due to unrecorded spot/strike data in the historical log.",
+  "decision_rationale": "No candidate demonstrated statistically significant positive edge.",
   "summary_table": [
     {
       "model": "M0_MARKET",
@@ -200,75 +200,84 @@
     },
     {
       "price_bin": "[0.10, 0.15)",
-      "n_rows": 3,
-      "n_markets": 3,
-      "predicted_mean": 0.4395,
-      "realized_frequency": 0.0,
-      "avg_cost": 0.13,
-      "total_pnl": -0.3908
+      "n_rows": 0,
+      "n_markets": 0,
+      "predicted_mean": NaN,
+      "realized_frequency": NaN,
+      "avg_cost": NaN,
+      "total_pnl": 0.0
     },
     {
       "price_bin": "[0.15, 0.20)",
-      "n_rows": 2,
-      "n_markets": 2,
-      "predicted_mean": NaN,
+      "n_rows": 1,
+      "n_markets": 1,
+      "predicted_mean": 0.4395,
       "realized_frequency": 0.0,
-      "avg_cost": 0.17,
-      "total_pnl": -0.3407
+      "avg_cost": 0.15,
+      "total_pnl": -1.002
     },
     {
       "price_bin": "[0.20, 0.25)",
-      "n_rows": 3,
-      "n_markets": 3,
-      "predicted_mean": 0.2853,
-      "realized_frequency": 0.3333,
-      "avg_cost": 0.2133,
-      "total_pnl": 0.3587
+      "n_rows": 2,
+      "n_markets": 2,
+      "predicted_mean": 0.3452,
+      "realized_frequency": 0.0,
+      "avg_cost": 0.205,
+      "total_pnl": -2.004
     },
     {
       "price_bin": "[0.25, 0.30)",
-      "n_rows": 16,
-      "n_markets": 16,
-      "predicted_mean": 0.278,
-      "realized_frequency": 0.375,
-      "avg_cost": 0.2819,
-      "total_pnl": 1.481
+      "n_rows": 4,
+      "n_markets": 4,
+      "predicted_mean": 0.3339,
+      "realized_frequency": 0.5,
+      "avg_cost": 0.2625,
+      "total_pnl": 3.5419
     },
     {
       "price_bin": "[0.30, 0.35)",
-      "n_rows": 59,
-      "n_markets": 59,
-      "predicted_mean": 0.3261,
-      "realized_frequency": 0.3729,
-      "avg_cost": 0.3324,
-      "total_pnl": 2.3508
+      "n_rows": 18,
+      "n_markets": 18,
+      "predicted_mean": 0.3944,
+      "realized_frequency": 0.5,
+      "avg_cost": 0.3283,
+      "total_pnl": 9.7403
     },
     {
       "price_bin": "[0.35, 0.40)",
-      "n_rows": 142,
-      "n_markets": 142,
-      "predicted_mean": 0.3658,
-      "realized_frequency": 0.4155,
+      "n_rows": 43,
+      "n_markets": 43,
+      "predicted_mean": 0.4287,
+      "realized_frequency": 0.4651,
       "avg_cost": 0.3749,
-      "total_pnl": 5.6635
+      "total_pnl": 10.0661
     },
     {
       "price_bin": "[0.40, 0.45)",
-      "n_rows": 446,
-      "n_markets": 446,
-      "predicted_mean": 0.4156,
-      "realized_frequency": 0.4081,
-      "avg_cost": 0.4247,
-      "total_pnl": -7.8089
+      "n_rows": 224,
+      "n_markets": 224,
+      "predicted_mean": 0.4553,
+      "realized_frequency": 0.4018,
+      "avg_cost": 0.4262,
+      "total_pnl": -13.4715
     },
     {
       "price_bin": "[0.45, 0.50)",
-      "n_rows": 1073,
-      "n_markets": 1073,
-      "predicted_mean": 0.4616,
-      "realized_frequency": 0.4697,
-      "avg_cost": 0.4721,
-      "total_pnl": -3.523
+      "n_rows": 236,
+      "n_markets": 236,
+      "predicted_mean": 0.5007,
+      "realized_frequency": 0.4788,
+      "avg_cost": 0.4683,
+      "total_pnl": 4.737
+    },
+    {
+      "price_bin": "[0.50, 0.55)",
+      "n_rows": 0,
+      "n_markets": 0,
+      "predicted_mean": NaN,
+      "realized_frequency": NaN,
+      "avg_cost": NaN,
+      "total_pnl": 0.0
     }
   ]
 }

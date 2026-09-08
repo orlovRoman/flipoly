@@ -18,7 +18,7 @@ def compute_drawdown(pnls: Sequence[float], initial_equity: float = 0.0) -> floa
     """
     if not pnls or len(pnls) == 0:
         return 0.0
-    equity = np.insert(np.cumsum(pnls) + initial_equity, 0, initial_equity)
+    equity = np.insert(float(initial_equity) + np.cumsum(pnls), 0, float(initial_equity))
     running_max = np.maximum.accumulate(equity)
     drawdowns = running_max - equity
     return round(float(np.max(drawdowns)), 4) if len(drawdowns) > 0 else 0.0
@@ -115,13 +115,22 @@ def generate_price_bins_report(
 ) -> pd.DataFrame:
     """
     Generates calibration and financial reliability table across price bins of width bin_width.
+    Uses precise integer scaling to avoid float boundary issues.
     """
     if df.empty:
         return pd.DataFrame()
 
-    p_vals = pd.to_numeric(df[price_col], errors="coerce")
-    bins = np.arange(min_price, max_price + bin_width, bin_width)
-    labels = [f"[{bins[i]:.2f}, {bins[i+1]:.2f})" for i in range(len(bins) - 1)]
+    scale = 10000
+    p_vals = pd.to_numeric(df[price_col], errors="coerce") * scale
+    
+    # Use integer arithmetic for boundaries to avoid float inaccuracy
+    bin_w = int(round(bin_width * scale))
+    min_p = int(round(min_price * scale))
+    max_p = int(round(max_price * scale))
+    
+    bins = list(range(min_p, max_p + bin_w + 1, bin_w))
+    labels = [f"[{b/scale:.2f}, {(b+bin_w)/scale:.2f})" for b in bins[:-1]]
+    
     df_bins = df.copy()
     df_bins["price_bin"] = pd.cut(p_vals, bins=bins, labels=labels, right=False, include_lowest=True)
 

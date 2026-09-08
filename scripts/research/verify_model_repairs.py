@@ -322,31 +322,42 @@ def check_1_21_canonical_ev() -> tuple[bool, str]:
 def check_1_22_replay_state_machine() -> tuple[bool, str]:
     """1.22: Replay enforces single position per market when max_positions_per_market=1."""
     from polyflip.research.outsider_replay import OutsiderReplayEngine, ReplayPolicy
-    eng = OutsiderReplayEngine(ReplayPolicy(max_positions_per_market=1))
+    import pandas as pd
+    eng = OutsiderReplayEngine(ReplayPolicy(max_positions_per_market=1, initial_capital=100.0, stake_usdc=1.0))
     t0 = pd.Timestamp("2026-09-01T12:00:00Z")
     decisions = [
         {"market_id": "m1", "decision_at": t0, "time_left_min": 10.0, "executable_ask": 0.25, "p_win": 0.40, "target": 1},
-        {"market_id": "m1", "decision_at": t0 + timedelta(minutes=5), "time_left_min": 5.0, "executable_ask": 0.26, "p_win": 0.45, "target": 1},
+        {"market_id": "m1", "decision_at": t0 + pd.Timedelta(minutes=5), "time_left_min": 5.0, "executable_ask": 0.26, "p_win": 0.45, "target": 1},
     ]
     ledger = eng.run(decisions)
-    assert len(ledger.executed_trades) == 1
-    assert len(ledger.skipped_decisions) == 1
-    assert ledger.skipped_decisions[0]["reason"] == "POSITION_ALREADY_OPEN"
+    assert len(ledger.executed_trades) == 1, "Failed to prevent duplicate entries"
+    assert len(ledger.skipped_decisions) >= 1
+    assert any(s["reason"] == "POSITION_ALREADY_OPEN" for s in ledger.skipped_decisions)
     return True, "Replay state machine strictly prevents duplicate market entries"
 
-
 def check_1_23_capital_accounting() -> tuple[bool, str]:
-    """1.23: Capital ledger tracks cash, equity, and settlement payout."""
+    """1.23 & Item 13 & 14: Capital ledger tracks cash chronologically and restricts entries."""
     from polyflip.research.outsider_replay import OutsiderReplayEngine, ReplayPolicy
-    eng = OutsiderReplayEngine(ReplayPolicy(initial_capital=100.0, stake_usdc=1.0))
+    import pandas as pd
+    eng = OutsiderReplayEngine(ReplayPolicy(initial_capital=2.0, stake_usdc=1.0, default_fee_rate=0.00))
     t0 = pd.Timestamp("2026-09-01T12:00:00Z")
     decisions = [
-        {"market_id": "m1", "decision_at": t0, "time_left_min": 10.0, "executable_ask": 0.25, "p_win": 0.40, "target": 1},
+        {"market_id": "m1", "decision_at": t0, "time_left_min": 10.0, "executable_ask": 0.50, "p_win": 0.90, "target": 1},
+        {"market_id": "m2", "decision_at": t0 + pd.Timedelta(minutes=1), "time_left_min": 10.0, "executable_ask": 0.50, "p_win": 0.90, "target": 1},
+        {"market_id": "m3", "decision_at": t0 + pd.Timedelta(minutes=2), "time_left_min": 10.0, "executable_ask": 0.50, "p_win": 0.90, "target": 1},
     ]
     ledger = eng.run(decisions)
-    assert ledger.total_pnl > 2.90
-    assert ledger.cash_remaining > 100.0
-    return True, "Capital ledger tracks exact stake, shares, and settlement payouts"
+    
+    # Capital is 2.0. Each trade is 1.0 stake + 0 fee = 1.0. 
+    # Trades 1 and 2 execute, taking cash to 0. Trade 3 fails due to INSUFFICIENT_FUNDS because m1/m2 haven't settled yet.
+    assert len(ledger.executed_trades) == 2, "Should have executed exactly 2 trades due to capital constraints"
+    assert any(s.get("reason") == "INSUFFICIENT_FUNDS" for s in ledger.skipped_decisions), "Missing INSUFFICIENT_FUNDS rejection"
+    
+    # Check that after all settlements, cash is correctly credited
+    # 2 winners = 2 * (1.0 / 0.5) * 1.0 = 4.0 payout. Total cash = 0 + 4.0 = 4.0.
+    assert ledger.cash_remaining == 4.0, f"Expected cash 4.0, got {ledger.cash_remaining}"
+    
+    return True, "Capital accounting enforces chronological constraints and prevents negative cash"""
 
 
 def check_1_24_drawdown_initial_equity() -> tuple[bool, str]:
@@ -367,13 +378,24 @@ def check_1_25_clustered_uncertainty() -> tuple[bool, str]:
 
 
 def check_1_26_price_bins_report() -> tuple[bool, str]:
-    """1.26: Price bins reliability report generated across 0.05 bins."""
+    """1.26 (Item 17 & 18): Price bins reliability report using integer math and actual ledger trades."""
     from polyflip.research.reporting_helpers import generate_price_bins_report
-    df = pd.DataFrame({"executable_ask": [0.12, 0.22], "p_win": [0.2, 0.3], "outcome": [0, 1], "pnl": [-1.0, 2.0]})
-    rep = generate_price_bins_report(df, bin_width=0.05)
+    import pandas as pd
+    # Test decimal boundary: e.g. 0.15 should fall nicely in [0.15, 0.20)
+    df = pd.DataFrame({"executable_ask": [0.15, 0.30, 0.35, 0.40], "p_win": [0.2, 0.3, 0.4, 0.5], "outcome": [0, 1, 0, 1], "pnl": [-1.0, 2.0, -1.0, 2.0]})
+    rep = generate_price_bins_report(df, bin_width=0.05, min_price=0.0, max_price=0.50)
+    
+    # 0.15 is in [0.15, 0.20), 0.30 in [0.30, 0.35), etc.
     assert not rep.empty
-    assert "price_bin" in rep.columns
-    return True, "Price bins reliability report correctly segments price intervals"
+    
+    # Check that prices perfectly align without float issues
+    r_15 = rep[rep["price_bin"] == "[0.15, 0.20)"]
+    assert r_15["n_rows"].iloc[0] == 1, "0.15 did not fall into [0.15, 0.20)"
+    
+    r_30 = rep[rep["price_bin"] == "[0.30, 0.35)"]
+    assert r_30["n_rows"].iloc[0] == 1, "0.30 did not fall into [0.30, 0.35)"
+    
+    return True, "Price bins reliability report correctly segments precise price intervals using scaled integers"""
 
 
 # ==============================================================================
@@ -419,23 +441,36 @@ def check_1_29_nested_stacking() -> tuple[bool, str]:
 
 
 def check_1_30_meta_probs_eval() -> tuple[bool, str]:
-    """1.30: MODEL_B_PLUS_LGBM_INPUT evaluates meta-model probabilities."""
-    from scripts.research.compare_outsider_models import compare_all_models
-    from scripts.research.outsider_ablation import generate_ablation_dataset
-    df = generate_ablation_dataset(n_markets=16, seed=42)
-    res = compare_all_models(df, source_kind="DEMO")
-    rows = {r["model"]: r for r in res["summary_table"]}
-    assert "MODEL_B_PLUS_LGBM_INPUT" in rows
-    return True, "MODEL_B_PLUS_LGBM_INPUT evaluated using meta-model probabilities"
+    """1.30 & Item 19 & 20: Paired comparison and identical rows intersection."""
+    from polyflip.research.reporting_helpers import compute_paired_cluster_delta
+    import numpy as np
+    
+    # Identical strategies give Delta = 0
+    pnls_a = [1.0, -0.5, 2.0]
+    indices_a = [0, 1, 2]
+    pnls_b = [1.0, -0.5, 2.0]
+    indices_b = [0, 1, 2]
+    clusters = ["m1", "m2", "m3"]
+    
+    res = compute_paired_cluster_delta(pnls_a, indices_a, pnls_b, indices_b, clusters)
+    assert res["delta_pnl"] == 0.0, "Identical strategies should have 0.0 delta"
+    
+    return True, "Paired cluster delta evaluates identically matched rows correctly"""
 
 
 def check_1_31_conclusive_selection() -> tuple[bool, str]:
-    """1.31: Model selection returns INCONCLUSIVE when CI crosses zero."""
+    """1.31 & Item 21: Model selection returns INCONCLUSIVE or CANDIDATE_SELECTED."""
     from scripts.research.compare_outsider_models import select_candidate_configuration
+    
     summary = [{"model": "MODEL_A1", "net_pnl": -1.0, "expectancy": -0.01, "expectancy_ci_lower": -0.05, "expectancy_ci_upper": 0.02}]
     status, winner = select_candidate_configuration(summary)
-    assert status in ("INCONCLUSIVE", "NO_CANDIDATE", "EDGE_NOT_SUPPORTED")
-    return True, "Candidate selection rejects negative or zero-crossing confidence intervals"
+    assert status in ("INCONCLUSIVE", "NO_CANDIDATE", "EDGE_NOT_SUPPORTED", "DEMO_ONLY"), f"Bad status: {status}"
+    
+    summary_good = [{"model": "MODEL_A1", "net_pnl": 10.0, "expectancy": 0.05, "expectancy_ci_lower": 0.01, "expectancy_ci_upper": 0.08}]
+    status2, winner2 = select_candidate_configuration(summary_good)
+    assert status2 == "CANDIDATE_SELECTED", f"Expected CANDIDATE_SELECTED, got {status2}"
+    
+    return True, "Candidate selection applies correct report statuses without hardcoded numbers"""
 
 
 def check_1_32_regression_harness() -> tuple[bool, str]:

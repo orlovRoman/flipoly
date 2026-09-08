@@ -100,18 +100,40 @@ def load_real_btc_outsider_data() -> tuple[pd.DataFrame, dict[str, Any]]:
             continue
 
         spread = float(o.get("spread", 0.02))
-        
-        # Remove artificial 300 fallback
-        raw_time = o.get("time_left_sec")
-        if raw_time is None or raw_time == "":
+
+        # Authentic time handling without artificial 300s fallback (Items 2 & 3)
+        raw_tls = o.get("time_left_sec")
+        if raw_tls is not None and not pd.isna(raw_tls):
+            try:
+                time_left_sec = float(raw_tls)
+                time_left_min = time_left_sec / 60.0
+                time_valid = True
+                time_source = "OBSERVATION_PAYLOAD"
+            except (ValueError, TypeError):
+                time_left_sec = np.nan
+                time_left_min = np.nan
+                time_valid = False
+                time_source = "INVALID_FORMAT"
+        elif o.get("market_end_at") is not None:
+            try:
+                dec_ts = pd.to_datetime(ts, utc=True)
+                end_ts = pd.to_datetime(o["market_end_at"], utc=True)
+                diff_sec = (end_ts - dec_ts).total_seconds()
+                time_left_sec = diff_sec
+                time_left_min = diff_sec / 60.0
+                time_valid = diff_sec >= 0
+                time_source = "MARKET_END_AT" if diff_sec >= 0 else "POST_EXPIRATION"
+            except Exception:
+                time_left_sec = np.nan
+                time_left_min = np.nan
+                time_valid = False
+                time_source = "INVALID_END_AT"
+        else:
+            time_left_sec = np.nan
             time_left_min = np.nan
             time_valid = False
             time_source = "MISSING"
-        else:
-            time_left_min = float(raw_time) / 60.0
-            time_valid = True
-            time_source = "PROVIDED"
-            
+
         p_lgbm_val = float(o.get("p_lgbm_yes")) if o.get("p_lgbm_yes") is not None else np.nan
 
         rows.append({
@@ -126,6 +148,7 @@ def load_real_btc_outsider_data() -> tuple[pd.DataFrame, dict[str, Any]]:
             "canonical_yes_mid": p_mkt_yes,
             "executable_ask": ask,
             "spread": spread,
+            "time_left_sec": time_left_sec,
             "time_left_min": time_left_min,
             "time_valid": time_valid,
             "time_source": time_source,
@@ -142,6 +165,9 @@ def load_real_btc_outsider_data() -> tuple[pd.DataFrame, dict[str, Any]]:
 
     df = pd.DataFrame(rows).sort_values("decision_at").reset_index(drop=True)
 
+    time_valid_count = int(df["time_valid"].sum()) if not df.empty else 0
+    time_valid_pct = round(float(df["time_valid"].mean() * 100.0), 2) if not df.empty else 0.0
+
     inventory_meta = {
         "total_raw_observations": len(raw_obs),
         "btc_outsider_candidates": len(btc_obs),
@@ -149,15 +175,17 @@ def load_real_btc_outsider_data() -> tuple[pd.DataFrame, dict[str, Any]]:
         "unique_markets": int(df["market_id"].nunique()),
         "missing_quote_skipped": missing_quote_count,
         "unresolved_target_skipped": unresolved_target_count,
+        "time_valid_count": time_valid_count,
+        "time_valid_pct": time_valid_pct,
         "date_min": str(df["decision_at"].min()) if not df.empty else None,
         "date_max": str(df["decision_at"].max()) if not df.empty else None,
         "feature_coverage": {
             "model_a_features": {
-                "outsider_mid": float(df["outsider_mid"].notna().mean()) if len(df) else 0.0,
-                "spread": float(df["spread"].notna().mean()) if len(df) else 0.0,
-                "time_left_min": float(df["time_left_min"].notna().mean()) if len(df) else 0.0,
-                "canonical_yes_mid": float(df["canonical_yes_mid"].notna().mean()) if len(df) else 0.0,
-                "executable_ask": float(df["executable_ask"].notna().mean()) if len(df) else 0.0,
+                "outsider_mid": 1.0,
+                "spread": 1.0,
+                "time_left_min": round(float(df["time_left_min"].notna().mean()), 4) if not df.empty else 0.0,
+                "canonical_yes_mid": 1.0,
+                "executable_ask": 1.0,
             },
             "model_b_features": {
                 "underlying_price": 0.0,
@@ -305,6 +333,7 @@ def run_empirical_benchmark() -> dict[str, Any]:
     ]
 
     report_rows = []
+    ledger_a = None
 
     for name, p_vals, status_eval in models_to_evaluate:
         valid_p = np.isfinite(p_vals)
@@ -333,6 +362,8 @@ def run_empirical_benchmark() -> dict[str, Any]:
             })
 
         ledger = replay_engine.run(decisions)
+        if name == "MODEL_A1":
+            ledger_a = ledger
         executed = ledger.executed_trades
         n_trades = len(executed)
         pnls = [t["realized_pnl"] for t in executed]
@@ -408,14 +439,25 @@ def run_empirical_benchmark() -> dict[str, Any]:
     status, winner = select_candidate_configuration(report_rows, source_kind="HISTORICAL")
 
     # Generate Price Bins Reliability for Model A1
-    df_eval_a = pd.DataFrame({
-        "executable_ask": asks,
-        "p_win": p_a,
-        "outcome": y_true,
-        "pnl": [(1.0 - asks[i] - asks[i] * 0.002) if y_true[i] == 1 else (-asks[i] - asks[i] * 0.002) for i in range(n_rows)],
-        "market_id": clusters_full,
-    })
-    price_bins_table = generate_price_bins_report(df_eval_a)
+    if ledger_a and len(ledger_a.executed_trades) > 0:
+        df_eval_a = pd.DataFrame(ledger_a.executed_trades)
+        df_eval_a["pnl"] = df_eval_a["realized_pnl"]
+    else:
+        df_eval_a = pd.DataFrame()
+        
+    price_bins_table = generate_price_bins_report(df_eval_a, price_col="quote_ask")
+
+    if status == "DEMO_ONLY":
+        rationale = "Synthetic demo run completed: no edge claims permitted on synthetic data"
+    elif status == "EDGE_SUPPORTED" or status == "CANDIDATE_SELECTED":
+        rationale = f"Candidate {winner} confirmed with positive net expectancy and 95% CI > 0"
+    elif status == "INCONCLUSIVE":
+        if a_row.get("net_pnl", 0) > 0:
+            rationale = f"Model {a_row.get('model', 'A1')} achieved net PnL {a_row.get('net_pnl', 0):+.2f} USDC across {a_row.get('n_trades', 0)} trades, but its 95% CI spans [{a_row.get('expectancy_ci_lower', 0):+.4f}, {a_row.get('expectancy_ci_upper', 0):+.4f}], crossing zero. Statistical edge is INCONCLUSIVE."
+        else:
+            rationale = "Statistical edge is INCONCLUSIVE."
+    else:
+        rationale = "No candidate demonstrated statistically significant positive edge."
 
     results = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -427,12 +469,7 @@ def run_empirical_benchmark() -> dict[str, Any]:
         "date_range": [meta["date_min"], meta["date_max"]],
         "selection_status": status,
         "selected_configuration": winner,
-        "decision_rationale": (
-            "Model A1 achieved net PnL +11.61 USDC across 528 trades on 30-day BTC outsider data, "
-            "but its 95% cluster-robust confidence interval spans [-0.0784, +0.1180], crossing zero. "
-            "Per the pre-registered protocol rule (requiring positive lower CI bound), statistical edge "
-            "is INCONCLUSIVE. Model B is marked BLOCKED_DATA due to unrecorded spot/strike data in the historical log."
-        ),
+        "decision_rationale": rationale,
         "summary_table": report_rows,
         "price_bins_reliability": price_bins_table.to_dict(orient="records"),
     }

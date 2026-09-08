@@ -80,6 +80,12 @@ _model_b1 = OutsiderFeatureSet(
     description="Model B: Model A1 + z_outsider strike distance + 30s/120s directional momentum",
 )
 
+# Model A-price: Diagnostic baseline with only price and spread (no time features)
+MODEL_A_PRICE_FEATURES: tuple[str, ...] = (
+    "mid_price",
+    "spread",
+)
+
 OUTSIDER_FEATURE_SETS: dict[str, OutsiderFeatureSet] = {
     "MODEL_A": OutsiderFeatureSet(
         key="MODEL_A",
@@ -92,6 +98,18 @@ OUTSIDER_FEATURE_SETS: dict[str, OutsiderFeatureSet] = {
         version="model-a1-compact-v2",
         features=MODEL_A1_FEATURES,
         description="Model A1: logit(mid_price), log1p(time_left_min), candidate_spread, interaction",
+    ),
+    "MODEL_A_PRICE": OutsiderFeatureSet(
+        key="MODEL_A_PRICE",
+        version="model-a-price-v1",
+        features=MODEL_A_PRICE_FEATURES,
+        description="Model A-price diagnostic baseline: price and spread only, no time features",
+    ),
+    "A_PRICE": OutsiderFeatureSet(
+        key="MODEL_A_PRICE",
+        version="model-a-price-v1",
+        features=MODEL_A_PRICE_FEATURES,
+        description="Model A-price diagnostic baseline: price and spread only, no time features",
     ),
     "MODEL_B": _model_b1,
     "MODEL_B1": _model_b1,
