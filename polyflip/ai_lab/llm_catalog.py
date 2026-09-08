@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import time
+import uuid
 from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable
@@ -677,7 +678,29 @@ def _probe_candidates(
 async def _default_probe_sender(url: str, headers: dict[str, str], body: dict[str, Any]) -> Any:
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.post(url, headers=headers, json=body)
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            detail = ""
+            try:
+                err_payload = response.json()
+                if isinstance(err_payload, dict):
+                    err_obj = err_payload.get("error")
+                    if isinstance(err_obj, dict):
+                        detail = str(err_obj.get("message") or err_obj.get("type") or "")
+                    elif isinstance(err_obj, str):
+                        detail = err_obj
+                    elif "message" in err_payload:
+                        detail = str(err_payload["message"])
+            except Exception:
+                detail = response.text[:200]
+            if detail:
+                raise httpx.HTTPStatusError(
+                    f"{exc} ({detail})",
+                    request=exc.request,
+                    response=exc.response,
+                ) from exc
+            raise
         return response.json()
 
 
@@ -755,12 +778,16 @@ async def check_model_availability(
     headers = {"Content-Type": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
+    if provider == "opencode":
+        headers["x-opencode-session"] = str(uuid.uuid4())
     send = sender or _default_probe_sender
     last_error = "no candidate endpoint responded"
     for candidate in _probe_candidates(provider, cfg, model):
         started = time.monotonic()
         try:
             request_headers = dict(headers)
+            if "opencode.ai" in candidate["url"]:
+                request_headers.setdefault("x-opencode-session", str(uuid.uuid4()))
             if candidate["protocol"] == "messages":
                 request_headers["anthropic-version"] = "2023-06-01"
             data = await send(
@@ -907,13 +934,16 @@ async def resolve_llm_snapshot(
     by_id: dict[str, AILLMModelCatalog] = {}
     if provider_name in {"opencode", "openrouter"}:
         # Dynamic discovery is available for OpenCode and OpenRouter.
-        rows = (
-            await db.execute(
-                select(AILLMModelCatalog).where(
-                    AILLMModelCatalog.provider == provider_name
+        if hasattr(db, "execute"):
+            rows = (
+                await db.execute(
+                    select(AILLMModelCatalog).where(
+                        AILLMModelCatalog.provider == provider_name
+                    )
                 )
-            )
-        ).scalars().all()
+            ).scalars().all()
+        else:
+            rows = []
         by_id = {
             row.model_id: row
             for row in rows

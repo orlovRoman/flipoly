@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+import uuid
 from collections.abc import Mapping
 from typing import Any, Protocol, runtime_checkable
 from pydantic import BaseModel, Field, field_validator
@@ -609,6 +610,18 @@ class OpenAIResponsesProvider:
         self.opencode_go_responses_endpoint = opencode_go_responses_endpoint
         self.opencode_go_chat_endpoint = opencode_go_chat_endpoint
         self.opencode_go_messages_endpoint = opencode_go_messages_endpoint
+        self.session_id = str(uuid.uuid4())
+
+    def _request_headers(self, request_endpoint: str, *, is_messages: bool = False) -> dict[str, str]:
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        if self.provider_name == "opencode" or "opencode.ai" in request_endpoint:
+            headers["x-opencode-session"] = getattr(self, "session_id", None) or str(uuid.uuid4())
+        if is_messages:
+            headers["anthropic-version"] = "2023-06-01"
+        return headers
 
     def _compute_cost(self, prompt_tokens: int, completion_tokens: int, model: str) -> float:
         # Approximate pricing per 1M tokens
@@ -855,9 +868,7 @@ class OpenAIResponsesProvider:
             }
         if temperature is not None and not model.lower().startswith("gpt-5"):
             body["temperature"] = temperature
-        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
-        if is_messages:
-            headers["anthropic-version"] = "2023-06-01"
+        headers = self._request_headers(request_endpoint, is_messages=is_messages)
         started = time.time()
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             response = await client.post(
@@ -977,9 +988,7 @@ class OpenAIResponsesProvider:
                 ],
                 "store": False,
             }
-        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
-        if is_messages:
-            headers["anthropic-version"] = "2023-06-01"
+        headers = self._request_headers(request_endpoint, is_messages=is_messages)
         started = time.time()
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:

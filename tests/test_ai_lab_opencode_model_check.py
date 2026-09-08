@@ -170,3 +170,58 @@ async def test_check_endpoint_rejects_unknown_provider(db_session):
             provider="unknown-provider", model_id="x", db=db_session
         )
     assert exc_info.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_opencode_probe_sends_session_header(db_session):
+    import uuid
+
+    captured_headers = {}
+
+    async def sender(*, url, headers, body):
+        captured_headers.update(headers)
+        return _responses_payload(True)
+
+    report = await check_model_availability(
+        "opencode", "grok-4.6", settings_obj=_cfg(), sender=sender
+    )
+    assert report["available"] is True
+    assert "x-opencode-session" in captured_headers
+    # Verify it is a valid UUID
+    session_id = captured_headers["x-opencode-session"]
+    uuid.UUID(session_id)
+
+
+@pytest.mark.asyncio
+async def test_default_probe_sender_extracts_error_detail(monkeypatch):
+    import httpx
+    from polyflip.ai_lab.llm_catalog import _default_probe_sender
+
+    class _FakeResponse:
+        status_code = 400
+        text = '{"error": {"type": "MissingSessionID", "message": "Missing session header"}}'
+
+        def json(self):
+            return {"error": {"type": "MissingSessionID", "message": "Missing session header"}}
+
+        def raise_for_status(self):
+            req = httpx.Request("POST", "https://opencode.ai/zen/go/v1/responses")
+            resp = httpx.Response(400, request=req, text=self.text)
+            raise httpx.HTTPStatusError("Client error '400 Bad Request'", request=req, response=resp)
+
+    class _FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def post(self, url, headers=None, json=None):
+            return _FakeResponse()
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_: _FakeClient())
+
+    with pytest.raises(httpx.HTTPStatusError) as exc_info:
+        await _default_probe_sender("https://opencode.ai/zen/go/v1/responses", {}, {})
+
+    assert "Missing session header" in str(exc_info.value)

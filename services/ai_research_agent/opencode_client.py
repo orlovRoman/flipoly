@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import time
+import uuid
 from typing import Any
 
 import httpx
@@ -314,6 +315,7 @@ def _model_selection(
 class OpenCodeClient:
     def __init__(self) -> None:
         self.provider = os.getenv("AI_LAB_LLM_PROVIDER", "opencode").strip().lower()
+        self.session_id = str(uuid.uuid4())
         self.api_key = os.getenv("AI_LAB_LLM_API_KEY", "")
         self.request_timeout_seconds = _configured_timeout_seconds()
         if self.provider == "openrouter" and not self.api_key:
@@ -359,6 +361,8 @@ class OpenCodeClient:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
+        if self.provider == "opencode":
+            headers["x-opencode-session"] = getattr(self, "session_id", None) or str(uuid.uuid4())
         if self.provider == "openrouter":
             referer = os.getenv("AI_LAB_OPENROUTER_HTTP_REFERER", "").strip()
             title = os.getenv("AI_LAB_OPENROUTER_X_TITLE", "").strip()
