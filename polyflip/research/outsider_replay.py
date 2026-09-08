@@ -71,18 +71,21 @@ class ReplayLedger:
 class OutsiderReplayEngine:
     """
     Simulates trading policy with position tracking, fee deduction, and capital ledger.
+    Guarantees strict event priority (DECISION=10, FILL=20, SETTLEMENT=30) so that
+    settlements at time T cannot fund decisions or fills at time T.
     Guarantees no duplicate entries per market when max_positions_per_market=1.
     """
 
     def __init__(self, policy: ReplayPolicy | None = None):
         self.policy = policy or ReplayPolicy()
 
-
     def run(
         self,
         decision_rows: Sequence[dict[str, Any]] | pd.DataFrame,
         fee_schedule: Any = None,
     ) -> ReplayLedger:
+        import heapq
+
         if isinstance(decision_rows, pd.DataFrame):
             df = decision_rows.copy()
             if "decision_at" in df.columns:
@@ -105,35 +108,49 @@ class OutsiderReplayEngine:
         cum_pnl = 0.0
         saved_losses = 0.0
         missed_gains = 0.0
-        
-        pending_settlements = []
 
-        def process_settlements(current_time):
-            nonlocal cum_pnl
-            resolved = []
-            for settle in pending_settlements:
-                if current_time >= settle["settlement_at"]:
-                    payout = settle["payout"]
-                    stake = settle["stake"]
-                    entry_fee = settle["entry_fee"]
-                    trade_pnl = payout - stake - entry_fee
-                    
-                    cum_pnl += trade_pnl
-                    ledger.cash_remaining += payout
-                    ledger.total_pnl = round(cum_pnl, 4)
-                    ledger.equity_curve.append(round(ledger.initial_capital + cum_pnl, 4))
-                    resolved.append(settle)
-            for r in resolved:
-                pending_settlements.remove(r)
+        # Event queue: min-heap of (event_timestamp, priority, seq, event_type, payload)
+        # Priority: DECISION = 10, SETTLEMENT = 30
+        # This guarantees that at identical timestamp T, all DECISIONs & FILLs execute BEFORE any SETTLEMENT
+        event_queue = []
+        seq = 0
 
         for row in records:
+            dec_at = pd.to_datetime(row.get("decision_at", pd.Timestamp.now(tz="UTC")), utc=True)
+            heapq.heappush(event_queue, (dec_at, 10, seq, "DECISION", row))
+            seq += 1
+
+        while event_queue:
+            ev_time, ev_priority, ev_seq, ev_type, payload = heapq.heappop(event_queue)
+
+            if ev_type == "SETTLEMENT":
+                payout = payload["payout"]
+                stake = payload["stake"]
+                entry_fee = payload["entry_fee"]
+                trade_pnl = payout - stake - entry_fee
+
+                cum_pnl += trade_pnl
+                ledger.cash_remaining = round(ledger.cash_remaining + payout, 6)
+                ledger.total_pnl = round(cum_pnl, 4)
+                ledger.equity_curve.append(round(ledger.initial_capital + cum_pnl, 4))
+                continue
+
+            # Process DECISION event
+            row = payload
             m_id = str(row.get("market_id", ""))
             side = str(row.get("candidate_side", "UP")).upper()
-            tl = float(row.get("time_left_min", 0.0))
-            dec_at = pd.to_datetime(row.get("decision_at", pd.Timestamp.now(tz="UTC")), utc=True)
-            
-            # Process settlements before new decision
-            process_settlements(dec_at)
+            tl = float(row.get("time_left_min", 0.0)) if row.get("time_left_min") is not None else 0.0
+            dec_at = ev_time
+
+            # Item 2: Explicit time_valid guard
+            if row.get("time_valid") is False or tl <= 0.0:
+                ledger.skipped_decisions.append({
+                    "market_id": m_id,
+                    "decision_at": dec_at,
+                    "reason": "INVALID_TIME_HORIZON",
+                    "time_left_min": tl,
+                })
+                continue
 
             current_entries = market_entry_counts.get(m_id, 0)
             if not self.policy.allow_reentry and current_entries >= self.policy.max_positions_per_market:
@@ -145,11 +162,42 @@ class OutsiderReplayEngine:
                 })
                 continue
 
+            # Item 10 & 15: Detailed fill quote resolution and explicit provenance
             ask = row.get("executable_ask")
+            fill_provenance = "OBSERVED_DIRECT_ASK"
             if ask is None or pd.isna(ask):
-                ask = row.get("poly_down_best_ask") if side in ("DOWN", "NO") else row.get("poly_up_best_ask")
-            
-            if ask is None or pd.isna(ask) or ask <= 0.0 or ask >= 1.0:
+                if side in ("DOWN", "NO"):
+                    if pd.notna(row.get("poly_down_best_ask")):
+                        ask = float(row.get("poly_down_best_ask"))
+                        fill_provenance = "OBSERVED_DIRECT_ASK"
+                    elif pd.notna(row.get("poly_up_bid")):
+                        ask = 1.0 - float(row.get("poly_up_bid"))
+                        fill_provenance = "COUNTERFACTUAL_INVERTED_BID"
+                    elif pd.notna(row.get("poly_up_best_ask")):
+                        ask = float(row.get("poly_up_best_ask"))
+                        fill_provenance = "COUNTERFACTUAL_SIDE_ASK"
+                    else:
+                        mid_v = row.get("outsider_mid", row.get("mid_price", 0.35))
+                        spr_v = row.get("spread", 0.02)
+                        ask = float(mid_v) + float(spr_v) / 2.0
+                        fill_provenance = "COUNTERFACTUAL_MID_PLUS_HALF_SPREAD"
+                else:
+                    if pd.notna(row.get("poly_up_best_ask")):
+                        ask = float(row.get("poly_up_best_ask"))
+                        fill_provenance = "OBSERVED_DIRECT_ASK"
+                    elif pd.notna(row.get("poly_down_bid")):
+                        ask = 1.0 - float(row.get("poly_down_bid"))
+                        fill_provenance = "COUNTERFACTUAL_INVERTED_BID"
+                    elif pd.notna(row.get("best_ask")):
+                        ask = float(row.get("best_ask"))
+                        fill_provenance = "COUNTERFACTUAL_SIDE_ASK"
+                    else:
+                        mid_v = row.get("outsider_mid", row.get("mid_price", 0.35))
+                        spr_v = row.get("spread", 0.02)
+                        ask = float(mid_v) + float(spr_v) / 2.0
+                        fill_provenance = "COUNTERFACTUAL_MID_PLUS_HALF_SPREAD"
+
+            if ask is None or not np.isfinite(ask) or ask <= 0.0 or ask >= 1.0:
                 ledger.skipped_decisions.append({
                     "market_id": m_id,
                     "decision_at": dec_at,
@@ -179,6 +227,7 @@ class OutsiderReplayEngine:
                 continue
             p_win = float(p_win)
 
+            # Item 6: Fee modeling and fee_source tracking
             if fee_schedule is not None:
                 fee_info = fee_schedule.get_fee(
                     market_id=m_id, 
@@ -217,7 +266,6 @@ class OutsiderReplayEngine:
                     is_vetoed = True
 
                 if is_vetoed:
-                    # Calculate counterfactual result for vetoed entry
                     target_val = row.get("target", row.get("y_candidate_win"))
                     cf_outcome = None
                     if target_val is not None and not pd.isna(target_val):
@@ -250,7 +298,6 @@ class OutsiderReplayEngine:
                     }
                     ledger.skipped_decisions.append(veto_rec)
                     ledger.vetoed_decisions.append(veto_rec)
-                    # Crucially do NOT increment market_entry_counts[m_id], allowing later decision points to enter
                     continue
 
             # Capital Constraints Check (Item 14)
@@ -258,7 +305,9 @@ class OutsiderReplayEngine:
             fill_price = ask
             shares = stake / fill_price
             entry_fee = fee_per_share * shares
-            if ledger.cash_remaining < stake + entry_fee:
+            required_funds = stake + entry_fee
+
+            if ledger.cash_remaining < required_funds:
                 ledger.skipped_decisions.append({
                     "market_id": m_id,
                     "decision_at": dec_at,
@@ -293,10 +342,10 @@ class OutsiderReplayEngine:
 
             payout = shares * 1.0 if outcome == 1 else 0.0
 
-            # Deduct cash now, put payout in pending settlements
-            ledger.cash_remaining -= (stake + entry_fee)
-            ledger.total_invested += stake
-            
+            # Execute Fill immediately at decision time
+            ledger.cash_remaining = round(ledger.cash_remaining - (stake + entry_fee), 6)
+            ledger.total_invested = round(ledger.total_invested + stake, 4)
+
             settlement_at = row.get("market_end_at")
             tl_valid = float(tl) if (tl is not None and np.isfinite(tl) and tl > 0) else 15.0
             if settlement_at is None or pd.isna(settlement_at):
@@ -305,14 +354,16 @@ class OutsiderReplayEngine:
                 settlement_at = pd.to_datetime(settlement_at, utc=True)
                 if settlement_at < dec_at:
                     settlement_at = dec_at + pd.Timedelta(minutes=tl_valid)
-                    
-            pending_settlements.append({
+
+            # Schedule settlement with lower priority (30) so settlements at T occur after decisions/fills at T
+            heapq.heappush(event_queue, (settlement_at, 30, seq, "SETTLEMENT", {
                 "market_id": m_id,
                 "settlement_at": settlement_at,
                 "payout": payout,
                 "stake": stake,
-                "entry_fee": entry_fee
-            })
+                "entry_fee": entry_fee,
+            }))
+            seq += 1
 
             market_entry_counts[m_id] = current_entries + 1
             open_markets[m_id] = side
@@ -333,12 +384,9 @@ class OutsiderReplayEngine:
                 "outcome": outcome,
                 "net_ev": round(net_ev, 4),
                 "p_win": p_win,
-                "fill_provenance": "OBSERVED_QUOTE" if pd.notna(row.get("executable_ask")) else "COUNTERFACTUAL_ASK",
+                "fill_provenance": fill_provenance,
             }
             ledger.executed_trades.append(trade_record)
-            
-        # Process remaining settlements at the end of time
-        process_settlements(pd.Timestamp.max.tz_localize("UTC"))
 
         ledger.saved_losses_pnl = round(saved_losses, 4)
         ledger.missed_gains_pnl = round(missed_gains, 4)

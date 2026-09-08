@@ -421,16 +421,35 @@ def compute_outsider_model_features(
     out["logit_mid_price"] = np.log(p_clip / (1.0 - p_clip))
 
     # Time transform log1p(time_left_min)
-    time_left = out["time_left_min"] if "time_left_min" in out.columns else 15.0
-    t_vals = pd.to_numeric(time_left, errors="coerce").fillna(15.0).to_numpy()
-    out["log_time_left"] = np.log1p(np.maximum(t_vals, 0.0))
+    # Item 4 & 9: Model A1 strictly requires authentic, valid time. Missing or invalid time must remain NaN.
+    time_valid_mask = np.ones(len(out), dtype=bool)
+    if "time_valid" in out.columns:
+        time_valid_mask = out["time_valid"].fillna(False).astype(bool).to_numpy()
+
+    if "time_left_min" in out.columns:
+        t_vals = pd.to_numeric(out["time_left_min"], errors="coerce").to_numpy()
+    else:
+        t_vals = np.full(len(out), np.nan)
+
+    # Invalidate negative times or missing times
+    time_valid_mask = time_valid_mask & np.isfinite(t_vals) & (t_vals >= 0.0)
+
+    log_t = np.full(len(out), np.nan, dtype=float)
+    log_t[time_valid_mask] = np.log1p(t_vals[time_valid_mask])
+    out["log_time_left"] = log_t
+    if "time_valid" not in out.columns:
+        out["time_valid"] = time_valid_mask
 
     # Spread
     spread = out["spread"] if "spread" in out.columns else out.get("candidate_spread", 0.02)
     out["candidate_spread"] = pd.to_numeric(spread, errors="coerce").fillna(0.02).to_numpy()
 
     # Interaction
-    out["logit_price_x_log_time"] = out["logit_mid_price"] * out["log_time_left"]
+    out["logit_price_x_log_time"] = np.where(
+        np.isfinite(out["logit_mid_price"]) & np.isfinite(out["log_time_left"]),
+        out["logit_mid_price"] * out["log_time_left"],
+        np.nan,
+    )
 
     # Candidate side ("UP" or "DOWN", default "UP")
     candidate_sides = out.get("candidate_side", "UP")

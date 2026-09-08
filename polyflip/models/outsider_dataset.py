@@ -209,6 +209,9 @@ def build_outsider_decision_rows(
                 "spread": spread,
                 "fee_rate": fee_rate,
                 "time_left_min": float(row["time_left_min"]),
+                "time_valid": bool(row.get("time_valid", float(row["time_left_min"]) > 0.0)),
+                "market_end_at": row.get("market_end_at", None),
+                "label_available_at": row.get("label_available_at", row.get("market_end_at", None)),
                 "target_time_point": float(target_tl),
                 "strike_value": row.get("strike_value", row.get("strike_price", np.nan)),
                 "underlying_price": row.get("underlying_price", row.get("binance_spot_mid", np.nan)),
@@ -273,8 +276,9 @@ def prepare_outsider_dataset_cohorts(
             m_set = set(sorted_mkts[f_idx * chunk : (f_idx + 1) * chunk if f_idx < n_splits_adj - 1 else len(sorted_mkts)])
             df_feat.loc[df_feat["market_id"].isin(m_set), "fold"] = f_idx
 
-    # Model A cohort: rows where Model A features are non-null and valid
-    a_valid = df_feat[list(MODEL_A1_FEATURES)].notna().all(axis=1)
+    # Model A cohort: rows where Model A features are non-null and valid, AND time_valid is True (Item 4 & 9)
+    time_ok = df_feat["time_valid"].astype(bool) if "time_valid" in df_feat.columns else pd.Series(True, index=df_feat.index)
+    a_valid = time_ok & df_feat[list(MODEL_A1_FEATURES)].notna().all(axis=1)
     df_broad_a = df_feat[a_valid].copy().reset_index(drop=True)
 
     # Model B complete cohort: rows where Model B features AND reference flags are strictly valid

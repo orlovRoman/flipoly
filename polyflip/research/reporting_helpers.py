@@ -16,9 +16,10 @@ def compute_drawdown(pnls: Sequence[float], initial_equity: float = 0.0) -> floa
     properly anchored at initial_equity (default 0.0).
     DD([-1.0, -1.0]) -> 2.0.
     """
-    if not pnls or len(pnls) == 0:
+    p_arr = np.asarray(pnls, dtype=float)
+    if p_arr.size == 0:
         return 0.0
-    equity = np.insert(float(initial_equity) + np.cumsum(pnls), 0, float(initial_equity))
+    equity = np.insert(float(initial_equity) + np.cumsum(p_arr), 0, float(initial_equity))
     running_max = np.maximum.accumulate(equity)
     drawdowns = running_max - equity
     return round(float(np.max(drawdowns)), 4) if len(drawdowns) > 0 else 0.0
@@ -48,20 +49,28 @@ def compute_clustered_uncertainty(
     seed: int = 42,
 ) -> dict[str, Any]:
     """
-    Computes cluster-robust standard error and 95% confidence intervals for expectancy (mean PnL per trade).
-    If <= 1 unique cluster, returns status='INSUFFICIENT_BLOCKS' and NaN intervals.
+    Computes cluster-robust standard error and block-bootstrap 95% CI for trade PnLs.
+    Clusters are defined by market_id or session blocks to account for within-session correlation.
     """
     if not trade_pnls or len(trade_pnls) == 0:
-        return {"se": 0.0, "ci_lower": 0.0, "ci_upper": 0.0, "n_clusters": 0, "status": "NO_TRADES"}
+        return {
+            "mean": 0.0,
+            "se": 0.0,
+            "ci_lower": 0.0,
+            "ci_upper": 0.0,
+            "n_clusters": 0,
+            "status": "NO_TRADES",
+        }
 
-    pnls_arr = np.asarray(trade_pnls, dtype=float)
-    c_arr = np.asarray(cluster_ids)
-    unique_clusters = np.unique(c_arr)
+    pnls = np.asarray(trade_pnls, dtype=float)
+    clusters = np.asarray(cluster_ids)
+    unique_clusters = np.unique(clusters)
     n_c = len(unique_clusters)
-    n_trades = len(pnls_arr)
 
     if n_c <= 1:
+        mean_val = float(np.mean(pnls))
         return {
+            "mean": round(mean_val, 4),
             "se": np.nan,
             "ci_lower": np.nan,
             "ci_upper": np.nan,
@@ -69,37 +78,45 @@ def compute_clustered_uncertainty(
             "status": "INSUFFICIENT_BLOCKS",
         }
 
-    cluster_sums = np.array([np.sum(pnls_arr[c_arr == c]) for c in unique_clusters])
-    cluster_counts = np.array([np.sum(c_arr == c) for c in unique_clusters])
+    # Aggregate PnL per cluster
+    cluster_pnls = np.array([np.sum(pnls[clusters == c]) for c in unique_clusters])
+    cluster_counts = np.array([np.sum(clusters == c) for c in unique_clusters])
 
+    # Cluster-robust standard error of mean trade PnL
+    total_trades = len(pnls)
+    mean_val = float(np.sum(cluster_pnls) / total_trades)
+
+    # Block bootstrap
     rng = np.random.default_rng(seed)
     boot_means = []
     for _ in range(n_bootstrap):
         sampled_c = rng.choice(n_c, size=n_c, replace=True)
-        tot_pnl = np.sum(cluster_sums[sampled_c])
-        tot_trades = np.sum(cluster_counts[sampled_c])
-        if tot_trades > 0:
-            boot_means.append(tot_pnl / tot_trades)
+        boot_sum = np.sum(cluster_pnls[sampled_c])
+        boot_cnt = np.sum(cluster_counts[sampled_c])
+        if boot_cnt > 0:
+            boot_means.append(boot_sum / boot_cnt)
 
-    if boot_means and len(boot_means) >= 10:
-        boot_arr = np.array(boot_means)
-        se = float(np.std(boot_arr, ddof=1))
-        ci_lower = float(np.percentile(boot_arr, 2.5))
-        ci_upper = float(np.percentile(boot_arr, 97.5))
+    if not boot_means:
         return {
-            "se": round(se, 6),
-            "ci_lower": round(ci_lower, 6),
-            "ci_upper": round(ci_upper, 6),
+            "mean": round(mean_val, 4),
+            "se": np.nan,
+            "ci_lower": np.nan,
+            "ci_upper": np.nan,
             "n_clusters": n_c,
-            "status": "OK",
+            "status": "INSUFFICIENT_SAMPLES",
         }
 
+    se = float(np.std(boot_means))
+    ci_lower = float(np.percentile(boot_means, 2.5))
+    ci_upper = float(np.percentile(boot_means, 97.5))
+
     return {
-        "se": np.nan,
-        "ci_lower": np.nan,
-        "ci_upper": np.nan,
+        "mean": round(mean_val, 4),
+        "se": round(se, 4),
+        "ci_lower": round(ci_lower, 4),
+        "ci_upper": round(ci_upper, 4),
         "n_clusters": n_c,
-        "status": "INSUFFICIENT_SAMPLES",
+        "status": "OK",
     }
 
 
@@ -116,12 +133,18 @@ def generate_price_bins_report(
     """
     Generates calibration and financial reliability table across price bins of width bin_width.
     Uses precise integer scaling to avoid float boundary issues.
+    Guards against NaN/inf prices.
     """
     if df.empty:
         return pd.DataFrame()
 
+    valid_mask = np.isfinite(pd.to_numeric(df[price_col], errors="coerce"))
+    df_clean = df[valid_mask].copy()
+    if df_clean.empty:
+        return pd.DataFrame()
+
     scale = 10000
-    p_vals = pd.to_numeric(df[price_col], errors="coerce") * scale
+    p_vals = pd.to_numeric(df_clean[price_col], errors="coerce") * scale
     
     # Use integer arithmetic for boundaries to avoid float inaccuracy
     bin_w = int(round(bin_width * scale))
@@ -131,12 +154,11 @@ def generate_price_bins_report(
     bins = list(range(min_p, max_p + bin_w + 1, bin_w))
     labels = [f"[{b/scale:.2f}, {(b+bin_w)/scale:.2f})" for b in bins[:-1]]
     
-    df_bins = df.copy()
-    df_bins["price_bin"] = pd.cut(p_vals, bins=bins, labels=labels, right=False, include_lowest=True)
+    df_clean["price_bin"] = pd.cut(p_vals, bins=bins, labels=labels, right=False, include_lowest=True)
 
     records = []
     for label in labels:
-        sub = df_bins[df_bins["price_bin"] == label]
+        sub = df_clean[df_clean["price_bin"] == label]
         n_rows = len(sub)
         n_markets = int(sub["market_id"].nunique()) if "market_id" in sub.columns else n_rows
         p_pred = float(sub[prob_col].mean()) if prob_col in sub.columns and n_rows > 0 else np.nan

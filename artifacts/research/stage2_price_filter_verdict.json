@@ -1,0 +1,342 @@
+{
+  "timestamp": "2026-09-08T16:45:33.628030+00:00",
+  "item": "29",
+  "title": "Stage 2 Final Evaluation Verdict: Model A1 Hard Max Price Filter (<=0.40)",
+  "dataset_integrity": {
+    "dataset_path": "artifacts\\weighted_policy\\observations_30d.json",
+    "dataset_sha256": "06920496fbe2a5bfac15393ae8a12fdb70ed1f589601bf5b3518172787806ccf",
+    "total_markets": 1744,
+    "total_decisions": 1744
+  },
+  "development_results": {
+    "M0_MARKET": {
+      "brier": 0.2463,
+      "n_trades": 0,
+      "net_pnl_usdc": 0.0
+    },
+    "MLEGACY_V11": {
+      "name": "MLEGACY_V11",
+      "max_price": 0.95,
+      "n_trades": 23,
+      "win_rate": 0.2174,
+      "net_pnl_usdc": -5.7816,
+      "expectancy": -0.251374,
+      "ci_lower": -0.813,
+      "ci_upper": 0.3543,
+      "max_drawdown": 8.899,
+      "payoff_ratio": 2.446
+    },
+    "MODEL_A_PRICE": {
+      "name": "MODEL_A_PRICE",
+      "max_price": 0.95,
+      "n_trades": 150,
+      "win_rate": 0.4067,
+      "net_pnl_usdc": -3.3332,
+      "expectancy": -0.022221,
+      "ci_lower": -0.205,
+      "ci_upper": 0.1687,
+      "max_drawdown": 22.8341,
+      "payoff_ratio": 1.4045
+    },
+    "MODEL_A1_BASE": {
+      "name": "MODEL_A1_BASE",
+      "max_price": 0.95,
+      "n_trades": 198,
+      "win_rate": 0.3889,
+      "net_pnl_usdc": -9.6954,
+      "expectancy": -0.048967,
+      "ci_lower": -0.2205,
+      "ci_upper": 0.1073,
+      "max_drawdown": 26.2989,
+      "payoff_ratio": 1.4458
+    },
+    "MODEL_A1_CAP_040": {
+      "name": "MODEL_A1_CAP_040",
+      "max_price": 0.4,
+      "n_trades": 82,
+      "win_rate": 0.3902,
+      "net_pnl_usdc": 6.3304,
+      "expectancy": 0.0772,
+      "ci_lower": -0.2038,
+      "ci_upper": 0.3757,
+      "max_drawdown": 10.02,
+      "payoff_ratio": 1.7599
+    },
+    "NAIVE_PRICE_RULE_040": {
+      "name": "NAIVE_PRICE_RULE_040",
+      "max_price": 0.4,
+      "n_trades": 177,
+      "win_rate": 0.3672,
+      "net_pnl_usdc": 3.7324,
+      "expectancy": 0.021087,
+      "ci_lower": -0.1832,
+      "ci_upper": 0.2212,
+      "max_drawdown": 18.9922,
+      "payoff_ratio": 1.7804
+    }
+  },
+  "development_robustness": {
+    "caps_sensitivity": {
+      "0.30": {
+        "n_trades": 5,
+        "net_pnl_usdc": -0.6622,
+        "expectancy": -0.13244,
+        "max_drawdown": 3.006
+      },
+      "0.35": {
+        "n_trades": 20,
+        "net_pnl_usdc": 5.0165,
+        "expectancy": 0.250825,
+        "max_drawdown": 3.1549
+      },
+      "0.40": {
+        "n_trades": 82,
+        "net_pnl_usdc": 6.3304,
+        "expectancy": 0.0772,
+        "max_drawdown": 10.02
+      },
+      "0.45": {
+        "n_trades": 139,
+        "net_pnl_usdc": 1.6191,
+        "expectancy": 0.011648,
+        "max_drawdown": 15.2821
+      },
+      "0.50": {
+        "n_trades": 198,
+        "net_pnl_usdc": -9.6954,
+        "expectancy": -0.048967,
+        "max_drawdown": 26.2989
+      },
+      "0.95": {
+        "n_trades": 198,
+        "net_pnl_usdc": -9.6954,
+        "expectancy": -0.048967,
+        "max_drawdown": 26.2989
+      }
+    },
+    "daily_distribution": {
+      "2026-08-09": {
+        "count": 3,
+        "sum": -3.0060000000000002
+      },
+      "2026-08-10": {
+        "count": 1,
+        "sum": -1.002
+      },
+      "2026-08-14": {
+        "count": 3,
+        "sum": 5.744000000000001
+      },
+      "2026-08-15": {
+        "count": 7,
+        "sum": -4.514
+      },
+      "2026-08-17": {
+        "count": 2,
+        "sum": -2.004
+      },
+      "2026-08-18": {
+        "count": 9,
+        "sum": 1.8432000000000004
+      },
+      "2026-08-19": {
+        "count": 5,
+        "sum": 5.7337
+      },
+      "2026-08-20": {
+        "count": 4,
+        "sum": -4.008
+      },
+      "2026-08-21": {
+        "count": 8,
+        "sum": 6.9369
+      },
+      "2026-08-22": {
+        "count": 6,
+        "sum": 1.9767
+      },
+      "2026-08-23": {
+        "count": 21,
+        "sum": -4.2835
+      },
+      "2026-08-24": {
+        "count": 9,
+        "sum": 6.9214
+      },
+      "2026-08-25": {
+        "count": 4,
+        "sum": -4.008
+      }
+    },
+    "side_distribution": {
+      "DOWN": {
+        "count": 42,
+        "sum": -1.3626
+      },
+      "UP": {
+        "count": 40,
+        "sum": 7.6930000000000005
+      }
+    },
+    "top3_trades_sum_usdc": 7.59,
+    "top3_trades_pct_of_total": 119.9,
+    "price_bins_breakdown": [
+      {
+        "price_bin": "[0.00, 0.05)",
+        "n_rows": 0,
+        "n_markets": 0,
+        "predicted_mean": NaN,
+        "realized_frequency": NaN,
+        "avg_cost": NaN,
+        "total_pnl": 0.0
+      },
+      {
+        "price_bin": "[0.05, 0.10)",
+        "n_rows": 0,
+        "n_markets": 0,
+        "predicted_mean": NaN,
+        "realized_frequency": NaN,
+        "avg_cost": NaN,
+        "total_pnl": 0.0
+      },
+      {
+        "price_bin": "[0.10, 0.15)",
+        "n_rows": 0,
+        "n_markets": 0,
+        "predicted_mean": NaN,
+        "realized_frequency": NaN,
+        "avg_cost": NaN,
+        "total_pnl": 0.0
+      },
+      {
+        "price_bin": "[0.15, 0.20)",
+        "n_rows": 0,
+        "n_markets": 0,
+        "predicted_mean": NaN,
+        "realized_frequency": NaN,
+        "avg_cost": NaN,
+        "total_pnl": 0.0
+      },
+      {
+        "price_bin": "[0.20, 0.25)",
+        "n_rows": 2,
+        "n_markets": 2,
+        "predicted_mean": 0.4258,
+        "realized_frequency": 0.5,
+        "avg_cost": 0.215,
+        "total_pnl": 0.0
+      },
+      {
+        "price_bin": "[0.25, 0.30)",
+        "n_rows": 3,
+        "n_markets": 3,
+        "predicted_mean": 0.5064,
+        "realized_frequency": 0.0,
+        "avg_cost": 0.2767,
+        "total_pnl": 0.0
+      },
+      {
+        "price_bin": "[0.30, 0.35)",
+        "n_rows": 6,
+        "n_markets": 6,
+        "predicted_mean": 0.4211,
+        "realized_frequency": 0.5,
+        "avg_cost": 0.325,
+        "total_pnl": 0.0
+      },
+      {
+        "price_bin": "[0.35, 0.40)",
+        "n_rows": 55,
+        "n_markets": 55,
+        "predicted_mean": 0.438,
+        "realized_frequency": 0.4545,
+        "avg_cost": 0.3713,
+        "total_pnl": 0.0
+      },
+      {
+        "price_bin": "[0.40, 0.45)",
+        "n_rows": 16,
+        "n_markets": 16,
+        "predicted_mean": 0.4573,
+        "realized_frequency": 0.1875,
+        "avg_cost": 0.4,
+        "total_pnl": 0.0
+      },
+      {
+        "price_bin": "[0.45, 0.50)",
+        "n_rows": 0,
+        "n_markets": 0,
+        "predicted_mean": NaN,
+        "realized_frequency": NaN,
+        "avg_cost": NaN,
+        "total_pnl": 0.0
+      },
+      {
+        "price_bin": "[0.50, 0.55)",
+        "n_rows": 0,
+        "n_markets": 0,
+        "predicted_mean": NaN,
+        "realized_frequency": NaN,
+        "avg_cost": NaN,
+        "total_pnl": 0.0
+      }
+    ]
+  },
+  "out_of_sample_test_results": {
+    "base_model_a1": {
+      "name": "TEST_MODEL_A1_BASE",
+      "max_price": 0.95,
+      "n_trades": 322,
+      "win_rate": 0.4037,
+      "net_pnl_usdc": -8.7452,
+      "expectancy": -0.027159,
+      "ci_lower": -0.1596,
+      "ci_upper": 0.096,
+      "max_drawdown": 25.6936,
+      "payoff_ratio": 1.4098
+    },
+    "filtered_model_a1_cap_040": {
+      "name": "TEST_MODEL_A1_CAP_040",
+      "max_price": 0.4,
+      "n_trades": 93,
+      "win_rate": 0.3763,
+      "net_pnl_usdc": 5.0767,
+      "expectancy": 0.054588,
+      "ci_lower": -0.2348,
+      "ci_upper": 0.3572,
+      "max_drawdown": 13.5944,
+      "payoff_ratio": 1.8019
+    },
+    "naive_price_rule_cap_040": {
+      "name": "TEST_NAIVE_PRICE_RULE_040",
+      "max_price": 0.4,
+      "n_trades": 93,
+      "win_rate": 0.3763,
+      "net_pnl_usdc": 5.0767,
+      "expectancy": 0.054588,
+      "ci_lower": -0.2348,
+      "ci_upper": 0.3572,
+      "max_drawdown": 13.5944,
+      "payoff_ratio": 1.8019
+    },
+    "paired_delta_cap_vs_base": {
+      "delta_pnl": 13.8219,
+      "ci_lower": -19.3217,
+      "ci_upper": 46.696,
+      "n_clusters": 322,
+      "status": "VALID"
+    },
+    "paired_delta_cap_vs_naive": {
+      "delta_pnl": 0.0,
+      "ci_lower": 0.0,
+      "ci_upper": 0.0,
+      "n_clusters": 322,
+      "status": "VALID"
+    }
+  },
+  "final_verdict": {
+    "status": "INCONCLUSIVE",
+    "rationale": "Positive point PnL (+5.08 USDC), but 95% confidence bounds cross zero (Expectancy CI [-0.235, +0.357], Paired Delta CI [-19.322, +46.696]). Edge is statistically INCONCLUSIVE.",
+    "recommendation": "Deploy Model A1 with max_price <= 0.40 in PAPER execution mode."
+  }
+}

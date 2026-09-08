@@ -56,6 +56,16 @@ def load_real_btc_outsider_data() -> tuple[pd.DataFrame, dict[str, Any]]:
     with open(obs_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
+    # Item 3: Recover authentic expiration from reliable market_end_at join
+    exp_path = REPO_ROOT / "artifacts" / "research" / "market_expirations.json"
+    expirations_map: dict[str, str] = {}
+    if exp_path.exists():
+        try:
+            with open(exp_path, "r", encoding="utf-8") as f:
+                expirations_map = json.load(f)
+        except Exception:
+            expirations_map = {}
+
     raw_obs = data.get("observations", [])
     btc_obs = [o for o in raw_obs if o.get("asset") == "BTC" and o.get("market_role") == "OUTSIDER"]
 
@@ -84,11 +94,8 @@ def load_real_btc_outsider_data() -> tuple[pd.DataFrame, dict[str, Any]]:
             continue
 
         p_mkt_yes = float(o.get("p_market_yes", 0.5))
-        outsider_mid = (1.0 - p_mkt_yes) if cand_side == "DOWN" else p_mkt_yes
-        if outsider_mid >= 0.5:
-            outsider_mid = 1.0 - outsider_mid
+        outsider_mid = 1.0 - p_mkt_yes if cand_side == "DOWN" else p_mkt_yes
 
-        # Authentic quote: strictly from no_ask for DOWN or yes_ask for UP (no synthetic fallback)
         raw_ask = o.get("no_ask") if cand_side == "DOWN" else o.get("yes_ask")
         if raw_ask is None or not np.isfinite(float(raw_ask)):
             missing_quote_count += 1
@@ -103,11 +110,12 @@ def load_real_btc_outsider_data() -> tuple[pd.DataFrame, dict[str, Any]]:
 
         # Authentic time handling without artificial 300s fallback (Items 2 & 3)
         raw_tls = o.get("time_left_sec")
+        market_end_at_val = None
         if raw_tls is not None and not pd.isna(raw_tls):
             try:
                 time_left_sec = float(raw_tls)
                 time_left_min = time_left_sec / 60.0
-                time_valid = True
+                time_valid = time_left_sec > 0
                 time_source = "OBSERVATION_PAYLOAD"
             except (ValueError, TypeError):
                 time_left_sec = np.nan
@@ -118,16 +126,32 @@ def load_real_btc_outsider_data() -> tuple[pd.DataFrame, dict[str, Any]]:
             try:
                 dec_ts = pd.to_datetime(ts, utc=True)
                 end_ts = pd.to_datetime(o["market_end_at"], utc=True)
+                market_end_at_val = end_ts
                 diff_sec = (end_ts - dec_ts).total_seconds()
                 time_left_sec = diff_sec
                 time_left_min = diff_sec / 60.0
-                time_valid = diff_sec >= 0
-                time_source = "MARKET_END_AT" if diff_sec >= 0 else "POST_EXPIRATION"
+                time_valid = diff_sec > 0
+                time_source = "MARKET_END_AT" if diff_sec > 0 else "POST_EXPIRATION"
             except Exception:
                 time_left_sec = np.nan
                 time_left_min = np.nan
                 time_valid = False
                 time_source = "INVALID_END_AT"
+        elif m_id in expirations_map:
+            try:
+                dec_ts = pd.to_datetime(ts, utc=True)
+                end_ts = pd.to_datetime(expirations_map[m_id], utc=True)
+                market_end_at_val = end_ts
+                diff_sec = (end_ts - dec_ts).total_seconds()
+                time_left_sec = diff_sec
+                time_left_min = diff_sec / 60.0
+                time_valid = diff_sec > 0
+                time_source = "JOIN_MARKET_EXPIRATIONS" if diff_sec > 0 else "POST_EXPIRATION"
+            except Exception:
+                time_left_sec = np.nan
+                time_left_min = np.nan
+                time_valid = False
+                time_source = "INVALID_EXPIRATION_JOIN"
         else:
             time_left_sec = np.nan
             time_left_min = np.nan
@@ -140,6 +164,7 @@ def load_real_btc_outsider_data() -> tuple[pd.DataFrame, dict[str, Any]]:
             "market_id": m_id,
             "decision_at": ts,
             "recorded_at": ts,
+            "market_end_at": market_end_at_val,
             "candidate_side": cand_side,
             "target": target,
             "outsider_mid": outsider_mid,

@@ -1,0 +1,27 @@
+{
+  "timestamp": "2026-09-08T16:45:33.629043+00:00",
+  "model_architecture": "LogisticRegression",
+  "feature_set": "MODEL_A1",
+  "features": [
+    "logit_mid_price",
+    "log_time_left",
+    "candidate_spread",
+    "logit_price_x_log_time"
+  ],
+  "hyperparameters": {
+    "C": 0.1,
+    "penalty": "l2",
+    "solver": "lbfgs",
+    "imputer": "median",
+    "scaler": "standard",
+    "calibration": "sigmoid"
+  },
+  "execution_policy": {
+    "max_price": 0.4,
+    "min_edge": 0.02,
+    "stake_usdc": 1.0,
+    "max_positions_per_market": 1,
+    "allow_reentry": false
+  },
+  "evaluation_verdict": "INCONCLUSIVE"
+}
