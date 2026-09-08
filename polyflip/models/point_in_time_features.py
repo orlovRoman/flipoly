@@ -454,17 +454,34 @@ def compute_outsider_model_features(
 
     # Volatility sigma_1m
     sig_series = out["sigma_1m"] if "sigma_1m" in out.columns else pd.Series(np.nan, index=out.index)
-    sigma_vals = pd.to_numeric(sig_series, errors="coerce").to_numpy()
-    if np.isnan(sigma_vals).all() and minute_candles is not None and len(minute_candles) >= 10:
-        # Compute rolling 1m return std over window
-        close_series = pd.Series(minute_candles["close"]).astype(float)
-        ret_1m = np.log(close_series / close_series.shift(1))
-        # Use ddof=1 sample standard deviation
-        est_sigma = float(ret_1m.tail(sigma_window_candles).std(ddof=1))
-        sigma_vals = np.full(len(out), est_sigma if np.isfinite(est_sigma) else 0.0)
-    elif np.isnan(sigma_vals).all():
-        # Default fallback volatility (e.g. 0.001 per minute ~ 3.8% daily BTC vol)
-        sigma_vals = np.full(len(out), 0.001)
+    sigma_vals = pd.to_numeric(sig_series, errors="coerce").to_numpy(copy=True)
+    sigma_source = np.where(np.isfinite(sigma_vals) & (sigma_vals > 0.0), "PROVIDED", "FALLBACK")
+    has_computed_sigma = (sigma_source == "PROVIDED")
+
+    nan_mask = ~has_computed_sigma
+    if np.any(nan_mask):
+        if minute_candles is not None and len(minute_candles) >= 10:
+            # Compute rolling 1m return std over window
+            close_series = pd.Series(minute_candles["close"]).astype(float)
+            ret_1m = np.log(close_series / close_series.shift(1))
+            est_sigma = float(ret_1m.tail(sigma_window_candles).std(ddof=1))
+            if np.isfinite(est_sigma) and est_sigma > 1e-9:
+                sigma_vals[nan_mask] = est_sigma
+                sigma_source[nan_mask] = "ROLLING_1M"
+                has_computed_sigma[nan_mask] = True
+            else:
+                sigma_vals[nan_mask] = 0.001
+                sigma_source[nan_mask] = "FALLBACK"
+                has_computed_sigma[nan_mask] = False
+        else:
+            # Default fallback volatility (e.g. 0.001 per minute ~ 3.8% daily BTC vol)
+            sigma_vals[nan_mask] = 0.001
+            sigma_source[nan_mask] = "FALLBACK"
+            has_computed_sigma[nan_mask] = False
+
+    out["sigma_1m"] = sigma_vals
+    out["sigma_source"] = sigma_source
+    out["has_computed_sigma"] = has_computed_sigma
 
     # Compute z_outsider
     z_out, z_valid = compute_normalized_strike_distance(

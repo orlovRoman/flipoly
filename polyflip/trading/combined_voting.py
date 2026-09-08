@@ -2370,16 +2370,22 @@ def evaluate_lgbm_outsider_interaction(
             accepted_indices.append(idx)
 
     # Invariant: n_accepted + n_vetoed == n_candidates
-    assert len(accepted_indices) + len(vetoed_indices) == n_candidates, "Veto partition invariant violated!"
+    if len(accepted_indices) + len(vetoed_indices) != n_candidates:
+        raise ValueError(
+            f"Veto partition invariant violated: accepted ({len(accepted_indices)}) + "
+            f"vetoed ({len(vetoed_indices)}) != total candidates ({n_candidates})"
+        )
 
     pnl_veto_accepted = 0.0
     wins_veto_accepted = 0
+    accepted_pnls = []
     for idx in accepted_indices:
         ask = asks[idx]
         fee = ask * fee_rate
         outcome = targets[idx]
         pnl = (1.0 - ask - fee) if outcome == 1 else (-ask - fee)
         pnl_veto_accepted += pnl
+        accepted_pnls.append(pnl)
         if outcome == 1:
             wins_veto_accepted += 1
 
@@ -2403,7 +2409,7 @@ def evaluate_lgbm_outsider_interaction(
 
     net_veto_economic_impact = pnl_veto_accepted - pnl_b_only
 
-    # 4. Paradigm 3: B_PLUS_LGBM_INPUT (Meta-Model on OOF Predictions)
+    # 4. Paradigm 3: B_PLUS_LGBM_INPUT (Meta-Model strictly using OOF Predictions)
     # Meta-features: logit(p_b), logit(lgbm_probs)
     p_b_clip = np.clip(p_b, 1e-4, 1.0 - 1e-4)
     l_p_clip = np.clip(lgbm_probs, 1e-4, 1.0 - 1e-4)
@@ -2412,13 +2418,32 @@ def evaluate_lgbm_outsider_interaction(
         np.log(l_p_clip / (1.0 - l_p_clip)),
     ])
 
+    from sklearn.model_selection import KFold, cross_val_predict
+
     meta_model = LogisticRegression(C=1.0, solver="lbfgs", max_iter=500, random_state=42)
-    meta_model.fit(X_meta, targets)
-    meta_probs = meta_model.predict_proba(X_meta)[:, 1]
+    if len(np.unique(targets)) >= 2 and len(targets) >= 4:
+        n_splits = min(5, len(targets) // 2) if len(targets) >= 6 else 2
+        cv = KFold(n_splits=n_splits, shuffle=True, random_state=42)
+        try:
+            meta_probs = cross_val_predict(meta_model, X_meta, targets, cv=cv, method="predict_proba")[:, 1]
+        except Exception:
+            meta_probs = p_b.copy()
+    else:
+        meta_probs = p_b.copy()
+
+    try:
+        meta_model.fit(X_meta, targets)
+        w_b = round(float(meta_model.coef_[0][0]), 4)
+        w_l = round(float(meta_model.coef_[0][1]), 4)
+        intercept = round(float(meta_model.intercept_[0]), 4)
+    except Exception:
+        w_b, w_l, intercept = 1.0, 0.0, 0.0
 
     pnl_meta = 0.0
     wins_meta = 0
     n_meta_trades = 0
+    meta_pnls = []
+    meta_indices = []
     for i in range(n):
         net_ev = compute_net_ev_per_share(meta_probs[i], asks[i], fee_per_share=asks[i] * fee_rate)
         if net_ev >= min_edge and asks[i] < 0.95:
@@ -2427,6 +2452,8 @@ def evaluate_lgbm_outsider_interaction(
             fee = asks[i] * fee_rate
             pnl = (1.0 - asks[i] - fee) if outcome == 1 else (-asks[i] - fee)
             pnl_meta += pnl
+            meta_pnls.append(pnl)
+            meta_indices.append(i)
             if outcome == 1:
                 wins_meta += 1
 
@@ -2437,6 +2464,8 @@ def evaluate_lgbm_outsider_interaction(
             "win_rate": round(wins_b_only / n_candidates, 4) if n_candidates > 0 else 0.0,
             "total_pnl": round(pnl_b_only, 4),
             "expectancy": round(pnl_b_only / n_candidates, 6) if n_candidates > 0 else 0.0,
+            "trade_pnls": trade_records_b_only,
+            "trade_indices": candidate_indices,
         },
         "b_plus_lgbm_veto": {
             "n_accepted": len(accepted_indices),
@@ -2445,6 +2474,8 @@ def evaluate_lgbm_outsider_interaction(
             "total_pnl": round(pnl_veto_accepted, 4),
             "expectancy": round(pnl_veto_accepted / len(accepted_indices), 6) if accepted_indices else 0.0,
             "net_veto_impact_pnl": round(net_veto_economic_impact, 4),
+            "trade_pnls": accepted_pnls,
+            "trade_indices": accepted_indices,
             "counterfactual": {
                 "n_vetoed": len(vetoed_indices),
                 "vetoed_wins": wins_vetoed_counterfactual,
@@ -2458,10 +2489,12 @@ def evaluate_lgbm_outsider_interaction(
             "win_rate": round(wins_meta / n_meta_trades, 4) if n_meta_trades > 0 else 0.0,
             "total_pnl": round(pnl_meta, 4),
             "expectancy": round(pnl_meta / n_meta_trades, 6) if n_meta_trades > 0 else 0.0,
+            "trade_pnls": meta_pnls,
+            "trade_indices": meta_indices,
             "meta_weights": {
-                "w_model_b": round(float(meta_model.coef_[0][0]), 4),
-                "w_lgbm": round(float(meta_model.coef_[0][1]), 4),
-                "intercept": round(float(meta_model.intercept_[0]), 4),
+                "w_model_b": w_b,
+                "w_lgbm": w_l,
+                "intercept": intercept,
             },
         },
     }

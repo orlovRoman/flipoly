@@ -1923,11 +1923,11 @@ class UnderlyingObservation(Base):
     __tablename__ = "underlying_observations"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    instrument = Column(String(32), nullable=False, index=True)  # e.g. "BTC"
-    source = Column(String(32), nullable=False, index=True)      # e.g. "BINANCE", "ORACLE", "PYTH", "CHAINLINK"
+    instrument = Column(String(32), nullable=False)  # e.g. "BTC"
+    source = Column(String(32), nullable=False)      # e.g. "BINANCE", "ORACLE", "PYTH", "CHAINLINK"
     price = Column(Float, nullable=False)
-    event_at = Column(DateTime(timezone=True), nullable=False, index=True)
-    received_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    event_at = Column(DateTime(timezone=True), nullable=False)
+    received_at = Column(DateTime(timezone=True), nullable=False)
     extra_data = Column("extra_data", JSON().with_variant(JSONB, "postgresql"), nullable=True)
 
     __table_args__ = (

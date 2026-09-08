@@ -8,7 +8,7 @@ out-of-order normalization, duplicate tolerance, and explicit gap detection (HIS
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Sequence, Any, Literal
 import numpy as np
@@ -194,8 +194,9 @@ def compute_underlying_return(
     max_age_seconds: float = 60.0,
 ) -> tuple[float | None, bool]:
     """
-    Computes log return log(S_t / S_{t - horizon_seconds}) strictly backwards from as_of.
+    Computes log return log(S_t / S_{t - horizon_seconds}) strictly backward as-of from as_of.
     Requires real high-frequency observation at reference horizon within tolerance_seconds.
+    Enforces strictly backward reference search: event_at <= target_time and received_at <= target_time.
     Returns (ret, has_reference_flag).
     """
     if tolerance_seconds is None:
@@ -210,23 +211,24 @@ def compute_underlying_return(
     as_of_utc = pd.to_datetime(as_of, utc=True).to_pydatetime()
     target_time = as_of_utc - timedelta(seconds=horizon_seconds)
 
-    # Filter observations up to target_time + tolerance_seconds, but strictly <= as_of
+    # Strictly backward as-of search: filter observations that occurred and were received on or before target_time
     candidates = filter_and_order_observations(
-        observations, as_of=min(as_of_utc, target_time + timedelta(seconds=tolerance_seconds)),
+        observations, as_of=target_time,
         instrument=instrument, source=source,
     )
     if not candidates:
         return None, False
 
-    # Find the candidate closest to target_time within [target_time - tolerance, target_time + tolerance]
+    # Find the candidate within [target_time - tolerance, target_time]
     t_min = target_time - timedelta(seconds=tolerance_seconds)
-    t_max = target_time + timedelta(seconds=tolerance_seconds)
+    t_max = target_time
 
-    valid_refs = [c for c in candidates if t_min <= c.event_at <= t_max]
+    valid_refs = [c for c in candidates if t_min <= c.event_at <= t_max and c.received_at <= target_time]
     if not valid_refs:
         return None, False
 
-    best_ref = min(valid_refs, key=lambda c: abs((c.event_at - target_time).total_seconds()))
+    # Pick the most recent observation on or before target_time
+    best_ref = max(valid_refs, key=lambda c: (c.event_at, c.received_at))
     if best_ref.price <= 0.0:
         return None, False
 

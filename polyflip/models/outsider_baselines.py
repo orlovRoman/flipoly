@@ -9,7 +9,7 @@ Fees and ask are accounted for separately in EV, without contaminating probabili
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 

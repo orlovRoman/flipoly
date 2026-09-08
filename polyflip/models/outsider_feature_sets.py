@@ -73,6 +73,13 @@ LEGACY_LOGREG_FEATURES: tuple[str, ...] = (
     "volume_trend",
 )
 
+_model_b1 = OutsiderFeatureSet(
+    key="MODEL_B1",
+    version="model-b1-momentum-v1",
+    features=MODEL_B1_FEATURES,
+    description="Model B: Model A1 + z_outsider strike distance + 30s/120s directional momentum",
+)
+
 OUTSIDER_FEATURE_SETS: dict[str, OutsiderFeatureSet] = {
     "MODEL_A": OutsiderFeatureSet(
         key="MODEL_A",
@@ -86,18 +93,8 @@ OUTSIDER_FEATURE_SETS: dict[str, OutsiderFeatureSet] = {
         features=MODEL_A1_FEATURES,
         description="Model A1: logit(mid_price), log1p(time_left_min), candidate_spread, interaction",
     ),
-    "MODEL_B": OutsiderFeatureSet(
-        key="MODEL_B",
-        version="model-b1-momentum-v1",
-        features=MODEL_B1_FEATURES,
-        description="Model B: Model A1 + z_outsider strike distance + 30s/120s directional momentum",
-    ),
-    "MODEL_B1": OutsiderFeatureSet(
-        key="MODEL_B1",
-        version="model-b1-momentum-v1",
-        features=MODEL_B1_FEATURES,
-        description="Model B1: Model A1 + z_outsider strike distance + 30s/120s directional momentum",
-    ),
+    "MODEL_B": _model_b1,
+    "MODEL_B1": _model_b1,
     "LEGACY": OutsiderFeatureSet(
         key="LEGACY",
         version="legacy-logreg-v1",

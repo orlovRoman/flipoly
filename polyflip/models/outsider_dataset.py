@@ -64,7 +64,7 @@ def build_outsider_decision_rows(
     # Exclude mid_price == 0.5 where outsider is ambiguous (Item 1.7)
     mid_col = "mid_price" if "mid_price" in df.columns else "poly_up_mid"
     df["_mid"] = pd.to_numeric(df[mid_col], errors="coerce")
-    df = df[df["_mid"].notna() & (df["_mid"] != 0.5) & (df["_mid"] > 0.0) & (df["_mid"] < 1.0)].copy()
+    df = df[df["_mid"].notna() & ((df["_mid"] - 0.5).abs() > 1e-6) & (df["_mid"] > 0.0) & (df["_mid"] < 1.0)].copy()
 
     selected_rows = []
 

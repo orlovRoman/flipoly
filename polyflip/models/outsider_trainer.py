@@ -23,7 +23,13 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
-from sklearn.calibration import CalibratedClassifierCV, FrozenEstimator
+try:
+    from sklearn.calibration import CalibratedClassifierCV, FrozenEstimator
+    HAS_FROZEN_ESTIMATOR = True
+except ImportError:
+    from sklearn.calibration import CalibratedClassifierCV
+    FrozenEstimator = None
+    HAS_FROZEN_ESTIMATOR = False
 import structlog
 
 from polyflip.models.probability_metrics import (
@@ -102,7 +108,7 @@ def train_outsider_model(
     if missing_cols:
         raise ValueError(f"Missing required features in dataframe: {missing_cols}")
 
-    X = df[list(feats)].copy()
+    X = df[list(feats)].copy().reset_index(drop=True)
     y = pd.Series(df[y_col].values, dtype=int)
     groups = pd.Series(df[group_col].values)
 
@@ -126,9 +132,10 @@ def train_outsider_model(
         splits = [(np.arange(n_train), np.arange(n_train, n_samples))]
 
     for train_idx, val_idx in splits:
-        X_train, y_train = X.iloc[train_idx], y.iloc[train_idx]
+        X_train = X.iloc[train_idx].reset_index(drop=True)
+        y_train = y.iloc[train_idx].reset_index(drop=True)
         X_val, y_val = X.iloc[val_idx], y.iloc[val_idx]
-        groups_train = groups.iloc[train_idx]
+        groups_train = groups.iloc[train_idx].reset_index(drop=True)
 
         if len(np.unique(y_train)) < 2 or len(np.unique(y_val)) < 2:
             continue
@@ -178,11 +185,18 @@ def train_outsider_model(
                 model__sample_weight=train_weights[base_idx],
             )
             try:
-                calibrated = CalibratedClassifierCV(
-                    estimator=FrozenEstimator(base_pipe),
-                    method="sigmoid",
-                    cv=None,
-                )
+                if HAS_FROZEN_ESTIMATOR and FrozenEstimator is not None:
+                    calibrated = CalibratedClassifierCV(
+                        estimator=FrozenEstimator(base_pipe),
+                        method="sigmoid",
+                        cv=None,
+                    )
+                else:
+                    calibrated = CalibratedClassifierCV(
+                        estimator=base_pipe,
+                        method="sigmoid",
+                        cv="prefit",
+                    )
                 calibrated.fit(
                     X_train.iloc[cal_idx],
                     y_train.iloc[cal_idx],
