@@ -14,7 +14,7 @@ from typing import Any, Iterable
 
 import numpy as np
 import pandas as pd
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from polyflip.db.models import MarketSnapshot
@@ -861,22 +861,91 @@ async def load_market_entry_quotes(
     db: AsyncSession,
     market_starts: pd.DataFrame,
     *,
-    chunk_size: int = 4000,
+    chunk_size: int = 1000,
 ) -> pd.DataFrame:
     """Load the first executable snapshot at/after each market start.
 
-    The query is chunked to avoid PostgreSQL's bind-parameter limit when the
-    training dataset contains tens of thousands of markets.
+    Uses PostgreSQL LATERAL joins with unnested arrays for O(1) index seeks
+    per market without materializing obsolete snapshot history into memory.
+    Falls back to bounded chunked queries for SQLite/testing environments.
     """
     if market_starts is None or market_starts.empty:
         return pd.DataFrame()
     starts = market_starts[["market_id", "market_start"]].copy()
     starts["market_id"] = starts["market_id"].astype(str)
     starts["market_start"] = pd.to_datetime(starts["market_start"], utc=True)
-    ids = starts["market_id"].drop_duplicates().tolist()
-    rows: list[dict[str, Any]] = []
-    for offset in range(0, len(ids), chunk_size):
-        chunk = ids[offset : offset + chunk_size]
+    starts = starts.drop_duplicates("market_id", keep="first")
+    ids = starts["market_id"].tolist()
+    start_times = starts["market_start"].tolist()
+
+    dialect_name = ""
+    try:
+        if db.bind:
+            dialect_name = getattr(db.bind.dialect, "name", "")
+        elif hasattr(db, "get_bind"):
+            bind = db.get_bind()
+            if bind:
+                dialect_name = getattr(bind.dialect, "name", "")
+    except Exception:
+        pass
+
+    if dialect_name == "postgresql":
+        records: list[dict[str, Any]] = []
+        query = text("""
+            SELECT
+                ms.market_id,
+                ms.asset,
+                ms.recorded_at,
+                ms.time_left_min,
+                ms.mid_price,
+                ms.spread,
+                ms.best_bid,
+                ms.best_ask,
+                ms.final_outcome
+            FROM (
+                SELECT unnest(CAST(:market_ids AS text[])) AS market_id,
+                       unnest(CAST(:market_starts AS timestamptz[])) AS market_start
+            ) v
+            JOIN LATERAL (
+                SELECT ms2.market_id, ms2.asset, ms2.recorded_at, ms2.time_left_min,
+                       ms2.mid_price, ms2.spread, ms2.best_bid, ms2.best_ask, ms2.final_outcome
+                FROM market_snapshots ms2
+                WHERE ms2.market_id = v.market_id
+                  AND ms2.recorded_at >= v.market_start
+                ORDER BY ms2.recorded_at ASC
+                LIMIT 1
+            ) ms ON true;
+        """)
+        for offset in range(0, len(ids), chunk_size):
+            chunk_ids = ids[offset : offset + chunk_size]
+            chunk_starts = start_times[offset : offset + chunk_size]
+            result = await db.execute(
+                query,
+                {
+                    "market_ids": chunk_ids,
+                    "market_starts": chunk_starts,
+                },
+            )
+            records.extend(dict(row._mapping) for row in result.fetchall())
+
+        if not records:
+            return pd.DataFrame()
+        quotes = pd.DataFrame(records)
+        quotes["market_id"] = quotes["market_id"].astype(str)
+        quotes["recorded_at"] = pd.to_datetime(quotes["recorded_at"], utc=True)
+        return (
+            quotes.sort_values(["market_id", "recorded_at"])
+            .drop_duplicates("market_id", keep="first")
+            .reset_index(drop=True)
+        )
+
+    # Portable fallback (e.g. SQLite for unit tests)
+    dfs: list[pd.DataFrame] = []
+    fallback_chunk = min(chunk_size, 500)
+    for offset in range(0, len(ids), fallback_chunk):
+        chunk_ids = ids[offset : offset + fallback_chunk]
+        chunk_starts_df = starts[starts["market_id"].isin(chunk_ids)]
+        min_start = chunk_starts_df["market_start"].min()
         stmt = (
             select(
                 MarketSnapshot.market_id,
@@ -890,22 +959,27 @@ async def load_market_entry_quotes(
                 MarketSnapshot.final_outcome,
             )
             .where(
-                MarketSnapshot.market_id.in_(chunk),
+                MarketSnapshot.market_id.in_(chunk_ids),
+                MarketSnapshot.recorded_at >= min_start,
             )
             .order_by(MarketSnapshot.market_id, MarketSnapshot.recorded_at)
         )
         result = await db.execute(stmt)
-        rows.extend(dict(row._mapping) for row in result.fetchall())
-    if not rows:
+        chunk_rows = [dict(row._mapping) for row in result.fetchall()]
+        if not chunk_rows:
+            continue
+        chunk_df = pd.DataFrame(chunk_rows)
+        chunk_df["market_id"] = chunk_df["market_id"].astype(str)
+        chunk_df["recorded_at"] = pd.to_datetime(chunk_df["recorded_at"], utc=True)
+        chunk_df = chunk_df.merge(chunk_starts_df, on="market_id", how="inner")
+        chunk_df = chunk_df[chunk_df["recorded_at"] >= chunk_df["market_start"]]
+        chunk_df = (
+            chunk_df.sort_values(["market_id", "recorded_at"])
+            .drop_duplicates("market_id", keep="first")
+            .drop(columns=["market_start"])
+        )
+        dfs.append(chunk_df)
+
+    if not dfs:
         return pd.DataFrame()
-    quotes = pd.DataFrame(rows)
-    quotes["market_id"] = quotes["market_id"].astype(str)
-    quotes["recorded_at"] = pd.to_datetime(quotes["recorded_at"], utc=True)
-    quotes = quotes.merge(starts, on="market_id", how="inner")
-    quotes = quotes[quotes["recorded_at"] >= quotes["market_start"]]
-    return (
-        quotes.sort_values(["market_id", "recorded_at"])
-        .drop_duplicates("market_id", keep="first")
-        .drop(columns=["market_start"])
-        .reset_index(drop=True)
-    )
+    return pd.concat(dfs, ignore_index=True).sort_values(["market_id", "recorded_at"]).reset_index(drop=True)

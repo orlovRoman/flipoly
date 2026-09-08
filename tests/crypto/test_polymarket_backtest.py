@@ -6,6 +6,7 @@ import pytest
 from polyflip.crypto.polymarket_backtest import (
     aggregate_stored_polymarket_backtests,
     compute_oof_polymarket_backtest,
+    load_market_entry_quotes,
 )
 
 
@@ -283,3 +284,71 @@ def test_weighted_backtest_missing_logreg_renormalizes_and_keeps_loss_budget_bou
     # A fixed $1 budget must not turn a loss into a gross-price-dependent loss.
     assert trade["total_cost_usdc"] == pytest.approx(1.0)
     assert trade["pnl"] == pytest.approx(-1.0)
+
+
+@pytest.mark.asyncio
+async def test_load_market_entry_quotes_empty():
+    assert (await load_market_entry_quotes(None, None)).empty
+    assert (await load_market_entry_quotes(None, pd.DataFrame())).empty
+
+
+@pytest.mark.asyncio
+async def test_load_market_entry_quotes_portable_selection():
+    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+    from polyflip.db.models import Base, MarketSnapshot
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    t_start_m1 = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+    t_before_m1 = datetime(2026, 8, 1, 11, 55, tzinfo=timezone.utc)
+    t_first_m1 = datetime(2026, 8, 1, 12, 1, tzinfo=timezone.utc)
+    t_later_m1 = datetime(2026, 8, 1, 12, 5, tzinfo=timezone.utc)
+
+    t_start_m2 = datetime(2026, 8, 1, 12, 15, tzinfo=timezone.utc)
+    t_first_m2 = datetime(2026, 8, 1, 12, 15, tzinfo=timezone.utc)
+
+    async with AsyncSession(engine) as session:
+        session.add_all([
+            MarketSnapshot(
+                market_id="m1", asset="DOGE", recorded_at=t_before_m1,
+                time_left_min=20.0, mid_price=0.20, spread=0.02, volume_5min=100.0,
+                price_velocity=0.0, hour_of_day=11, final_outcome="YES",
+            ),
+            MarketSnapshot(
+                market_id="m1", asset="DOGE", recorded_at=t_first_m1,
+                time_left_min=14.0, mid_price=0.25, spread=0.03, volume_5min=100.0,
+                price_velocity=0.0, hour_of_day=12, final_outcome="YES",
+            ),
+            MarketSnapshot(
+                market_id="m1", asset="DOGE", recorded_at=t_later_m1,
+                time_left_min=10.0, mid_price=0.30, spread=0.04, volume_5min=100.0,
+                price_velocity=0.0, hour_of_day=12, final_outcome="YES",
+            ),
+            MarketSnapshot(
+                market_id="m2", asset="DOGE", recorded_at=t_first_m2,
+                time_left_min=15.0, mid_price=0.50, spread=0.01, volume_5min=50.0,
+                price_velocity=0.0, hour_of_day=12, final_outcome="NO",
+            ),
+        ])
+        await session.commit()
+
+        market_starts = pd.DataFrame([
+            {"market_id": "m1", "market_start": t_start_m1},
+            {"market_id": "m2", "market_start": t_start_m2},
+            {"market_id": "m3_missing", "market_start": t_start_m1},
+        ])
+
+        quotes = await load_market_entry_quotes(session, market_starts)
+        assert len(quotes) == 2
+        assert set(quotes["market_id"]) == {"m1", "m2"}
+
+        m1_quote = quotes[quotes["market_id"] == "m1"].iloc[0]
+        # Must pick t_first_m1, not t_before_m1 or t_later_m1
+        assert m1_quote["mid_price"] == pytest.approx(0.25)
+        assert m1_quote["time_left_min"] == pytest.approx(14.0)
+
+        m2_quote = quotes[quotes["market_id"] == "m2"].iloc[0]
+        assert m2_quote["mid_price"] == pytest.approx(0.50)
+
