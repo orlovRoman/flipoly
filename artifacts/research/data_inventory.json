@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-09-08T16:28:22.424624+00:00",
+  "timestamp": "2026-09-08T17:09:47.401002+00:00",
   "item": "2.01",
   "description": "BTC outsider historical observations data inventory and availability measurement",
   "source_dataset": "artifacts/weighted_policy/observations_30d.json",
@@ -19,7 +19,7 @@
     "model_a_features": {
       "outsider_mid": 1.0,
       "spread": 1.0,
-      "time_left_min": 0.0,
+      "time_left_min": 1.0,
       "canonical_yes_mid": 1.0,
       "executable_ask": 1.0
     },

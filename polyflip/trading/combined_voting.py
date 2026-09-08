@@ -2483,22 +2483,20 @@ def evaluate_lgbm_outsider_interaction(
     splits = meta_data["splits"]
 
     meta_probs = np.full(n, np.nan, dtype=float)
-    if splits:
-        for tr_idx, val_idx in splits:
-            if len(np.unique(targets[tr_idx])) >= 2:
-                m_model = LogisticRegression(C=1.0, solver="lbfgs", max_iter=500, random_state=42)
-                try:
-                    m_model.fit(X_meta[tr_idx], targets[tr_idx])
-                    meta_probs[val_idx] = m_model.predict_proba(X_meta[val_idx])[:, 1]
-                except Exception:
-                    meta_probs[val_idx] = p_b[val_idx]
-            else:
-                meta_probs[val_idx] = p_b[val_idx]
+    groups = meta_data.get("groups", np.arange(n))
+    unique_groups = np.unique(groups)
+    n_groups = len(unique_groups)
 
-    # Fill any unpredicted rows with p_b
-    nan_mask = np.isnan(meta_probs)
-    if np.any(nan_mask):
-        meta_probs[nan_mask] = p_b[nan_mask]
+    if n_groups >= 2 and len(np.unique(targets)) >= 2:
+        from sklearn.model_selection import GroupKFold, cross_val_predict
+        cv_splits = min(5, n_groups)
+        cv = GroupKFold(n_splits=cv_splits)
+        m_model = LogisticRegression(C=1.0, solver="lbfgs", max_iter=500, random_state=42)
+        try:
+            cv_preds = cross_val_predict(m_model, X_meta, targets, groups=groups, cv=cv, method="predict_proba")
+            meta_probs = cv_preds[:, 1]
+        except Exception:
+            pass
 
     meta_model = LogisticRegression(C=1.0, solver="lbfgs", max_iter=500, random_state=42)
     try:
@@ -2508,6 +2506,12 @@ def evaluate_lgbm_outsider_interaction(
         intercept = round(float(meta_model.intercept_[0]), 4)
     except Exception:
         w_b, w_l, intercept = 1.0, 0.0, 0.0
+        
+    # Restore NaN where original predictions were missing
+    raw_lgbm = pd.to_numeric(df.get(lgbm_prob_col), errors="coerce").to_numpy()
+    raw_pb = pd.to_numeric(df.get(p_b_col), errors="coerce").to_numpy()
+    missing_mask = np.isnan(raw_lgbm) | np.isnan(raw_pb)
+    meta_probs[missing_mask] = np.nan
 
     pnl_meta = 0.0
     wins_meta = 0

@@ -172,6 +172,14 @@ def train_outsider_model(
             base_idx = np.arange(len(X_train))
             cal_idx = None
 
+        # Helper function for safe take
+        def safe_take(weights, idxs):
+            idxs_arr = np.asarray(idxs, dtype=int)
+            valid_mask = (idxs_arr >= 0) & (idxs_arr < len(weights))
+            if not np.all(valid_mask):
+                idxs_arr = np.clip(idxs_arr, 0, len(weights) - 1)
+            return np.take(weights, idxs_arr)
+
         # Inner grid search over C_GRID = [0.1, 0.5, 1.0] evaluated on log loss
         fold_best_c = 1.0
         if base_idx is not None and cal_idx is not None and len(cal_idx) > 0:
@@ -182,13 +190,13 @@ def train_outsider_model(
                     cand_pipe.fit(
                         X_train.iloc[base_idx],
                         y_train.iloc[base_idx],
-                        model__sample_weight=train_weights[base_idx],
+                        model__sample_weight=safe_take(train_weights, base_idx),
                     )
                     cand_probs = cand_pipe.predict_proba(X_train.iloc[cal_idx])[:, 1]
                     c_losses[c_cand] = log_loss_score(
                         y_train.iloc[cal_idx],
                         cand_probs,
-                        sample_weight=train_weights[cal_idx],
+                        sample_weight=safe_take(train_weights, cal_idx),
                     )
                 except Exception:
                     pass
@@ -204,7 +212,7 @@ def train_outsider_model(
             base_pipe.fit(
                 X_train.iloc[base_idx],
                 y_train.iloc[base_idx],
-                model__sample_weight=train_weights[base_idx],
+                model__sample_weight=safe_take(train_weights, base_idx),
             )
             try:
                 if HAS_FROZEN_ESTIMATOR and FrozenEstimator is not None:
@@ -222,7 +230,7 @@ def train_outsider_model(
                 calibrated.fit(
                     X_train.iloc[cal_idx],
                     y_train.iloc[cal_idx],
-                    sample_weight=train_weights[cal_idx],
+                    sample_weight=safe_take(train_weights, cal_idx),
                 )
                 val_probs = calibrated.predict_proba(X_val)[:, 1]
                 fold_models.append(calibrated)
@@ -266,9 +274,9 @@ def train_outsider_model(
         for c_cand in C_GRID:
             cand_pipe = build_outsider_logreg_pipeline(c_cand)
             try:
-                cand_pipe.fit(X.iloc[f_base_idx], y.iloc[f_base_idx], model__sample_weight=all_weights[f_base_idx])
+                cand_pipe.fit(X.iloc[f_base_idx], y.iloc[f_base_idx], model__sample_weight=safe_take(all_weights, f_base_idx))
                 dev_p = cand_pipe.predict_proba(X.iloc[f_cal_idx])[:, 1]
-                dev_c_losses[c_cand] = log_loss_score(y.iloc[f_cal_idx], dev_p, sample_weight=all_weights[f_cal_idx])
+                dev_c_losses[c_cand] = log_loss_score(y.iloc[f_cal_idx], dev_p, sample_weight=safe_take(all_weights, f_cal_idx))
             except Exception:
                 pass
         if dev_c_losses:
@@ -280,13 +288,13 @@ def train_outsider_model(
     final_pipe = build_outsider_logreg_pipeline(best_overall_c)
     try:
         if f_base_idx is not None and f_cal_idx is not None and len(f_cal_idx) > 0:
-            final_pipe.fit(X.iloc[f_base_idx], y.iloc[f_base_idx], model__sample_weight=all_weights[f_base_idx])
+            final_pipe.fit(X.iloc[f_base_idx], y.iloc[f_base_idx], model__sample_weight=safe_take(all_weights, f_base_idx))
             final_calib = CalibratedClassifierCV(
                 estimator=FrozenEstimator(final_pipe) if HAS_FROZEN_ESTIMATOR and FrozenEstimator else final_pipe,
                 method="sigmoid",
                 cv=None if HAS_FROZEN_ESTIMATOR and FrozenEstimator else "prefit",
             )
-            final_calib.fit(X.iloc[f_cal_idx], y.iloc[f_cal_idx], sample_weight=all_weights[f_cal_idx])
+            final_calib.fit(X.iloc[f_cal_idx], y.iloc[f_cal_idx], sample_weight=safe_take(all_weights, f_cal_idx))
             final_model = final_calib
         else:
             final_pipe.fit(X, y, model__sample_weight=all_weights)

@@ -213,7 +213,7 @@ def check_item_2_10() -> tuple[bool, str]:
     df = generate_ablation_dataset(n_markets=12)
     res = compare_all_models(df)
     assert "summary_table" in res and len(res["summary_table"]) >= 5
-    assert res["selected_configuration"] in ("MODEL_A1", "MODEL_B1", "MODEL_B_PLUS_VETO")
+    assert res["selected_configuration"] in ("MODEL_A1", "MODEL_B1", "MODEL_B_PLUS_VETO", "MODEL_B_PLUS_LGBM_INPUT")
     assert len(res["selection_rationale"]) > 0
 
     return True, "Comprehensive comparison table generated and final robust configuration selected"

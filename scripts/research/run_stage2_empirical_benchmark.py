@@ -442,14 +442,14 @@ def run_empirical_benchmark() -> dict[str, Any]:
             "log_loss": None,
             "ece": None,
             "n_trades": 0,
-            "win_rate": 0.0,
-            "net_pnl": 0.0,
-            "expectancy": 0.0,
+            "win_rate": None,
+            "net_pnl": None,
+            "expectancy": None,
             "expectancy_ci_lower": None,
             "expectancy_ci_upper": None,
             "se": None,
-            "payoff": 0.0,
-            "max_dd": 0.0,
+            "payoff": None,
+            "max_dd": None,
         })
 
     # Paired deltas vs Model A1

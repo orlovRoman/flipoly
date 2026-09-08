@@ -151,3 +151,34 @@ def test_30s_return_requires_actual_observation_within_tolerance(base_time: date
     )
     assert has_ref_bad is False
     assert ret_bad is None
+
+def test_underlying_return_strict_causality_received_at(base_time: datetime):
+    """
+    Test that compute_underlying_return strictly filters out observations 
+    where received_at > target_time, even if event_at <= target_time.
+    """
+    t0 = base_time
+    target_time = t0 + timedelta(seconds=30)
+    
+    obs_list = [
+        # Reference observation (t0)
+        Observation("BTC", 50000.0, "BINANCE", t0, t0),
+        
+        # Valid observation at t=30s
+        Observation("BTC", 50500.0, "BINANCE", target_time, target_time),
+        
+        # Leaked observation: event happened before target_time (t=28s) 
+        # but received after target_time (t=32s). Must be discarded.
+        Observation("BTC", 51000.0, "BINANCE", target_time - timedelta(seconds=2), target_time + timedelta(seconds=2)),
+    ]
+    
+    ret, has_ref = compute_underlying_return(
+        obs_list, as_of=target_time, horizon_seconds=30.0, tolerance_seconds=5.0
+    )
+    
+    assert has_ref is True
+    assert ret is not None
+    # The return should be calculated using the 50500 observation, not 51000.
+    # log(50500 / 50000)
+    expected_ret = float(np.log(50500.0 / 50000.0))
+    assert ret == pytest.approx(expected_ret, rel=1e-6)

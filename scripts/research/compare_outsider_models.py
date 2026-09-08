@@ -109,7 +109,13 @@ def compare_all_models(
     total_markets = int(df["market_id"].nunique())
     y_true = df["target"].to_numpy()
     asks = df["executable_ask"].to_numpy() if "executable_ask" in df.columns else np.full(len(df), 0.35)
-    clusters_full = df["market_id"].to_numpy() if "market_id" in df.columns else np.arange(len(df))
+    if "market_id" in df.columns and "decision_at" in df.columns:
+        dates = pd.to_datetime(df["decision_at"], utc=True).dt.date.astype(str)
+        clusters_full = (df["market_id"].astype(str) + "_" + dates).to_numpy()
+    elif "market_id" in df.columns:
+        clusters_full = df["market_id"].to_numpy()
+    else:
+        clusters_full = np.arange(len(df))
 
     # 1. Baseline M0
     m0 = MarketPriceBaseline()
@@ -342,11 +348,27 @@ def print_comparison_table(res: dict[str, Any]) -> None:
     print(header)
     print("-" * 136)
     for r in res["summary_table"]:
-        exp_str = f"{r['expectancy']:+.4f} [{r['expectancy_ci_lower']:+.3f},{r['expectancy_ci_upper']:+.3f}]"
-        d_pnl_str = f"{r['delta_pnl_vs_A']:+6.2f} [{r.get('delta_pnl_ci_lower_vs_A', 0):+5.1f},{r.get('delta_pnl_ci_upper_vs_A', 0):+5.1f}]"
+        brier_s = f"{r['brier']:<7.4f}" if r.get('brier') is not None else "N/A    "
+        ll_s = f"{r['log_loss']:<8.4f}" if r.get('log_loss') is not None else "N/A     "
+        ece_s = f"{r['ece']:<6.4f}" if r.get('ece') is not None else "N/A   "
+        wr_s = f"{r['win_rate']:<7.3f}" if r.get('win_rate') is not None else "N/A    "
+        net_s = f"{r['net_pnl']:<8.2f}" if r.get('net_pnl') is not None else "N/A     "
+        payoff_s = f"{r['payoff']:<6.2f}" if r.get('payoff') is not None else "N/A   "
+        dd_s = f"{r['max_dd']:<6.2f}" if r.get('max_dd') is not None else "N/A   "
+        
+        if r.get('expectancy') is not None:
+            exp_str = f"{r['expectancy']:+.4f} [{r.get('expectancy_ci_lower', 0.0):+.3f},{r.get('expectancy_ci_upper', 0.0):+.3f}]"
+        else:
+            exp_str = "N/A"
+            
+        if r.get('delta_pnl_vs_A') is not None:
+            d_pnl_str = f"{r['delta_pnl_vs_A']:+6.2f} [{r.get('delta_pnl_ci_lower_vs_A', 0.0):+5.1f},{r.get('delta_pnl_ci_upper_vs_A', 0.0):+5.1f}]"
+        else:
+            d_pnl_str = "-"
+
         line = (
-            f"{r['model']:<24} | {r['brier']:<7.4f} | {r['log_loss']:<8.4f} | {r['ece']:<6.4f} | "
-            f"{r['n_trades']:<6} | {r['win_rate']:<7.3f} | {r['net_pnl']:<8.2f} | {r['payoff']:<6.2f} | {r['max_dd']:<6.2f} | "
+            f"{r['model']:<24} | {brier_s} | {ll_s} | {ece_s} | "
+            f"{r['n_trades']:<6} | {wr_s} | {net_s} | {payoff_s} | {dd_s} | "
             f"{exp_str:<22} | {d_pnl_str:<23}"
         )
         print(line)
