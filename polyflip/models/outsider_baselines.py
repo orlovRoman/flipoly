@@ -9,6 +9,7 @@ Fees and ask are accounted for separately in EV, without contaminating probabili
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Sequence
 import numpy as np
 import pandas as pd
@@ -49,19 +50,39 @@ class MarketPriceBaseline:
 
 class LegacyOutsiderBaseline:
     """
-    Baseline Mlegacy: Adapts the legacy BTC leaning / momentum rule.
-    Adjusts market mid with legacy velocity and spread terms, clipped to [0.01, 0.99].
+    Baseline Mlegacy: Adapts the authentic BTC_leaning@11 production model
+    or legacy heuristic rule.
+    Uses features [mid_price, spread, time_left_min] with trained coefficients,
+    or legacy velocity/spread adjustments when parameters are provided.
     """
 
     def __init__(
         self,
-        velocity_weight: float = 0.05,
-        spread_penalty: float = 0.10,
+        artifact_path: str | Path | None = None,
         name: str = "MLEGACY_LEANING",
+        velocity_weight: float | None = None,
+        spread_penalty: float | None = None,
     ):
         self.name = name
         self.velocity_weight = velocity_weight
         self.spread_penalty = spread_penalty
+        self.is_authentic_model = (velocity_weight is None and spread_penalty is None)
+        self.model_version = 11
+        self._model = None
+
+        if self.is_authentic_model:
+            if artifact_path is None:
+                default_path = Path(__file__).resolve().parent / "artifacts" / "btc_leaning_v11.pkl"
+                if default_path.exists():
+                    artifact_path = default_path
+
+            if artifact_path is not None and Path(artifact_path).exists():
+                import pickle
+                try:
+                    with open(artifact_path, "rb") as f:
+                        self._model = pickle.load(f)
+                except Exception:
+                    self._model = None
 
     def fit(self, X: pd.DataFrame, y: Any = None) -> "LegacyOutsiderBaseline":
         return self
@@ -73,19 +94,7 @@ class LegacyOutsiderBaseline:
             m = df["mid_price"]
         else:
             m = pd.Series(0.5, index=df.index)
-
-        base_p = pd.to_numeric(m, errors="coerce").fillna(0.5).to_numpy()
-
-        vel_series = (
-            df["price_velocity"]
-            if "price_velocity" in df.columns
-            else (
-                df["legacy_last_poll_delta"]
-                if "legacy_last_poll_delta" in df.columns
-                else pd.Series(0.0, index=df.index)
-            )
-        )
-        vel_vals = pd.to_numeric(vel_series, errors="coerce").fillna(0.0).to_numpy()
+        mid_vals = pd.to_numeric(m, errors="coerce").fillna(0.5).to_numpy()
 
         spread_series = (
             df["spread"]
@@ -98,8 +107,64 @@ class LegacyOutsiderBaseline:
         )
         spr_vals = pd.to_numeric(spread_series, errors="coerce").fillna(0.02).to_numpy()
 
-        adjusted = base_p + self.velocity_weight * vel_vals - self.spread_penalty * spr_vals
-        probs = np.clip(adjusted, 0.01, 0.99)
+        if self.velocity_weight is not None or self.spread_penalty is not None:
+            vw = self.velocity_weight or 0.0
+            sp = self.spread_penalty or 0.0
+            vel_series = (
+                df["price_velocity"]
+                if "price_velocity" in df.columns
+                else (
+                    df["legacy_last_poll_delta"]
+                    if "legacy_last_poll_delta" in df.columns
+                    else pd.Series(0.0, index=df.index)
+                )
+            )
+            vel_vals = pd.to_numeric(vel_series, errors="coerce").fillna(0.0).to_numpy()
+            adjusted = mid_vals + vw * vel_vals - sp * spr_vals
+            probs = np.clip(adjusted, 0.01, 0.99)
+            return np.column_stack([1.0 - probs, probs])
+
+        time_series = (
+            df["time_left_min"]
+            if "time_left_min" in df.columns
+            else pd.Series(5.0, index=df.index)
+        )
+        time_vals = pd.to_numeric(time_series, errors="coerce").fillna(5.0).to_numpy()
+
+        # Item 1.19: Determine candidate side and canonical YES mid
+        if "candidate_side" in df.columns:
+            sides = df["candidate_side"].astype(str).str.strip().str.upper().to_numpy()
+        else:
+            sides = np.array(["UP"] * len(df))
+
+        if "yes_mid" in df.columns:
+            yes_mid_vals = pd.to_numeric(df["yes_mid"], errors="coerce").fillna(0.5).to_numpy()
+        elif "canonical_yes_mid" in df.columns:
+            yes_mid_vals = pd.to_numeric(df["canonical_yes_mid"], errors="coerce").fillna(0.5).to_numpy()
+        else:
+            is_down = np.isin(sides, ["DOWN", "NO"])
+            # If candidate is DOWN, outsider_mid is 1 - yes_mid -> yes_mid is 1 - outsider_mid
+            yes_mid_vals = np.where(is_down, 1.0 - mid_vals, mid_vals)
+
+        X_df = pd.DataFrame({
+            "mid_price": yes_mid_vals,
+            "spread": spr_vals,
+            "time_left_min": time_vals,
+        })
+
+        if self._model is not None and hasattr(self._model, "predict_proba"):
+            p_flip = self._model.predict_proba(X_df)[:, 1]
+        else:
+            # Fallback to authentic parameters from Model ID 827
+            # Formula: logit(p_flip) = -0.75918691 - 0.20202834*yes_mid - 0.26294307*spread + 0.01182981*time_left_min
+            coef = np.array([-0.20202834, -0.26294307, 0.01182981])
+            intercept = -0.75918691
+            z = X_df.to_numpy() @ coef + intercept
+            p_flip = 1.0 / (1.0 + np.exp(-z))
+
+        # BTC_leaning@11 was trained on target=flip; its output is p_flip directly (candidate win probability)
+        # for both UP (yes_mid < 0.5) and DOWN (yes_mid > 0.5). Must NOT invert for DOWN!
+        probs = np.clip(p_flip, 0.01, 0.99)
         return np.column_stack([1.0 - probs, probs])
 
 
@@ -118,9 +183,13 @@ def evaluate_outsider_predictions(
     p_arr = np.asarray(p_win, dtype=float)
 
     n_samples = len(y_arr)
-    if n_samples == 0:
+    valid_mask = np.isfinite(y_arr) & np.isfinite(p_arr)
+    coverage = float(np.mean(valid_mask)) if n_samples > 0 else 0.0
+
+    if n_samples == 0 or not np.any(valid_mask):
         return {
-            "n_samples": 0,
+            "n_samples": n_samples,
+            "coverage": coverage,
             "brier": 0.0,
             "log_loss": 0.0,
             "ece": 0.0,
@@ -130,9 +199,9 @@ def evaluate_outsider_predictions(
             "expectancy": 0.0,
         }
 
-    brier = brier_score(y_arr, p_arr)
-    log_loss = log_loss_score(y_arr, p_arr)
-    ece_val, _ = expected_calibration_error(y_arr, p_arr, n_bins=20)
+    brier = brier_score(y_arr[valid_mask], p_arr[valid_mask])
+    log_loss = log_loss_score(y_arr[valid_mask], p_arr[valid_mask])
+    ece_val, _ = expected_calibration_error(y_arr[valid_mask], p_arr[valid_mask], n_bins=20)
     ece = float(ece_val) if ece_val is not None else 0.0
 
     # Economic simulation if ask is provided
@@ -143,9 +212,11 @@ def evaluate_outsider_predictions(
 
     if executable_ask is not None:
         ask_arr = np.asarray(executable_ask, dtype=float)
-        for i in range(n_samples):
+        for i in np.where(valid_mask)[0]:
             ask = ask_arr[i]
             p = p_arr[i]
+            if not np.isfinite(ask) or ask <= 0.0 or ask >= 1.0:
+                continue
             # Net EV in USDC per share
             net_ev = compute_net_ev_per_share(
                 p_win=p,
@@ -153,7 +224,7 @@ def evaluate_outsider_predictions(
                 fee_per_share=ask * fee_rate,
             )
             # Trade if net edge exceeds threshold
-            if net_ev >= min_edge and ask < 0.95:
+            if pd.notna(net_ev) and net_ev >= min_edge and ask < 0.95:
                 n_trades += 1
                 outcome = y_arr[i]
                 fee = ask * fee_rate

@@ -1,0 +1,17 @@
+{
+  "timestamp": "2026-09-08T18:28:45Z",
+  "head_commit": "e67e57a",
+  "suite": "tests/models/test_outsider_repairs_regression.py",
+  "summary": "18 failed, 3 passed out of 21 tests",
+  "defects_reproduced": {
+    "R1": "Synthetic generator assigns conflicting targets to opposite sides; compare_all_models selects EDGE_SUPPORTED on synthetic.",
+    "R2": "Outer GroupKFold and target changes in fold 3 alter OOF predictions in fold 0.",
+    "R3": "DOWN ask takes YES best_ask 0.75; PENDING outcome defaults to target=0; missing ask replaced with mid+0.01.",
+    "R4": "Presence of NaN lag columns blocks observation lookup branch.",
+    "R5": "Future candles change past z_outsider; datetime.now() wallclock leak used instead of decision_at; missing sigma allowed into complete-B.",
+    "R6": "LegacyOutsiderBaseline uses arbitrary linear formula instead of authentic BTC_leaning@11 artifact.",
+    "R7": "Row-wise KFold shuffle mixes markets across stacking splits; B_PLUS_LGBM_INPUT evaluates p_b instead of meta_probs.",
+    "R8": "Replay lacks position state machine (multiple trades per market); fixed 0.002 fee; selection chooses A on negative PnL.",
+    "R9": "Drawdown from 0 equity for [-1, -1] is 1.0 instead of 2.0; single cluster returns 0.0 standard error; price bins missing."
+  }
+}

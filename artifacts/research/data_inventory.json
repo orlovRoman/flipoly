@@ -1,0 +1,44 @@
+{
+  "timestamp": "2026-09-08T12:13:24.145120+00:00",
+  "item": "2.01",
+  "description": "BTC outsider historical observations data inventory and availability measurement",
+  "source_dataset": "artifacts/weighted_policy/observations_30d.json",
+  "period": [
+    "2026-08-04 03:00:06.963608+00:00",
+    "2026-09-02 18:15:25.714458+00:00"
+  ],
+  "inventory": {
+    "total_raw_rows": 12745,
+    "btc_outsider_rows": 1745,
+    "valid_executable_rows": 1744,
+    "unique_markets": 1744,
+    "missing_quotes_excluded": 0,
+    "unresolved_targets_excluded": 1
+  },
+  "feature_availability": {
+    "model_a_features": {
+      "outsider_mid": 1.0,
+      "spread": 1.0,
+      "time_left_min": 1.0,
+      "canonical_yes_mid": 1.0,
+      "executable_ask": 1.0
+    },
+    "model_b_features": {
+      "underlying_price": 0.0,
+      "strike_value": 0.0,
+      "sigma_1m": 0.0,
+      "underlying_lag_30s": 0.0,
+      "underlying_lag_120s": 0.0
+    }
+  },
+  "experiment_feasibility": {
+    "M0_MARKET": "FEASIBLE",
+    "MLEGACY_V11": "FEASIBLE",
+    "MODEL_A1": "FEASIBLE",
+    "MODEL_A_PLUS_Z": "BLOCKED_DATA (Missing underlying spot and strike observations)",
+    "MODEL_A_PLUS_MOM": "BLOCKED_DATA (Missing underlying 30s/120s return lags)",
+    "MODEL_B1": "BLOCKED_DATA (Missing spot, strike, and volatility observations)",
+    "LIGHTGBM_VETO": "PARTIAL (Evaluated on observed p_lgbm_yes where available)"
+  },
+  "protocol_compliance": "Honest compliance: Model B features marked BLOCKED_DATA instead of substituting fake values."
+}

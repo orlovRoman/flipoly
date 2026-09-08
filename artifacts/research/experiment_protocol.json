@@ -1,0 +1,42 @@
+{
+  "timestamp": "2026-09-08T12:13:24.145894+00:00",
+  "item": "2.02",
+  "title": "Pre-Registered Model Comparison & Empirical Research Protocol",
+  "asset": "BTC",
+  "market_role": "OUTSIDER",
+  "policy_parameters": {
+    "stake_usdc": 1.0,
+    "initial_capital": 100.0,
+    "default_fee_rate": 0.002,
+    "min_edge": 0.02,
+    "max_positions_per_market": 1,
+    "allow_reentry": false
+  },
+  "validation_method": {
+    "mode": "chronological_walk_forward",
+    "n_splits": 5,
+    "expanding_window": true,
+    "inner_c_search": [
+      0.1,
+      0.5,
+      1.0
+    ],
+    "loss_metric": "log_loss",
+    "calibration": "sigmoid_holdout"
+  },
+  "statistical_endpoints": {
+    "primary_economic": "net_pnl_usdc",
+    "primary_expectancy": "mean_pnl_per_trade",
+    "uncertainty_method": "clustered_bootstrap_market_level_95_ci",
+    "primary_probabilistic": "log_loss",
+    "calibration_diagnostics": [
+      "brier_score",
+      "expected_calibration_error_20_bins"
+    ]
+  },
+  "selection_and_stopping_rules": {
+    "edge_support_criterion": "Positive net PnL AND lower 95% confidence bound > 0",
+    "fallback_criterion": "If CI crosses zero, return INCONCLUSIVE / NO_CANDIDATE (do NOT default to Model A)",
+    "missing_data_rule": "If Model B features are absent in historical record, report BLOCKED_DATA (do NOT substitute synthetic defaults)"
+  }
+}

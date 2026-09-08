@@ -38,156 +38,73 @@ from polyflip.models.outsider_baselines import (
 )
 from polyflip.models.outsider_trainer import train_outsider_model
 from polyflip.trading.combined_voting import evaluate_lgbm_outsider_interaction
+from polyflip.research.outsider_replay import OutsiderReplayEngine, ReplayPolicy
+from polyflip.research.reporting_helpers import (
+    compute_drawdown,
+    compute_payoff_ratio,
+    compute_clustered_uncertainty,
+    compute_paired_cluster_delta,
+    generate_price_bins_report,
+)
 
 
-def compute_drawdown(pnls: Sequence[float]) -> float:
-    """Computes maximum peak-to-trough drawdown from sequence of trade PnLs."""
-    if not pnls:
-        return 0.0
-    cumsum = np.cumsum(pnls)
-    running_max = np.maximum.accumulate(cumsum)
-    drawdowns = running_max - cumsum
-    return round(float(np.max(drawdowns)), 4) if len(drawdowns) > 0 else 0.0
-
-
-def compute_payoff_ratio(pnls: Sequence[float]) -> float:
-    """Computes payoff ratio (average win / average loss)."""
-    p_arr = np.asarray(pnls, dtype=float)
-    wins = p_arr[p_arr > 0]
-    losses = np.abs(p_arr[p_arr < 0])
-    avg_win = float(np.mean(wins)) if len(wins) > 0 else 0.0
-    avg_loss = float(np.mean(losses)) if len(losses) > 0 else 1e-9
-    return round(avg_win / avg_loss, 4) if avg_loss > 0 else 0.0
-
-
-def compute_clustered_uncertainty(
-    trade_pnls: Sequence[float],
-    cluster_ids: Sequence[Any],
-    n_bootstrap: int = 1000,
-    seed: int = 42,
-) -> dict[str, Any]:
+def select_candidate_configuration(
+    summary_rows: Sequence[dict[str, Any]],
+    source_kind: str = "HISTORICAL",
+) -> tuple[str, str | None]:
     """
-    Computes cluster-robust standard error and 95% confidence intervals for expectancy (mean PnL per trade).
-    Clusters can be market_id or calendar date.
+    R1 & R8: Conclusive model configuration selection (Item 1.31).
+    If source_kind is SYNTHETIC or DEMO, strictly returns ("DEMO_ONLY", None).
+    If all models have net_pnl <= 0 or their expectancy CI crosses zero,
+    returns ("EDGE_NOT_SUPPORTED", None) or ("INCONCLUSIVE", None).
+    Only when a candidate achieves robust positive net expectancy and CI lower > 0
+    is EDGE_SUPPORTED declared.
     """
-    if not trade_pnls or len(trade_pnls) == 0:
-        return {"se": 0.0, "ci_lower": 0.0, "ci_upper": 0.0, "n_clusters": 0}
+    if str(source_kind).upper() in ("SYNTHETIC", "DEMO", "DEMO_ONLY"):
+        return "DEMO_ONLY", None
 
-    pnls_arr = np.asarray(trade_pnls, dtype=float)
-    c_arr = np.asarray(cluster_ids)
-    unique_clusters = np.unique(c_arr)
-    n_c = len(unique_clusters)
-    n_trades = len(pnls_arr)
+    candidates = [
+        r for r in summary_rows
+        if r.get("model") in ("MODEL_A1", "MODEL_B1", "MODEL_B_PLUS_VETO", "MODEL_B_PLUS_LGBM_INPUT")
+    ]
+    if not candidates:
+        return "INCONCLUSIVE", None
 
-    if n_c <= 1 or n_trades == 0:
-        mean_val = round(float(np.mean(pnls_arr)), 6) if n_trades > 0 else 0.0
-        return {"se": 0.0, "ci_lower": mean_val, "ci_upper": mean_val, "n_clusters": n_c}
+    # Check if ANY candidate has strictly positive net_pnl AND positive lower CI
+    viable = []
+    for c in candidates:
+        val_pnl = c.get("net_pnl")
+        net_pnl = float(val_pnl) if val_pnl is not None and np.isfinite(float(val_pnl)) else 0.0
+        val_ci = c.get("expectancy_ci_lower")
+        ci_lower = float(val_ci) if val_ci is not None and np.isfinite(float(val_ci)) else -1.0
+        if net_pnl > 0.0 and ci_lower > 0.0:
+            viable.append(c)
 
-    # Aggregate PnL and trade count per cluster
-    cluster_sums = np.array([np.sum(pnls_arr[c_arr == c]) for c in unique_clusters])
-    cluster_counts = np.array([np.sum(c_arr == c) for c in unique_clusters])
+    if not viable:
+        return "EDGE_NOT_SUPPORTED", None
 
-    # Cluster bootstrap for expectancy (ratio of sums: total_pnl / total_trades)
-    rng = np.random.default_rng(seed)
-    boot_means = []
-    for _ in range(n_bootstrap):
-        sampled_c = rng.choice(n_c, size=n_c, replace=True)
-        tot_pnl = np.sum(cluster_sums[sampled_c])
-        tot_trades = np.sum(cluster_counts[sampled_c])
-        if tot_trades > 0:
-            boot_means.append(tot_pnl / tot_trades)
-
-    if boot_means:
-        se = float(np.std(boot_means, ddof=1))
-        ci_lower = float(np.percentile(boot_means, 2.5))
-        ci_upper = float(np.percentile(boot_means, 97.5))
-    else:
-        se = 0.0
-        exp = float(np.sum(cluster_sums) / n_trades)
-        ci_lower, ci_upper = exp, exp
-
-    return {
-        "se": round(se, 6),
-        "ci_lower": round(ci_lower, 6),
-        "ci_upper": round(ci_upper, 6),
-        "n_clusters": int(n_c),
-    }
-
-
-def compute_paired_cluster_delta(
-    pnls_model: Sequence[float],
-    indices_model: Sequence[int],
-    pnls_ref: Sequence[float],
-    indices_ref: Sequence[int],
-    cluster_ids_full: Sequence[Any],
-    n_bootstrap: int = 1000,
-    seed: int = 42,
-) -> dict[str, Any]:
-    """
-    Computes paired cluster-level delta PnL between candidate model and reference model.
-    For each cluster (market or date): delta_pnl_c = sum(pnl_cand in c) - sum(pnl_ref in c).
-    """
-    clusters_full = np.asarray(cluster_ids_full)
-    unique_clusters = np.unique(clusters_full)
-    n_c = len(unique_clusters)
-
-    # Build cluster sum maps
-    c_pnl_cand = {c: 0.0 for c in unique_clusters}
-    for pnl, idx in zip(pnls_model, indices_model):
-        c_pnl_cand[clusters_full[idx]] += pnl
-
-    c_pnl_ref = {c: 0.0 for c in unique_clusters}
-    for pnl, idx in zip(pnls_ref, indices_ref):
-        c_pnl_ref[clusters_full[idx]] += pnl
-
-    deltas = np.array([c_pnl_cand[c] - c_pnl_ref[c] for c in unique_clusters])
-    total_delta = float(np.sum(deltas))
-
-    if n_c <= 1:
-        return {
-            "delta_pnl": round(total_delta, 4),
-            "se": 0.0,
-            "ci_lower": round(total_delta, 4),
-            "ci_upper": round(total_delta, 4),
-            "p_value": 1.0,
-        }
-
-    # Standard error of sum of cluster deltas
-    se_delta = float(np.sqrt(n_c) * np.std(deltas, ddof=1))
-    t_stat = total_delta / se_delta if se_delta > 1e-9 else 0.0
-
-    # Cluster bootstrap for delta PnL
-    rng = np.random.default_rng(seed)
-    boot_deltas = []
-    for _ in range(n_bootstrap):
-        sampled_c = rng.choice(n_c, size=n_c, replace=True)
-        boot_deltas.append(np.sum(deltas[sampled_c]))
-
-    ci_lower = float(np.percentile(boot_deltas, 2.5))
-    ci_upper = float(np.percentile(boot_deltas, 97.5))
-    # Empirical one-tailed p-value for H0: delta <= 0
-    p_val = float(np.mean(np.array(boot_deltas) <= 0.0)) if total_delta > 0 else float(np.mean(np.array(boot_deltas) >= 0.0))
-
-    return {
-        "delta_pnl": round(total_delta, 4),
-        "se": round(se_delta, 4),
-        "ci_lower": round(ci_lower, 4),
-        "ci_upper": round(ci_upper, 4),
-        "t_stat": round(t_stat, 3),
-        "p_value": round(p_val, 4),
-    }
+    # Select highest net PnL among viable
+    best = max(viable, key=lambda x: float(x.get("net_pnl", 0.0)))
+    return "EDGE_SUPPORTED", best.get("model")
 
 
 def compare_all_models(
     df: pd.DataFrame,
     fee_rate: float = 0.002,
     min_edge: float = 0.02,
+    source_kind: str = "HISTORICAL",
 ) -> dict[str, Any]:
     """
-    Evaluates all model configurations on identical complete cohort.
+    Evaluates all model configurations on identical complete cohort using OutsiderReplayEngine.
     """
     if df.empty:
         raise ValueError("Input dataframe is empty")
+
+    from polyflip.models.point_in_time_features import compute_outsider_model_features
+
+    df = df.copy()
+    if "logit_mid_price" not in df.columns or "ret_outsider_30s" not in df.columns:
+        df = compute_outsider_model_features(df)
 
     total_markets = int(df["market_id"].nunique())
     y_true = df["target"].to_numpy()
@@ -198,7 +115,7 @@ def compare_all_models(
     m0 = MarketPriceBaseline()
     p_m0 = m0.predict_proba(df)[:, 1]
 
-    # 2. Baseline Mlegacy
+    # 2. Baseline Mlegacy (Authentic BTC_leaning@11)
     m_leg = LegacyOutsiderBaseline()
     p_leg = m_leg.predict_proba(df)[:, 1]
 
@@ -210,22 +127,35 @@ def compare_all_models(
     res_b = train_outsider_model(df, feature_set="MODEL_B1", fee_rate=fee_rate, min_edge=min_edge)
     p_b = res_b.oof_predictions
 
-    # Prepare simulation helper
-    def _simulate_trades(probs: np.ndarray) -> tuple[list[float], list[int], int]:
-        trade_pnls = []
-        trade_indices = []
-        wins = 0
+    # Helper to run unified research replay engine (Items 1.22, 1.23, 1.29)
+    def _run_model_replay(probs: np.ndarray, veto_mode: bool = False) -> tuple[list[float], list[int], int, float, float, float]:
+        decisions = []
         for i in range(len(df)):
-            net_ev = compute_net_ev_per_share(probs[i], asks[i], fee_per_share=asks[i] * fee_rate)
-            if net_ev >= min_edge and asks[i] < 0.95:
-                fee = asks[i] * fee_rate
-                outcome = y_true[i]
-                pnl = (1.0 - asks[i] - fee) if outcome == 1 else (-asks[i] - fee)
-                trade_pnls.append(pnl)
-                trade_indices.append(i)
-                if outcome == 1:
-                    wins += 1
-        return trade_pnls, trade_indices, wins
+            decisions.append({
+                "market_id": df["market_id"].iloc[i] if "market_id" in df.columns else f"m_{i}",
+                "decision_at": df["decision_at"].iloc[i] if "decision_at" in df.columns else pd.Timestamp.now(tz="UTC"),
+                "time_left_min": df["time_left_min"].iloc[i] if "time_left_min" in df.columns else 5.0,
+                "candidate_side": df["candidate_side"].iloc[i] if "candidate_side" in df.columns else "UP",
+                "executable_ask": asks[i],
+                "p_win": probs[i],
+                "target": y_true[i],
+                "lgbm_direction": df.get("lgbm_direction", pd.Series(["NONE"] * len(df))).iloc[i],
+            })
+        eng = OutsiderReplayEngine(policy=ReplayPolicy(
+            max_positions_per_market=1,
+            min_edge=min_edge,
+            default_fee_rate=fee_rate,
+            veto_mode=veto_mode,
+        ))
+        ledger = eng.run(decisions)
+        executed = ledger.executed_trades
+        pnls = [t["realized_pnl"] for t in executed]
+        indices = [i for i, d in enumerate(decisions) if any(t["market_id"] == d["market_id"] and t["decision_at"] == d["decision_at"] for t in executed)]
+        wins = sum(1 for t in executed if t.get("outcome", 0) == 1)
+        tot_pnl = ledger.total_pnl
+        payoff = compute_payoff_ratio(pnls)
+        max_dd = compute_drawdown(pnls)
+        return pnls, indices, wins, tot_pnl, payoff, max_dd
 
     models_data = [
         ("M0_MARKET", p_m0),
@@ -239,29 +169,33 @@ def compare_all_models(
     trades_dict = {}
 
     for name, p_vals in models_data:
-        brier = float(brier_score(y_true, p_vals))
-        ll = float(log_loss_score(y_true, p_vals))
-        ece_val, diag = expected_calibration_error(y_true, p_vals, n_bins=20)
-        ece = float(ece_val) if ece_val is not None else 0.0
+        valid_mask = np.isfinite(y_true) & np.isfinite(p_vals)
+        coverage = float(np.mean(valid_mask)) if len(y_true) > 0 else 0.0
 
-        pnls, indices, wins = _simulate_trades(p_vals)
+        if valid_mask.sum() > 0:
+            brier = float(brier_score(y_true[valid_mask], p_vals[valid_mask]))
+            ll = float(log_loss_score(y_true[valid_mask], p_vals[valid_mask]))
+            ece_val, diag = expected_calibration_error(y_true[valid_mask], p_vals[valid_mask], n_bins=20)
+            ece = float(ece_val) if ece_val is not None else 0.0
+        else:
+            brier, ll, ece = 0.0, 0.0, 0.0
+
+        pnls, indices, wins, total_pnl, payoff, max_dd = _run_model_replay(p_vals)
         n_trades = len(pnls)
-        total_pnl = float(np.sum(pnls)) if n_trades > 0 else 0.0
         pnl_dict[name] = total_pnl
         trades_dict[name] = (pnls, indices)
 
         win_rate = float(wins / n_trades) if n_trades > 0 else 0.0
         expectancy = float(total_pnl / n_trades) if n_trades > 0 else 0.0
-        payoff = compute_payoff_ratio(pnls)
-        max_dd = compute_drawdown(pnls)
 
-        trade_clusters = clusters_full[indices] if indices else []
+        trade_clusters = clusters_full[indices] if len(indices) > 0 else []
         unc = compute_clustered_uncertainty(pnls, trade_clusters)
 
         report_rows.append({
             "model": name,
+            "prediction_id": f"pred_{name.lower()}",
             "unique_markets": total_markets,
-            "coverage": 1.0,
+            "coverage": round(coverage, 4),
             "brier": round(brier, 4),
             "log_loss": round(ll, 4),
             "ece": round(ece, 4),
@@ -275,71 +209,77 @@ def compare_all_models(
             "max_dd": round(max_dd, 4),
         })
 
-    # 5. Model B + LGBM Veto and Input
+    # 5. Model B + LGBM Veto and Input (Items 1.28, 1.29)
     df_interaction = df.copy()
     df_interaction["p_b_win"] = p_b
     if "lgbm_direction" not in df_interaction.columns:
         df_interaction["lgbm_direction"] = "NONE"
     if "lgbm_oof_prob" not in df_interaction.columns:
-        df_interaction["lgbm_oof_prob"] = 0.5
+        if "p_lgbm" in df_interaction.columns:
+            df_interaction["lgbm_oof_prob"] = df_interaction["p_lgbm"]
+        else:
+            df_interaction["lgbm_oof_prob"] = 0.5
 
     lgbm_inter = evaluate_lgbm_outsider_interaction(df_interaction, min_edge=min_edge, fee_rate=fee_rate)
-    v_res = lgbm_inter.get("b_plus_lgbm_veto", {})
     in_res = lgbm_inter.get("b_plus_lgbm_input", {})
+    p_meta = in_res.get("meta_probs", p_b)
 
-    v_pnls = v_res.get("trade_pnls", [])
-    v_indices = v_res.get("trade_indices", [])
-    v_payoff = compute_payoff_ratio(v_pnls)
-    v_max_dd = compute_drawdown(v_pnls)
-    v_clusters = clusters_full[v_indices] if v_indices else []
+    # Replay Model B with Veto
+    v_pnls, v_indices, v_wins, v_tot_pnl, v_payoff, v_max_dd = _run_model_replay(p_b, veto_mode=True)
+    v_clusters = clusters_full[v_indices] if len(v_indices) > 0 else []
     v_unc = compute_clustered_uncertainty(v_pnls, v_clusters)
 
     report_rows.append({
         "model": "MODEL_B_PLUS_VETO",
+        "prediction_id": "pred_b_plus_veto",
         "unique_markets": total_markets,
-        "coverage": 1.0,
-        "brier": round(float(brier_score(y_true, p_b)), 4),
-        "log_loss": round(float(log_loss_score(y_true, p_b)), 4),
-        "ece": round(float(expected_calibration_error(y_true, p_b, n_bins=20)[0] or 0.0), 4),
-        "n_trades": v_res.get("n_accepted", 0),
-        "win_rate": v_res.get("win_rate", 0.0),
-        "net_pnl": v_res.get("total_pnl", 0.0),
-        "expectancy": v_res.get("expectancy", 0.0),
+        "coverage": round(float(np.mean(np.isfinite(p_b))), 4),
+        "brier": round(float(brier_score(y_true[np.isfinite(p_b)], p_b[np.isfinite(p_b)])), 4) if np.any(np.isfinite(p_b)) else 0.0,
+        "log_loss": round(float(log_loss_score(y_true[np.isfinite(p_b)], p_b[np.isfinite(p_b)])), 4) if np.any(np.isfinite(p_b)) else 0.0,
+        "ece": round(float(expected_calibration_error(y_true[np.isfinite(p_b)], p_b[np.isfinite(p_b)], n_bins=20)[0] or 0.0), 4) if np.any(np.isfinite(p_b)) else 0.0,
+        "n_trades": len(v_pnls),
+        "win_rate": round(v_wins / len(v_pnls), 4) if v_pnls else 0.0,
+        "net_pnl": round(v_tot_pnl, 4),
+        "expectancy": round(v_tot_pnl / len(v_pnls), 6) if v_pnls else 0.0,
         "expectancy_ci_lower": v_unc["ci_lower"],
         "expectancy_ci_upper": v_unc["ci_upper"],
         "payoff": v_payoff,
         "max_dd": v_max_dd,
     })
-    pnl_dict["MODEL_B_PLUS_VETO"] = v_res.get("total_pnl", 0.0)
+    pnl_dict["MODEL_B_PLUS_VETO"] = v_tot_pnl
     trades_dict["MODEL_B_PLUS_VETO"] = (v_pnls, v_indices)
 
-    in_pnls = in_res.get("trade_pnls", [])
-    in_indices = in_res.get("trade_indices", [])
-    in_payoff = compute_payoff_ratio(in_pnls)
-    in_max_dd = compute_drawdown(in_pnls)
-    in_clusters = clusters_full[in_indices] if in_indices else []
+    # Replay Model B with Input (meta_probs)
+    in_pnls, in_indices, in_wins, in_tot_pnl, in_payoff, in_max_dd = _run_model_replay(p_meta, veto_mode=False)
+    in_clusters = clusters_full[in_indices] if len(in_indices) > 0 else []
     in_unc = compute_clustered_uncertainty(in_pnls, in_clusters)
+
+    valid_meta = np.isfinite(y_true) & np.isfinite(p_meta)
+    in_brier = float(brier_score(y_true[valid_meta], p_meta[valid_meta])) if np.any(valid_meta) else 0.0
+    in_ll = float(log_loss_score(y_true[valid_meta], p_meta[valid_meta])) if np.any(valid_meta) else 0.0
+    in_ece = float(expected_calibration_error(y_true[valid_meta], p_meta[valid_meta], n_bins=20)[0] or 0.0) if np.any(valid_meta) else 0.0
 
     report_rows.append({
         "model": "MODEL_B_PLUS_LGBM_INPUT",
+        "prediction_id": "pred_meta_probs",
         "unique_markets": total_markets,
-        "coverage": 1.0,
-        "brier": round(float(brier_score(y_true, p_b)), 4),
-        "log_loss": round(float(log_loss_score(y_true, p_b)), 4),
-        "ece": round(float(expected_calibration_error(y_true, p_b, n_bins=20)[0] or 0.0), 4),
-        "n_trades": in_res.get("n_trades", 0),
-        "win_rate": in_res.get("win_rate", 0.0),
-        "net_pnl": in_res.get("total_pnl", 0.0),
-        "expectancy": in_res.get("expectancy", 0.0),
+        "coverage": round(float(np.mean(valid_meta)), 4),
+        "brier": round(in_brier, 4),
+        "log_loss": round(in_ll, 4),
+        "ece": round(in_ece, 4),
+        "n_trades": len(in_pnls),
+        "win_rate": round(in_wins / len(in_pnls), 4) if in_pnls else 0.0,
+        "net_pnl": round(in_tot_pnl, 4),
+        "expectancy": round(in_tot_pnl / len(in_pnls), 6) if in_pnls else 0.0,
         "expectancy_ci_lower": in_unc["ci_lower"],
         "expectancy_ci_upper": in_unc["ci_upper"],
         "payoff": in_payoff,
         "max_dd": in_max_dd,
     })
-    pnl_dict["MODEL_B_PLUS_LGBM_INPUT"] = in_res.get("total_pnl", 0.0)
+    pnl_dict["MODEL_B_PLUS_LGBM_INPUT"] = in_tot_pnl
     trades_dict["MODEL_B_PLUS_LGBM_INPUT"] = (in_pnls, in_indices)
 
-    # Compute paired delta PnL relative to Model A1 and M0 with cluster-robust CI
+    # Compute paired delta PnL relative to Model A1 and M0 with cluster-robust CI (Item 1.26)
     base_pnl_a = pnl_dict.get("MODEL_A1", 0.0)
     base_pnl_m0 = pnl_dict.get("M0_MARKET", 0.0)
     a_pnls, a_indices = trades_dict.get("MODEL_A1", ([], []))
@@ -358,33 +298,30 @@ def compare_all_models(
         r["delta_pnl_vs_M0"] = round(r["net_pnl"] - base_pnl_m0, 4)
         r["delta_pnl_ci_lower_vs_A"] = paired_a["ci_lower"]
         r["delta_pnl_ci_upper_vs_A"] = paired_a["ci_upper"]
-        r["delta_pnl_p_val_vs_A"] = paired_a["p_value"]
 
-    # Decision logic: choose simplest model that demonstrates robust positive gain
-    selected_config = "MODEL_A1"
-    rationale = "Model A1 serves as robust baseline"
-
-    delta_b1 = next((r for r in report_rows if r["model"] == "MODEL_B1"), None)
-    delta_veto = next((r for r in report_rows if r["model"] == "MODEL_B_PLUS_VETO"), None)
-
-    if delta_b1 and delta_b1["delta_pnl_vs_A"] > 0:
-        selected_config = "MODEL_B1"
-        rationale = (
-            f"Model B1 improves net PnL by +{delta_b1['delta_pnl_vs_A']:.2f} over Model A1 "
-            f"(95% CI: [{delta_b1['delta_pnl_ci_lower_vs_A']:.2f}, {delta_b1['delta_pnl_ci_upper_vs_A']:.2f}], "
-            f"p={delta_b1['delta_pnl_p_val_vs_A']:.3f})"
-        )
-    elif delta_veto and delta_veto["delta_pnl_vs_A"] > 0:
-        selected_config = "MODEL_B_PLUS_VETO"
-        rationale = (
-            f"Model B + LGBM Veto provides superior net expectancy by eliminating conflicting trades "
-            f"(delta PnL: +{delta_veto['delta_pnl_vs_A']:.2f} vs A1)"
-        )
+    # Item 1.31: Selection logic - strictly separate selection from confirmation
+    status, winner = select_candidate_configuration(report_rows, source_kind=source_kind)
+    if str(source_kind).upper() in ("SYNTHETIC", "DEMO", "DEMO_ONLY"):
+        status = "DEMO_ONLY"
+        selected_config = None
+        rationale = "Synthetic demo run completed: no edge claims permitted on synthetic data"
+    elif status == "EDGE_SUPPORTED" and winner is not None:
+        selected_config = winner
+        rationale = f"Candidate {winner} confirmed with positive net expectancy and 95% CI > 0"
     else:
-        selected_config = "MODEL_A1"
-        rationale = "Model A1 retained: Model B does not demonstrate sustained incremental edge on test cohort"
+        selected_config = None
+        rationale = "No candidate demonstrated statistically significant positive edge on outer validation"
 
     return {
+        "status": status,
+        "summary_table": report_rows,
+        "selected_configuration": selected_config,
+        "selection_rationale": rationale,
+        "lgbm_interaction": lgbm_inter,
+    }
+
+    return {
+        "status": status,
         "summary_table": report_rows,
         "selected_configuration": selected_config,
         "selection_rationale": rationale,

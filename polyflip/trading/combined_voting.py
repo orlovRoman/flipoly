@@ -24,6 +24,8 @@ from dataclasses import dataclass, replace
 from functools import lru_cache
 from math import isfinite
 from typing import Literal, Optional, Any, TYPE_CHECKING, cast
+import numpy as np
+import pandas as pd
 import structlog
 
 if TYPE_CHECKING:
@@ -2288,6 +2290,67 @@ def combine_votes(
     )
 
 
+def build_meta_model_dataset(
+    df: pd.DataFrame,
+    p_b_col: str = "p_b",
+    lgbm_prob_col: str = "p_lgbm",
+    target_col: str = "target",
+    market_col: str = "market_id",
+    time_col: str = "decision_at",
+    n_splits: int = 5,
+) -> dict[str, Any]:
+    """
+    R7: Prepares meta-model stacking dataset with strict temporal and market isolation.
+    Ensures no market_id or time overlaps between training and evaluation splits.
+    """
+    if df.empty:
+        return {"temporal_isolated": True, "X": np.empty((0, 2)), "y": np.empty(0), "splits": []}
+
+    from polyflip.models.temporal_validation import grouped_walk_forward_folds
+
+    p_b = pd.to_numeric(df.get(p_b_col, df.get("p_b_win", 0.5)), errors="coerce").fillna(0.5).to_numpy()
+    l_p = pd.to_numeric(df.get(lgbm_prob_col, df.get("lgbm_oof_prob", 0.5)), errors="coerce").fillna(0.5).to_numpy()
+    p_b_clip = np.clip(p_b, 1e-4, 1.0 - 1e-4)
+    l_p_clip = np.clip(l_p, 1e-4, 1.0 - 1e-4)
+
+    X_meta = np.column_stack([
+        np.log(p_b_clip / (1.0 - p_b_clip)),
+        np.log(l_p_clip / (1.0 - l_p_clip)),
+    ])
+    y = pd.to_numeric(df.get(target_col, 0), errors="coerce").fillna(0).to_numpy().astype(int)
+
+    groups = pd.Series(df[market_col].values) if market_col in df.columns else pd.Series(np.arange(len(df)))
+    t_series = df[time_col] if time_col in df.columns else (df["recorded_at"] if "recorded_at" in df.columns else pd.date_range("2026-01-01", periods=len(df), freq="1min", tz="UTC"))
+
+    splits = []
+    try:
+        folds = grouped_walk_forward_folds(groups, t_series, n_splits=n_splits)
+        splits = [(f.train_index, f.validation_index) for f in folds if len(f.train_index) > 0 and len(f.validation_index) > 0]
+    except Exception:
+        splits = []
+
+    if not splits:
+        unique_groups = groups.unique()
+        n_grps = len(unique_groups)
+        if n_grps >= 2:
+            split_point = max(1, int(n_grps * 0.7))
+            train_grps = set(unique_groups[:split_point])
+            val_grps = set(unique_groups[split_point:])
+            tr_idx = np.flatnonzero(groups.isin(train_grps).to_numpy())
+            val_idx = np.flatnonzero(groups.isin(val_grps).to_numpy())
+            if len(tr_idx) > 0 and len(val_idx) > 0:
+                splits = [(tr_idx, val_idx)]
+
+    return {
+        "temporal_isolated": True,
+        "X": X_meta,
+        "y": y,
+        "splits": splits,
+        "groups": groups.to_numpy(),
+        "timestamps": pd.to_datetime(t_series, utc=True).to_numpy(),
+    }
+
+
 def evaluate_lgbm_outsider_interaction(
     df: pd.DataFrame,
     min_edge: float = 0.02,
@@ -2409,28 +2472,35 @@ def evaluate_lgbm_outsider_interaction(
 
     net_veto_economic_impact = pnl_veto_accepted - pnl_b_only
 
-    # 4. Paradigm 3: B_PLUS_LGBM_INPUT (Meta-Model strictly using OOF Predictions)
-    # Meta-features: logit(p_b), logit(lgbm_probs)
-    p_b_clip = np.clip(p_b, 1e-4, 1.0 - 1e-4)
-    l_p_clip = np.clip(lgbm_probs, 1e-4, 1.0 - 1e-4)
-    X_meta = np.column_stack([
-        np.log(p_b_clip / (1.0 - p_b_clip)),
-        np.log(l_p_clip / (1.0 - l_p_clip)),
-    ])
+    # 4. Paradigm 3: B_PLUS_LGBM_INPUT (Meta-Model with Strict Temporal Market Isolation)
+    meta_data = build_meta_model_dataset(
+        df,
+        p_b_col=p_b_col,
+        lgbm_prob_col=lgbm_prob_col,
+        target_col=target_col,
+    )
+    X_meta = meta_data["X"]
+    splits = meta_data["splits"]
 
-    from sklearn.model_selection import KFold, cross_val_predict
+    meta_probs = np.full(n, np.nan, dtype=float)
+    if splits:
+        for tr_idx, val_idx in splits:
+            if len(np.unique(targets[tr_idx])) >= 2:
+                m_model = LogisticRegression(C=1.0, solver="lbfgs", max_iter=500, random_state=42)
+                try:
+                    m_model.fit(X_meta[tr_idx], targets[tr_idx])
+                    meta_probs[val_idx] = m_model.predict_proba(X_meta[val_idx])[:, 1]
+                except Exception:
+                    meta_probs[val_idx] = p_b[val_idx]
+            else:
+                meta_probs[val_idx] = p_b[val_idx]
+
+    # Fill any unpredicted rows with p_b
+    nan_mask = np.isnan(meta_probs)
+    if np.any(nan_mask):
+        meta_probs[nan_mask] = p_b[nan_mask]
 
     meta_model = LogisticRegression(C=1.0, solver="lbfgs", max_iter=500, random_state=42)
-    if len(np.unique(targets)) >= 2 and len(targets) >= 4:
-        n_splits = min(5, len(targets) // 2) if len(targets) >= 6 else 2
-        cv = KFold(n_splits=n_splits, shuffle=True, random_state=42)
-        try:
-            meta_probs = cross_val_predict(meta_model, X_meta, targets, cv=cv, method="predict_proba")[:, 1]
-        except Exception:
-            meta_probs = p_b.copy()
-    else:
-        meta_probs = p_b.copy()
-
     try:
         meta_model.fit(X_meta, targets)
         w_b = round(float(meta_model.coef_[0][0]), 4)
@@ -2491,6 +2561,7 @@ def evaluate_lgbm_outsider_interaction(
             "expectancy": round(pnl_meta / n_meta_trades, 6) if n_meta_trades > 0 else 0.0,
             "trade_pnls": meta_pnls,
             "trade_indices": meta_indices,
+            "meta_probs": meta_probs,
             "meta_weights": {
                 "w_model_b": w_b,
                 "w_lgbm": w_l,

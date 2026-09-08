@@ -130,11 +130,11 @@ def test_compute_roi_and_boundary_guards():
     roi = compute_roi(net_ev, executable_ask=0.50)
     assert np.isclose(roi, 0.10 / 0.50)  # +20% expected return on capital
 
-    # Boundary guards
-    assert compute_net_ev_per_share(p_win=0.8, executable_ask=1.0) == 0.0
-    assert compute_net_ev_per_share(p_win=0.8, executable_ask=1.05) == 0.0
-    assert compute_net_ev_per_share(p_win=0.8, executable_ask=0.0) == 0.0
-    assert compute_net_ev_per_share(p_win=0.8, executable_ask=-0.1) == 0.0
+    # Boundary guards: invalid executable_ask returns np.nan
+    assert np.isnan(compute_net_ev_per_share(p_win=0.8, executable_ask=1.0))
+    assert np.isnan(compute_net_ev_per_share(p_win=0.8, executable_ask=1.05))
+    assert np.isnan(compute_net_ev_per_share(p_win=0.8, executable_ask=0.0))
+    assert np.isnan(compute_net_ev_per_share(p_win=0.8, executable_ask=-0.1))
 
     # Economic edge boundary guards
     assert compute_economic_edge(0.7, 1.0, fee_rate=0.01, slippage_rate=0.01) == 0.0

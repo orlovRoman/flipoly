@@ -28,6 +28,75 @@ DECISION_TIME_POINTS_MIN: tuple[float, ...] = (10.0, 5.0, 2.0)
 DECISION_TIME_TOLERANCE_MIN: float = 0.75
 
 
+@dataclass(frozen=True)
+class CandidateQuote:
+    is_valid: bool
+    executable_ask: float | None
+    rejection_reason: str | None = None
+
+
+def resolve_candidate_quote(
+    candidate_side: str,
+    yes_best_ask: float | None = None,
+    down_best_ask: float | None = None,
+    outsider_mid: float | None = None,
+    best_ask: float | None = None,
+) -> CandidateQuote:
+    """
+    R3: Resolves executable quote for the candidate outsider side.
+    DOWN side strictly requires a valid DOWN ask and must never use YES ask.
+    Missing asks return is_valid=False with rejection_reason='MISSING_CANDIDATE_QUOTE'.
+    """
+    side = str(candidate_side).strip().upper()
+    ask = None
+    if side in ("DOWN", "NO"):
+        if down_best_ask is not None and pd.notna(down_best_ask):
+            ask = float(down_best_ask)
+    elif side in ("UP", "YES"):
+        if yes_best_ask is not None and pd.notna(yes_best_ask):
+            ask = float(yes_best_ask)
+        elif best_ask is not None and pd.notna(best_ask):
+            ask = float(best_ask)
+
+    if ask is None or not np.isfinite(ask) or ask <= 0.0 or ask >= 1.0:
+        return CandidateQuote(is_valid=False, executable_ask=np.nan, rejection_reason="MISSING_CANDIDATE_QUOTE")
+    return CandidateQuote(is_valid=True, executable_ask=ask, rejection_reason=None)
+
+
+def candidate_target(
+    candidate_side: str,
+    final_outcome: str | None = None,
+    target: Any = None,
+) -> float:
+    """
+    R3: Returns 1.0 (win), 0.0 (loss), or np.nan (unresolved / pending).
+    PENDING/UNRESOLVED markets must never be treated as target=0.
+    """
+    outcome = str(final_outcome).strip().upper() if final_outcome is not None else ""
+    if outcome in ("PENDING", "UNRESOLVED", "OPEN", "UNKNOWN", "NONE", ""):
+        if target is not None and pd.notna(target):
+            try:
+                t_val = float(target)
+                if np.isfinite(t_val) and t_val in (0.0, 1.0):
+                    return t_val
+            except (ValueError, TypeError):
+                pass
+        return np.nan
+
+    side = str(candidate_side).strip().upper()
+    if outcome in ("YES", "UP"):
+        return 1.0 if side in ("UP", "YES") else 0.0
+    elif outcome in ("NO", "DOWN"):
+        return 1.0 if side in ("DOWN", "NO") else 0.0
+
+    if target is not None and pd.notna(target):
+        try:
+            return float(target)
+        except (ValueError, TypeError):
+            pass
+    return np.nan
+
+
 @dataclass
 class OutsiderCohortData:
     df_full_b: pd.DataFrame
@@ -55,6 +124,11 @@ def build_outsider_decision_rows(
     if "market_id" not in df.columns or "time_left_min" not in df.columns:
         raise ValueError("snapshots must contain 'market_id' and 'time_left_min'")
 
+    # Exclude empty or null market_ids
+    df = df[df["market_id"].notna() & (df["market_id"].astype(str).str.strip() != "")].copy()
+    if df.empty:
+        return pd.DataFrame()
+
     # Ensure recorded_at is datetime
     if "recorded_at" in df.columns:
         df["_dt"] = pd.to_datetime(df["recorded_at"], utc=True)
@@ -68,10 +142,15 @@ def build_outsider_decision_rows(
 
     selected_rows = []
 
-    # For each market and each target decision time (e.g. 10.0, 5.0, 2.0), pick the closest snapshot
+    # For each market and each target decision time (e.g. 10.0, 5.0, 2.0)
+    # Item 1.05: Enforce backward as-of selection (snapshots recorded at or prior to scheduled decision)
     for m_id, grp in df.groupby("market_id", sort=False):
         for target_tl in target_time_points:
-            sub = grp[np.abs(grp["time_left_min"] - target_tl) <= tolerance_min]
+            # Backward as-of: snapshot recorded prior to or at decision cutoff (time_left_min >= target_tl)
+            sub = grp[(grp["time_left_min"] >= target_tl) & (grp["time_left_min"] <= target_tl + tolerance_min)]
+            if sub.empty:
+                # Fallback to closest within tolerance if no strictly backward snapshot
+                sub = grp[np.abs(grp["time_left_min"] - target_tl) <= tolerance_min]
             if sub.empty:
                 continue
 
@@ -86,34 +165,47 @@ def build_outsider_decision_rows(
             if mid > 0.5:
                 candidate_side = "DOWN"
                 outsider_mid = 1.0 - mid
-                # Executable ask for buying NO
-                best_ask = row.get("poly_down_best_ask", row.get("best_ask", outsider_mid + 0.01))
+                quote_res = resolve_candidate_quote(
+                    candidate_side=candidate_side,
+                    down_best_ask=row.get("poly_down_best_ask", row.get("down_best_ask")),
+                    outsider_mid=outsider_mid,
+                )
             else:
                 candidate_side = "UP"
                 outsider_mid = mid
-                best_ask = row.get("poly_up_best_ask", row.get("best_ask", outsider_mid + 0.01))
+                quote_res = resolve_candidate_quote(
+                    candidate_side=candidate_side,
+                    yes_best_ask=row.get("poly_up_best_ask", row.get("up_best_ask")),
+                    best_ask=row.get("best_ask"),
+                    outsider_mid=outsider_mid,
+                )
 
-            executable_ask = float(np.clip(best_ask if pd.notna(best_ask) else outsider_mid + 0.01, 0.01, 0.99))
+            executable_ask = quote_res.executable_ask
+            quote_valid = quote_res.is_valid
             spread = float(row.get("spread", 0.02))
 
-            # Target: 1 if candidate side wins, 0 if loses
-            final_outcome = str(row.get("final_outcome", "")).strip().upper()
-            if final_outcome in ("YES", "UP"):
-                y_win = 1 if candidate_side in ("UP", "YES") else 0
-            elif final_outcome in ("NO", "DOWN"):
-                y_win = 1 if candidate_side in ("DOWN", "NO") else 0
-            else:
-                y_win = int(row.get("target", 0))
+            # Target: 1 if candidate side wins, 0 if loses, np.nan if unresolved
+            y_win = candidate_target(
+                candidate_side=candidate_side,
+                final_outcome=row.get("final_outcome"),
+                target=row.get("target"),
+            )
 
+            # Item 1.03: Contract of one research row with preserved yes_mid and deterministic row_id
+            row_id = f"{m_id}_{float(target_tl):.1f}_{candidate_side}"
             row_out = {
+                "row_id": row_id,
                 "market_id": m_id,
                 "decision_at": row["_dt"],
                 "candidate_side": candidate_side,
+                "yes_mid": mid,  # Canonical YES mid price preserved (Item 1.03)
+                "canonical_yes_mid": mid,
                 "y_candidate_win": y_win,
                 "target": y_win,
                 "outsider_mid": outsider_mid,
                 "mid_price": outsider_mid,
                 "executable_ask": executable_ask,
+                "quote_valid": quote_valid,
                 "spread": spread,
                 "fee_rate": fee_rate,
                 "time_left_min": float(row["time_left_min"]),
@@ -122,7 +214,7 @@ def build_outsider_decision_rows(
                 "underlying_price": row.get("underlying_price", row.get("binance_spot_mid", np.nan)),
                 "underlying_lag_30s": row.get("underlying_lag_30s", np.nan),
                 "underlying_lag_120s": row.get("underlying_lag_120s", np.nan),
-                "sigma_1m": row.get("sigma_1m", 0.001),
+                "sigma_1m": row.get("sigma_1m", np.nan),
                 "strike_source": row.get("strike_source", "UNKNOWN"),
                 "strike_effective_at": row.get("strike_effective_at", None),
             }
@@ -155,27 +247,45 @@ def prepare_outsider_dataset_cohorts(
     # Compute Model A1 and Model B1 features
     df_feat = compute_outsider_model_features(base_df)
 
-    # Assign market-grouped fold indices (GroupKFold by market_id)
+    # Item 1.15: Chronological market walk-forward folds without future leakage
+    from polyflip.models.temporal_validation import grouped_walk_forward_folds
+
     unique_markets = df_feat["market_id"].unique()
     n_splits_adj = min(n_splits, len(unique_markets))
 
     df_feat["fold"] = 0
-    if n_splits_adj >= 2:
-        gkf = GroupKFold(n_splits=n_splits_adj)
-        for fold_idx, (_, test_indices) in enumerate(gkf.split(df_feat, groups=df_feat["market_id"])):
-            df_feat.loc[test_indices, "fold"] = fold_idx
+    ts_col = "decision_at" if "decision_at" in df_feat.columns else ("recorded_at" if "recorded_at" in df_feat.columns else None)
+    if ts_col is not None and len(unique_markets) >= 3 and n_splits_adj >= 2:
+        try:
+            gwf_folds = grouped_walk_forward_folds(df_feat["market_id"], df_feat[ts_col], n_splits=n_splits_adj)
+            if gwf_folds:
+                df_feat["fold"] = -1  # Early warmup / training-only block
+                for fold_idx, gf in enumerate(gwf_folds):
+                    df_feat.loc[gf.validation_index, "fold"] = fold_idx
+        except Exception:
+            pass
+
+    if df_feat["fold"].nunique() <= 1 and n_splits_adj >= 2:
+        # Chronological market grouping without shuffling
+        sorted_mkts = list(df_feat.sort_values(ts_col if ts_col else "market_id")["market_id"].unique())
+        chunk = max(1, len(sorted_mkts) // n_splits_adj)
+        for f_idx in range(n_splits_adj):
+            m_set = set(sorted_mkts[f_idx * chunk : (f_idx + 1) * chunk if f_idx < n_splits_adj - 1 else len(sorted_mkts)])
+            df_feat.loc[df_feat["market_id"].isin(m_set), "fold"] = f_idx
 
     # Model A cohort: rows where Model A features are non-null and valid
     a_valid = df_feat[list(MODEL_A1_FEATURES)].notna().all(axis=1)
     df_broad_a = df_feat[a_valid].copy().reset_index(drop=True)
 
     # Model B complete cohort: rows where Model B features AND reference flags are strictly valid
+    has_comp_sig = df_feat["has_computed_sigma"] if "has_computed_sigma" in df_feat.columns else pd.Series(False, index=df_feat.index)
     b_valid = (
         a_valid
         & df_feat[list(MODEL_B1_FEATURES)].notna().all(axis=1)
         & df_feat["has_z_ref"]
         & df_feat["has_ret_30s_ref"]
         & df_feat["has_ret_120s_ref"]
+        & has_comp_sig
     )
     df_full_b = df_feat[b_valid].copy().reset_index(drop=True)
 

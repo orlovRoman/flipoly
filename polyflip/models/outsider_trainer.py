@@ -37,7 +37,10 @@ from polyflip.models.probability_metrics import (
     log_loss_score,
     expected_calibration_error,
 )
-from polyflip.models.temporal_validation import market_balanced_weights
+from polyflip.models.temporal_validation import (
+    market_balanced_weights,
+    grouped_walk_forward_folds,
+)
 from polyflip.models.trainer import _group_holdout_indices
 from polyflip.models.outsider_feature_sets import (
     MODEL_A1_FEATURES,
@@ -94,6 +97,8 @@ def train_outsider_model(
     fold_col: str = "fold",
     fee_rate: float = 0.002,
     min_edge: float = 0.02,
+    validation_mode: str = "walk_forward",
+    n_splits: int = 5,
 ) -> OutsiderTrainResult:
     """
     Trains outsider model with grouped cross-validation, inner C search, and honest calibration.
@@ -118,16 +123,29 @@ def train_outsider_model(
     fold_c_selected = []
 
     # Outer cross-validation splits
-    if fold_col in df.columns and df[fold_col].nunique() > 1:
+    splits = []
+    if validation_mode == "walk_forward":
+        ts_col = "decision_at" if "decision_at" in df.columns else ("recorded_at" if "recorded_at" in df.columns else None)
+        if ts_col is not None:
+            ts_series = df[ts_col]
+        else:
+            ts_series = pd.date_range("2026-01-01", periods=n_samples, freq="1min", tz="UTC")
+        gwf_folds = grouped_walk_forward_folds(groups, ts_series, n_splits=n_splits)
+        for gf in gwf_folds:
+            if len(gf.train_index) > 0 and len(gf.validation_index) > 0:
+                splits.append((gf.train_index, gf.validation_index))
+    elif fold_col in df.columns and df[fold_col].nunique() > 1:
         folds = sorted(df[fold_col].unique())
-        splits = []
         for f_id in folds:
             val_idx = np.where(df[fold_col].to_numpy() == f_id)[0]
             train_idx = np.where(df[fold_col].to_numpy() != f_id)[0]
             if len(train_idx) > 0 and len(val_idx) > 0:
                 splits.append((train_idx, val_idx))
-    else:
-        # Fallback to simple 80/20 train/validation split
+
+    if not splits:
+        if validation_mode == "walk_forward":
+            raise ValueError("INSUFFICIENT_HISTORY: Insufficient chronological blocks for walk-forward validation")
+        # Fallback to simple 80/20 train/validation split only for non-research mode
         n_train = max(int(n_samples * 0.8), 1)
         splits = [(np.arange(n_train), np.arange(n_train, n_samples))]
 
@@ -137,7 +155,7 @@ def train_outsider_model(
         X_val, y_val = X.iloc[val_idx], y.iloc[val_idx]
         groups_train = groups.iloc[train_idx].reset_index(drop=True)
 
-        if len(np.unique(y_train)) < 2 or len(np.unique(y_val)) < 2:
+        if len(np.unique(y_train)) < 2:
             continue
 
         train_weights = market_balanced_weights(groups_train)
@@ -147,6 +165,9 @@ def train_outsider_model(
             base_idx, cal_idx = _group_holdout_indices(
                 X_train, y_train, groups_train, None, validation_fraction=0.25
             )
+            if len(np.unique(y_train.iloc[base_idx])) < 2:
+                base_idx = np.arange(len(X_train))
+                cal_idx = None
         except Exception:
             base_idx = np.arange(len(X_train))
             cal_idx = None
@@ -172,7 +193,8 @@ def train_outsider_model(
                 except Exception:
                     pass
             if c_losses:
-                fold_best_c = min(c_losses, key=c_losses.get)
+                # Item 1.16: Upon tie, pick smaller C
+                fold_best_c = min(c_losses, key=lambda c: (round(c_losses[c], 8), c))
 
         fold_c_selected.append(fold_best_c)
 
@@ -214,11 +236,8 @@ def train_outsider_model(
 
         oof_probs[val_idx] = val_probs
 
-    # Fill any unpredicted rows with base prior or market mid
-    valid_oof_mask = np.isfinite(oof_probs)
-    if not valid_oof_mask.all():
-        fallback_mid = df["outsider_mid"].to_numpy() if "outsider_mid" in df.columns else np.full(n_samples, 0.5)
-        oof_probs[~valid_oof_mask] = fallback_mid[~valid_oof_mask]
+    # Item 1.18: DO NOT fill unpredicted rows with fallback_mid!
+    # Early warmup blocks intentionally lack OOF; missing OOF must remain NaN and not mimic M0.
 
     # Overall evaluation metrics
     ask_vals = df["executable_ask"].to_numpy() if "executable_ask" in df.columns else None
@@ -230,21 +249,48 @@ def train_outsider_model(
         min_edge=min_edge,
     )
 
-    best_overall_c = float(np.median(fold_c_selected)) if fold_c_selected else 1.0
-
-    # Fit final model on all data
-    final_pipe = build_outsider_logreg_pipeline(best_overall_c)
     all_weights = market_balanced_weights(groups)
     try:
         f_base_idx, f_cal_idx = _group_holdout_indices(X, y, groups, None, validation_fraction=0.20)
-        final_pipe.fit(X.iloc[f_base_idx], y.iloc[f_base_idx], model__sample_weight=all_weights[f_base_idx])
-        final_calib = CalibratedClassifierCV(
-            estimator=FrozenEstimator(final_pipe),
-            method="sigmoid",
-            cv=None,
-        )
-        final_calib.fit(X.iloc[f_cal_idx], y.iloc[f_cal_idx], sample_weight=all_weights[f_cal_idx])
-        final_model = final_calib
+        if len(np.unique(y.iloc[f_base_idx])) < 2:
+            f_base_idx = np.arange(len(X))
+            f_cal_idx = None
+    except Exception:
+        f_base_idx = np.arange(len(X))
+        f_cal_idx = None
+
+    # Item 1.16: Final C selected on development holdout, NOT by median of folds
+    best_overall_c = 1.0
+    if f_base_idx is not None and f_cal_idx is not None and len(f_cal_idx) > 0:
+        dev_c_losses = {}
+        for c_cand in C_GRID:
+            cand_pipe = build_outsider_logreg_pipeline(c_cand)
+            try:
+                cand_pipe.fit(X.iloc[f_base_idx], y.iloc[f_base_idx], model__sample_weight=all_weights[f_base_idx])
+                dev_p = cand_pipe.predict_proba(X.iloc[f_cal_idx])[:, 1]
+                dev_c_losses[c_cand] = log_loss_score(y.iloc[f_cal_idx], dev_p, sample_weight=all_weights[f_cal_idx])
+            except Exception:
+                pass
+        if dev_c_losses:
+            best_overall_c = min(dev_c_losses, key=lambda c: (round(dev_c_losses[c], 8), c))
+    elif fold_c_selected:
+        best_overall_c = fold_c_selected[0]
+
+    # Fit final model on all data
+    final_pipe = build_outsider_logreg_pipeline(best_overall_c)
+    try:
+        if f_base_idx is not None and f_cal_idx is not None and len(f_cal_idx) > 0:
+            final_pipe.fit(X.iloc[f_base_idx], y.iloc[f_base_idx], model__sample_weight=all_weights[f_base_idx])
+            final_calib = CalibratedClassifierCV(
+                estimator=FrozenEstimator(final_pipe) if HAS_FROZEN_ESTIMATOR and FrozenEstimator else final_pipe,
+                method="sigmoid",
+                cv=None if HAS_FROZEN_ESTIMATOR and FrozenEstimator else "prefit",
+            )
+            final_calib.fit(X.iloc[f_cal_idx], y.iloc[f_cal_idx], sample_weight=all_weights[f_cal_idx])
+            final_model = final_calib
+        else:
+            final_pipe.fit(X, y, model__sample_weight=all_weights)
+            final_model = final_pipe
     except Exception:
         final_pipe.fit(X, y, model__sample_weight=all_weights)
         final_model = final_pipe

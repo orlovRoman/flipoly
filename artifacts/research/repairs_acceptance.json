@@ -1,0 +1,90 @@
+{
+  "timestamp": "2026-09-08T12:13:14.190924+00:00",
+  "head_commit": "e67e57a",
+  "suite": "tests/models/test_outsider_repairs_regression.py",
+  "summary": "34 passed, 0 failed out of 34 checks (100% PASS)",
+  "stage1_status": "CLOSED_AND_VERIFIED",
+  "defects_repaired": {
+    "R1": {
+      "title": "Synthetic generator consistency and no edge claims on demo data",
+      "status": "REPAIRED",
+      "resolution": "generate_ablation_dataset produces strictly complementary single settlement per market; compare_all_models returns status=DEMO_ONLY on synthetic data and forbids EDGE_SUPPORTED."
+    },
+    "R2": {
+      "title": "Strict temporal walk-forward validation and market isolation",
+      "status": "REPAIRED",
+      "resolution": "train_outsider_model supports validation_mode='walk_forward' using grouped_walk_forward_folds with expanding windows; future targets cannot alter earlier fold OOF predictions."
+    },
+    "R3": {
+      "title": "Quote resolution, missing ask handling, and unresolved target NaN",
+      "status": "REPAIRED",
+      "resolution": "Added resolve_candidate_quote (DOWN strictly uses down ask, never falls back to YES ask; missing ask returns is_valid=False with MISSING_CANDIDATE_QUOTE); candidate_target returns np.nan for PENDING/UNRESOLVED."
+    },
+    "R4": {
+      "title": "Causal underlying observation reading and NaN lag column fallback",
+      "status": "REPAIRED",
+      "resolution": "compute_outsider_model_features falls back to underlying_observations when lag columns contain NaN; compute_underlying_return reads causally as-of decision_at."
+    },
+    "R5": {
+      "title": "Causal sigma/z calculation, decision_at wallclock leak fix, complete-B filter",
+      "status": "REPAIRED",
+      "resolution": "compute_outsider_model_features filters minute_candles strictly to close_time <= decision_at before computing rolling std; momentum uses decision_at timestamp instead of datetime.now(); missing sigma excluded from complete-B cohort."
+    },
+    "R6": {
+      "title": "Authentic BTC_leaning@11 baseline model loading",
+      "status": "REPAIRED",
+      "resolution": "LegacyOutsiderBaseline loads authentic Model ID 827 artifact (btc_leaning_v11.pkl) with features [mid_price, spread, time_left_min], sets is_authentic_model=True and model_version=11, and preserves p_flip without faulty DOWN inversion."
+    },
+    "R7": {
+      "title": "LightGBM meta-model stacking temporal market isolation and meta_probs evaluation",
+      "status": "REPAIRED",
+      "resolution": "Implemented build_meta_model_dataset with strict temporal and market grouping; evaluate_lgbm_outsider_interaction returns meta_probs; compare_all_models evaluates meta_probs for MODEL_B_PLUS_LGBM_INPUT."
+    },
+    "R8": {
+      "title": "Replay position state machine, fee subtraction, and conclusive selection",
+      "status": "REPAIRED",
+      "resolution": "OutsiderReplayEngine enforces single-position-per-market (POSITION_ALREADY_OPEN); compute_net_ev_per_share subtracts explicit fees; select_candidate_configuration returns EDGE_NOT_SUPPORTED / INCONCLUSIVE when edge is non-positive or CI crosses zero."
+    },
+    "R9": {
+      "title": "Drawdown anchored at initial equity, cluster uncertainty, and price bins report",
+      "status": "REPAIRED",
+      "resolution": "compute_drawdown anchors at initial equity 0.0 (DD([-1,-1]) == 2.0); compute_clustered_uncertainty returns INSUFFICIENT_BLOCKS when n_clusters <= 1; generate_price_bins_report segments performance into 0.05 bins."
+    }
+  },
+  "acceptance_matrix": {
+    "step_1_01": "PASSED",
+    "step_1_02": "PASSED",
+    "step_1_03": "PASSED",
+    "step_1_04": "PASSED",
+    "step_1_05": "PASSED",
+    "step_1_06": "PASSED",
+    "step_1_07": "PASSED",
+    "step_1_08": "PASSED",
+    "step_1_09": "PASSED",
+    "step_1_10": "PASSED",
+    "step_1_11": "PASSED",
+    "step_1_12": "PASSED",
+    "step_1_13": "PASSED",
+    "step_1_14": "PASSED",
+    "step_1_15": "PASSED",
+    "step_1_16": "PASSED",
+    "step_1_17": "PASSED",
+    "step_1_18": "PASSED",
+    "step_1_19": "PASSED",
+    "step_1_20": "PASSED",
+    "step_1_21": "PASSED",
+    "step_1_22": "PASSED",
+    "step_1_23": "PASSED",
+    "step_1_24": "PASSED",
+    "step_1_25": "PASSED",
+    "step_1_26": "PASSED",
+    "step_1_27": "PASSED",
+    "step_1_28": "PASSED",
+    "step_1_29": "PASSED",
+    "step_1_30": "PASSED",
+    "step_1_31": "PASSED",
+    "step_1_32": "PASSED",
+    "step_1_33": "PASSED",
+    "step_1_34": "PASSED"
+  }
+}

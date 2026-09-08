@@ -205,33 +205,40 @@ def print_ablation_summary(results: dict[str, Any]) -> None:
     print("=" * 95 + "\n")
 
 
-def generate_ablation_dataset(n_markets: int = 16) -> pd.DataFrame:
-    """Generates synthetic multi-market decision rows for ablation benchmarks."""
+def generate_ablation_dataset(n_markets: int = 16, seed: int = 42) -> pd.DataFrame:
+    """Generates synthetic multi-market decision rows for ablation benchmarks with single settlement per market."""
+    from datetime import timedelta
     from polyflip.models.point_in_time_features import compute_outsider_model_features
-    np.random.seed(42)
+    rng = np.random.default_rng(seed)
     rows = []
+    base_t = pd.Timestamp("2026-09-01T12:00:00Z")
     for m in range(n_markets):
         m_id = f"market_{m:03d}"
-        market_bias = np.random.uniform(-0.3, 0.3)
+        market_bias = float(rng.uniform(-0.3, 0.3))
+        # Single ground-truth settlement for this market: 1 if UP won, 0 if DOWN won
+        market_settlement_up = int(rng.random() < (0.5 + market_bias * 0.5))
+        cand_side = "UP" if m % 2 == 0 else "DOWN"
+        y = market_settlement_up if cand_side == "UP" else (1 - market_settlement_up)
+
         for t_idx, tl in enumerate([10.0, 5.0, 2.0]):
-            outsider_mid = float(np.clip(0.35 + 0.05 * market_bias + np.random.normal(0, 0.02), 0.15, 0.48))
+            outsider_mid = float(np.clip(0.35 + 0.05 * market_bias + rng.normal(0, 0.02), 0.15, 0.48))
             spread = 0.02
             k = 50000.0
-            s = 50000.0 + 300.0 * market_bias + np.random.normal(0, 50.0)
-            lag30 = s - np.random.normal(10.0 * market_bias, 15.0)
-            lag120 = s - np.random.normal(30.0 * market_bias, 30.0)
-
-            prob_win = 1.0 / (1.0 + np.exp(-(1.5 * (s - k) / 200.0 + 0.8 * (s - lag30) / 20.0)))
-            y = int(np.random.rand() < prob_win)
+            s = 50000.0 + 300.0 * market_bias + float(rng.normal(0, 50.0))
+            lag30 = s - float(rng.normal(10.0 * market_bias, 15.0))
+            lag120 = s - float(rng.normal(30.0 * market_bias, 30.0))
+            decision_time = base_t + timedelta(hours=m, minutes=(15.0 - tl))
 
             rows.append({
                 "market_id": m_id,
                 "fold": m % 4,
                 "time_left_min": tl,
                 "target_time_point": tl,
+                "decision_at": decision_time,
+                "recorded_at": decision_time,
                 "mid_price": outsider_mid,
                 "outsider_mid": outsider_mid,
-                "candidate_side": "UP" if m % 2 == 0 else "DOWN",
+                "candidate_side": cand_side,
                 "spread": spread,
                 "candidate_spread": spread,
                 "underlying_price": s,
@@ -242,6 +249,8 @@ def generate_ablation_dataset(n_markets: int = 16) -> pd.DataFrame:
                 "executable_ask": outsider_mid + 0.01,
                 "target": y,
                 "y_candidate_win": y,
+                "final_outcome": "UP" if market_settlement_up == 1 else "DOWN",
+                "source_kind": "SYNTHETIC",
             })
 
     df = pd.DataFrame(rows)
@@ -249,7 +258,22 @@ def generate_ablation_dataset(n_markets: int = 16) -> pd.DataFrame:
 
 
 if __name__ == "__main__":
-    print("Running outsider ablation benchmark on synthetic integration dataset...")
-    df_cohort = generate_ablation_dataset(n_markets=20)
+    import argparse
+    parser = argparse.ArgumentParser(description="Outsider feature ablation study")
+    parser.add_argument("--mode", choices=["demo", "research"], default="demo", help="Execution mode")
+    parser.add_argument("--dataset", type=str, default=None, help="Path to research dataset (required in research mode)")
+    args = parser.parse_args()
+
+    if args.mode == "research" and not args.dataset:
+        print("INPUT_REQUIRED: Research mode requires an explicit dataset path (--dataset).")
+        sys.exit(2)
+
+    if args.dataset:
+        df_cohort = pd.read_parquet(args.dataset) if args.dataset.endswith(".parquet") else pd.read_csv(args.dataset)
+    else:
+        print("Running outsider ablation benchmark in DEMO mode on synthetic dataset...")
+        df_cohort = generate_ablation_dataset(n_markets=20)
+
     res = run_outsider_ablation(df_cohort)
     print_ablation_summary(res)
+

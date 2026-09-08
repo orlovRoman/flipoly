@@ -30,11 +30,14 @@ def compute_crypto_signal_strength(
 
 def compute_net_ev_per_share(
     p_win: float,
-    executable_ask: float,
+    executable_ask: float | None = None,
     fee_per_share: float = 0.0,
     slippage_per_share: float = 0.0,
     latency_buffer_per_share: float = 0.0,
     spread_buffer_per_share: float = 0.0,
+    *,
+    ask_price: float | None = None,
+    extra_cost_per_share: float = 0.0,
 ) -> float:
     """
     Unified canonical EV calculation:
@@ -42,14 +45,29 @@ def compute_net_ev_per_share(
 
     Note: executable_ask already reflects buying at the ask (paying half the spread);
     full spread must NOT be subtracted a second time.
+    Invalid or missing inputs return np.nan rather than 0.0 to prevent false-positive threshold passing.
     """
-    p = float(np.clip(p_win, 0.0, 1.0))
-    ask = float(executable_ask)
-    if ask <= 0.0 or ask >= 1.0:
-        return 0.0
-    costs = float(fee_per_share + slippage_per_share + latency_buffer_per_share + spread_buffer_per_share)
-    net_ev = p - ask - costs
+    ask = ask_price if ask_price is not None else executable_ask
+    if ask is None or p_win is None:
+        return np.nan
+    try:
+        ask_f = float(ask)
+        p_f = float(p_win)
+    except (ValueError, TypeError):
+        return np.nan
+
+    if not np.isfinite(ask_f) or not np.isfinite(p_f):
+        return np.nan
+    if ask_f <= 0.0 or ask_f >= 1.0:
+        return np.nan
+    if p_f < 0.0 or p_f > 1.0:
+        return np.nan
+    p_f = float(np.clip(p_f, 0.0, 1.0))
+
+    costs = float(fee_per_share + slippage_per_share + latency_buffer_per_share + spread_buffer_per_share + extra_cost_per_share)
+    net_ev = p_f - ask_f - costs
     return round(float(net_ev), 8)
+
 
 
 def compute_economic_edge(

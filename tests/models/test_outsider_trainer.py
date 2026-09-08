@@ -140,5 +140,7 @@ def test_model_b_collapses_to_a_when_b_features_are_constant(synthetic_cohort_da
     res_a = train_outsider_model(synthetic_cohort_data, feature_set="MODEL_A1")
 
     # With constant inputs, the predictions correlate very strongly (> 0.95)
-    corr = np.corrcoef(res_b_const.oof_predictions, res_a.oof_predictions)[0, 1]
+    valid_mask = np.isfinite(res_b_const.oof_predictions) & np.isfinite(res_a.oof_predictions)
+    assert np.sum(valid_mask) > 0
+    corr = np.corrcoef(res_b_const.oof_predictions[valid_mask], res_a.oof_predictions[valid_mask])[0, 1]
     assert corr > 0.95

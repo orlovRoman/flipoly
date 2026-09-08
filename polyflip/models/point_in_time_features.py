@@ -452,6 +452,14 @@ def compute_outsider_model_features(
     und_series = out["underlying_price"] if "underlying_price" in out.columns else pd.Series(np.nan, index=out.index)
     underlying_vals = pd.to_numeric(und_series, errors="coerce").to_numpy()
 
+    # Decision timestamp determination (strictly prioritizing decision_at over recorded_at)
+    if "decision_at" in out.columns:
+        t_decision = pd.to_datetime(out["decision_at"], utc=True)
+    elif "recorded_at" in out.columns:
+        t_decision = pd.to_datetime(out["recorded_at"], utc=True)
+    else:
+        t_decision = pd.Series([pd.Timestamp.now(tz=timezone.utc)] * len(out), index=out.index)
+
     # Volatility sigma_1m
     sig_series = out["sigma_1m"] if "sigma_1m" in out.columns else pd.Series(np.nan, index=out.index)
     sigma_vals = pd.to_numeric(sig_series, errors="coerce").to_numpy(copy=True)
@@ -461,18 +469,30 @@ def compute_outsider_model_features(
     nan_mask = ~has_computed_sigma
     if np.any(nan_mask):
         if minute_candles is not None and len(minute_candles) >= 10:
-            # Compute rolling 1m return std over window
-            close_series = pd.Series(minute_candles["close"]).astype(float)
-            ret_1m = np.log(close_series / close_series.shift(1))
-            est_sigma = float(ret_1m.tail(sigma_window_candles).std(ddof=1))
-            if np.isfinite(est_sigma) and est_sigma > 1e-9:
-                sigma_vals[nan_mask] = est_sigma
-                sigma_source[nan_mask] = "ROLLING_1M"
-                has_computed_sigma[nan_mask] = True
-            else:
-                sigma_vals[nan_mask] = 0.001
-                sigma_source[nan_mask] = "FALLBACK"
-                has_computed_sigma[nan_mask] = False
+            time_col = "close_time" if "close_time" in minute_candles.columns else ("timestamp" if "timestamp" in minute_candles.columns else None)
+            c_times = pd.to_datetime(minute_candles[time_col], utc=True) if time_col is not None else None
+
+            for idx in np.where(nan_mask)[0]:
+                t_dec = t_decision.iloc[idx]
+                if c_times is not None:
+                    causal_candles = minute_candles[c_times <= t_dec]
+                else:
+                    causal_candles = minute_candles
+
+                if len(causal_candles) >= 10:
+                    close_series = pd.Series(causal_candles["close"]).astype(float)
+                    ret_1m = np.log(close_series / close_series.shift(1)).dropna()
+                    if len(ret_1m) >= 2:
+                        est_sigma = float(ret_1m.tail(sigma_window_candles).std(ddof=1))
+                        if np.isfinite(est_sigma) and est_sigma > 1e-9:
+                            sigma_vals[idx] = est_sigma
+                            sigma_source[idx] = "ROLLING_1M"
+                            has_computed_sigma[idx] = True
+                            continue
+
+                sigma_vals[idx] = 0.001
+                sigma_source[idx] = "FALLBACK"
+                has_computed_sigma[idx] = False
         else:
             # Default fallback volatility (e.g. 0.001 per minute ~ 3.8% daily BTC vol)
             sigma_vals[nan_mask] = 0.001
@@ -510,15 +530,17 @@ def compute_outsider_model_features(
             candidate_side=sides_arr,
             has_ref=np.isfinite(lag30) & (lag30 > 0.0),
         )
-    elif underlying_observations:
+
+    if underlying_observations:
         from polyflip.crypto.underlying_observations import compute_underlying_return
         for idx in range(len(out)):
-            t_ref = out["recorded_at"].iloc[idx] if "recorded_at" in out.columns else datetime.now(timezone.utc)
-            r30, ok30 = compute_underlying_return(underlying_observations, as_of=t_ref, horizon_seconds=30.0)
-            if ok30 and r30 is not None:
-                s_factor = -1.0 if str(sides_arr[idx]).upper() in ("DOWN", "NO") else 1.0
-                ret_30[idx] = s_factor * r30
-                has_ret_30[idx] = True
+            if not has_ret_30[idx]:
+                t_ref = t_decision.iloc[idx].to_pydatetime()
+                r30, ok30 = compute_underlying_return(underlying_observations, as_of=t_ref, horizon_seconds=30.0)
+                if ok30 and r30 is not None:
+                    s_factor = -1.0 if str(sides_arr[idx]).upper() in ("DOWN", "NO") else 1.0
+                    ret_30[idx] = s_factor * r30
+                    has_ret_30[idx] = True
 
     if "underlying_lag_120s" in out.columns:
         lag120 = pd.to_numeric(out["underlying_lag_120s"], errors="coerce").to_numpy()
@@ -528,15 +550,17 @@ def compute_outsider_model_features(
             candidate_side=sides_arr,
             has_ref=np.isfinite(lag120) & (lag120 > 0.0),
         )
-    elif underlying_observations:
+
+    if underlying_observations:
         from polyflip.crypto.underlying_observations import compute_underlying_return
         for idx in range(len(out)):
-            t_ref = out["recorded_at"].iloc[idx] if "recorded_at" in out.columns else datetime.now(timezone.utc)
-            r120, ok120 = compute_underlying_return(underlying_observations, as_of=t_ref, horizon_seconds=120.0)
-            if ok120 and r120 is not None:
-                s_factor = -1.0 if str(sides_arr[idx]).upper() in ("DOWN", "NO") else 1.0
-                ret_120[idx] = s_factor * r120
-                has_ret_120[idx] = True
+            if not has_ret_120[idx]:
+                t_ref = t_decision.iloc[idx].to_pydatetime()
+                r120, ok120 = compute_underlying_return(underlying_observations, as_of=t_ref, horizon_seconds=120.0)
+                if ok120 and r120 is not None:
+                    s_factor = -1.0 if str(sides_arr[idx]).upper() in ("DOWN", "NO") else 1.0
+                    ret_120[idx] = s_factor * r120
+                    has_ret_120[idx] = True
 
     out["ret_outsider_30s"] = ret_30
     out["has_ret_30s_ref"] = has_ret_30
