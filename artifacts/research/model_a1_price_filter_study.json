@@ -1,0 +1,86 @@
+{
+  "timestamp": "2026-09-08T12:29:48.246115+00:00",
+  "study": "Model A1 Hard Max Price Filter Evaluation (Variant B)",
+  "dataset": "artifacts/weighted_policy/observations_30d.json",
+  "total_markets": 1744,
+  "grid_results": {
+    "max_price_0.30": {
+      "max_price": 0.3,
+      "n_trades": 8,
+      "win_rate": 0.375,
+      "net_pnl_usdc": 2.8672,
+      "expectancy": 0.3584,
+      "ci_lower": -0.585337,
+      "ci_upper": 1.690312,
+      "se": 0.61862,
+      "max_drawdown": 2.004,
+      "payoff_ratio": 2.6205
+    },
+    "max_price_0.35": {
+      "max_price": 0.35,
+      "n_trades": 27,
+      "win_rate": 0.4074,
+      "net_pnl_usdc": 8.2722,
+      "expectancy": 0.306378,
+      "ci_lower": -0.291242,
+      "ci_upper": 0.886893,
+      "se": 0.298775,
+      "max_drawdown": 5.0748,
+      "payoff_ratio": 2.2051
+    },
+    "max_price_0.40": {
+      "max_price": 0.4,
+      "n_trades": 86,
+      "win_rate": 0.4535,
+      "net_pnl_usdc": 22.3063,
+      "expectancy": 0.259376,
+      "ci_lower": -0.03623,
+      "ci_upper": 0.595607,
+      "se": 0.158347,
+      "max_drawdown": 10.02,
+      "payoff_ratio": 1.7759
+    },
+    "max_price_0.45": {
+      "max_price": 0.45,
+      "n_trades": 351,
+      "win_rate": 0.4188,
+      "net_pnl_usdc": 5.53,
+      "expectancy": 0.015755,
+      "ci_lower": -0.112188,
+      "ci_upper": 0.140189,
+      "se": 0.066092,
+      "max_drawdown": 15.9302,
+      "payoff_ratio": 1.4253
+    },
+    "max_price_0.50": {
+      "max_price": 0.5,
+      "n_trades": 528,
+      "win_rate": 0.4432,
+      "net_pnl_usdc": 11.6078,
+      "expectancy": 0.021984,
+      "ci_lower": -0.078399,
+      "ci_upper": 0.118025,
+      "se": 0.050477,
+      "max_drawdown": 18.7833,
+      "payoff_ratio": 1.3059
+    },
+    "max_price_0.95": {
+      "max_price": 0.95,
+      "n_trades": 528,
+      "win_rate": 0.4432,
+      "net_pnl_usdc": 11.6078,
+      "expectancy": 0.021984,
+      "ci_lower": -0.078399,
+      "ci_upper": 0.118025,
+      "se": 0.050477,
+      "max_drawdown": 18.7833,
+      "payoff_ratio": 1.3059
+    }
+  },
+  "delta_040_vs_base": {
+    "trades_delta": -442,
+    "pnl_delta_usdc": 10.6985,
+    "expectancy_multiple": 11.8,
+    "max_dd_reduction": 8.76
+  }
+}
