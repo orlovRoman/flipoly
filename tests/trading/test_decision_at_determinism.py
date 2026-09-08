@@ -324,26 +324,10 @@ def test_point_in_time_train_serve_parity():
         inf_row = df_inf[df_inf["_is_decision_row"]].iloc[0]
         train_row = df_train.iloc[dec_idx]
 
-        check_features = [
-            "pm_change_60s",
-            "pm_change_180s",
-            "has_60s_ref",
-            "has_180s_ref",
-            "history_age_seconds",
-            "legacy_last_poll_delta",
-            "price_distance_from_max",
-            "price_velocity",
-            "price_momentum",
-            "spread_trend",
-            "volume_trend",
-            "has_lag_history",
-            "price_deviation",
-            "spread_pct",
-            "log_time_left",
-            "day_of_week",
-        ]
+        shared_features = [c for c in df_inf.columns if not c.startswith("_")]
+        assert len(shared_features) >= 30, f"Expected >= 30 features, got {len(shared_features)}"
 
-        for feat in check_features:
+        for feat in shared_features:
             inf_val = float(inf_row[feat])
             train_val = float(train_row[feat])
             assert np.isclose(inf_val, train_val, atol=1e-7, equal_nan=True), (
@@ -415,3 +399,131 @@ def test_point_in_time_future_noise_invariance():
         assert np.isclose(v_inf, v_train, atol=1e-7, equal_nan=True), (
             f"Feature {col} diverged due to future noise: inf={v_inf} vs train={v_train}"
         )
+
+
+def test_point_in_time_missing_recorded_at_imputation():
+    """7. Снапшоты без явного recorded_at корректно восстанавливаются из time_left_min."""
+    base_time = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    decision_time = base_time + timedelta(minutes=5)
+    decision_id = "dec_missing_rec"
+
+    snap_no_rec = Snap(10.0, 0.46, 0.02, 0.01, 100.0, 12, None, "snap_no_rec")
+    snap_no_rec.recorded_at = None
+
+    df = build_inference_dataframe(
+        market=Market(),
+        history_snaps=[snap_no_rec],
+        fresh_yes_price=0.50,
+        fresh_spread=0.02,
+        global_max=0.50,
+        start_time=decision_time,
+        time_left_sec=300.0,
+        decision_id=decision_id,
+    )
+
+    assert bool(df.iloc[-1]["_is_decision_row"]) is True
+    assert df.iloc[-1]["_row_id"] == decision_id
+    inf_row = df[df["_is_decision_row"]].iloc[0]
+    assert inf_row["history_age_seconds"] == pytest.approx(300.0, abs=1.0)
+    assert inf_row["legacy_last_poll_delta"] == pytest.approx(0.50 - 0.46, abs=1e-6)
+
+
+def test_point_in_time_empty_market_id_handling():
+    """8. Снапшоты с пустым market_id наследуют market_id текущего рынка и не теряют историю."""
+    base_time = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    decision_time = base_time + timedelta(minutes=2)
+
+    snap_empty_m = Snap(15.0, 0.45, 0.02, 0.01, 100.0, 12, base_time, "snap_empty_m")
+    snap_empty_m.market_id = ""
+
+    market = Market()
+    market.market_id = "market_explicit_123"
+
+    df = build_inference_dataframe(
+        market=market,
+        history_snaps=[snap_empty_m],
+        fresh_yes_price=0.48,
+        fresh_spread=0.02,
+        global_max=0.50,
+        start_time=decision_time,
+        time_left_sec=780.0,
+        decision_id="dec_empty_m",
+    )
+
+    inf_row = df[df["_is_decision_row"]].iloc[0]
+    assert inf_row["history_age_seconds"] == pytest.approx(120.0, abs=1.0)
+    assert inf_row["legacy_last_poll_delta"] == pytest.approx(0.48 - 0.45, abs=1e-6)
+
+
+def test_raw_model_inference_with_historical_nans():
+    """9. Модели без SimpleImputer (напр. LGBM) успешно предсказывают по decision row при наличии NaN в истории."""
+    base_time = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    decision_time = base_time + timedelta(minutes=5)
+    decision_id = "dec_raw_clf"
+
+    # History containing snapshot at t=4m (60s ago)
+    history = [
+        Snap(15.0, 0.45, 0.02, 0.0, 100.0, 12, base_time, "s1"),
+        Snap(11.0, 0.47, 0.02, 0.01, 120.0, 12, base_time + timedelta(minutes=4), "s2"),
+    ]
+
+    features = ["mid_price", "pm_change_60s", "price_distance_from_max"]
+    df = build_inference_dataframe(
+        market=Market(),
+        history_snaps=history,
+        fresh_yes_price=0.50,
+        fresh_spread=0.02,
+        global_max=0.50,
+        start_time=decision_time,
+        time_left_sec=600.0,
+        decision_id=decision_id,
+    )
+
+    # s1 has pm_change_60s = NaN
+    assert pd.isna(df[df["_row_id"] == "s1"].iloc[0]["pm_change_60s"])
+    # Decision row has valid finite pm_change_60s
+    assert np.isfinite(df[df["_is_decision_row"]].iloc[0]["pm_change_60s"])
+
+    # Raw model without SimpleImputer step
+    raw_clf = LogisticRegression()
+    raw_clf.classes_ = np.array([0, 1])
+    raw_clf.coef_ = np.array([[0.5, 1.0, -0.5]])
+    raw_clf.intercept_ = np.array([0.0])
+
+    p = run_model_inference(df, raw_clf, features, decision_row_id=decision_id)
+    assert 0.0 <= p <= 1.0
+
+
+def test_apply_market_feature_pipeline_contract():
+    """10. Контракт единого builder apply_market_feature_pipeline идентичен цепочке функций."""
+    from polyflip.models.point_in_time_features import apply_market_feature_pipeline
+    from polyflip.models.trainer import add_derived_features
+    from polyflip.models.feature_lags import add_lag_features
+    from polyflip.models.point_in_time_features import compute_point_in_time_features
+
+    now = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    raw_df = pd.DataFrame([{
+        "market_id": "m1",
+        "recorded_at": now,
+        "time_left_min": 15.0,
+        "mid_price": 0.50,
+        "spread": 0.01,
+        "price_velocity": 0.0,
+        "volume_5min": 100.0,
+        "hour_of_day": 12,
+        "day_of_week": float(now.weekday()),
+        "market_duration_min": 15.0,
+    }])
+
+    df1 = raw_df.copy()
+    df1 = add_derived_features(df1)
+    df1 = add_lag_features(df1)
+    df1 = compute_point_in_time_features(df1)
+
+    df2 = apply_market_feature_pipeline(raw_df.copy())
+
+    assert list(df1.columns) == list(df2.columns)
+    for col in df1.columns:
+        if df1[col].dtype.kind in "fc":
+            assert np.isclose(df1[col].values, df2[col].values, atol=1e-9, equal_nan=True).all()
+

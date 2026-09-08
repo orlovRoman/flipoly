@@ -89,6 +89,7 @@ async def _get_training_semaphore(db: AsyncSession) -> asyncio.Semaphore:
 from polyflip.models.feature_lags import add_lag_features, LAG_FEATURE_NAMES
 from polyflip.models.point_in_time_features import (
     compute_point_in_time_features,
+    apply_market_feature_pipeline,
     POINT_IN_TIME_FEATURE_NAMES,
 )
 from polyflip.models.sequence_features import (
@@ -825,6 +826,7 @@ class ModelTrainer:
                 "hour_of_day": s.hour_of_day,
                 "day_of_week": float(s.recorded_at.weekday()) if s.recorded_at else 0.0,
                 "final_outcome": s.final_outcome,
+                "market_duration_min": float(getattr(s, "market_duration_min", 15.0) or 15.0),
             })
             
         df = pd.DataFrame(data)
@@ -885,10 +887,8 @@ class ModelTrainer:
             )
             return False
 
-        # Добавляем инженерные признаки по полной причинной истории
-        df = add_derived_features(df)
-        df = add_lag_features(df)
-        df = compute_point_in_time_features(df)
+        # Добавляем инженерные признаки по полной причинной истории через единый builder
+        df = apply_market_feature_pipeline(df)
 
         # Фильтруем строки для обучения (таргет):
         # 1. time_left_min в диапазоне [min_time_min, max_time_min]

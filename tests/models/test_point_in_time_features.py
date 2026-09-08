@@ -130,3 +130,27 @@ def test_point_in_time_feature_names_constant():
         "history_age_seconds",
     )
     assert POINT_IN_TIME_FEATURE_NAMES == expected
+
+
+def test_apply_market_feature_pipeline_export_and_chaining():
+    from polyflip.models.point_in_time_features import apply_market_feature_pipeline
+    df = pd.DataFrame([{
+        "market_id": "m1",
+        "recorded_at": pd.Timestamp("2026-01-01 12:00:00", tz="UTC"),
+        "time_left_min": 15.0,
+        "mid_price": 0.50,
+        "spread": 0.01,
+        "price_velocity": 0.0,
+        "volume_5min": 100.0,
+        "hour_of_day": 12,
+        "day_of_week": 3.0,
+        "market_duration_min": 15.0,
+    }])
+    res = apply_market_feature_pipeline(df)
+    for expected_col in (
+        "pm_change_60s", "pm_change_180s", "has_60s_ref", "has_180s_ref",
+        "history_age_seconds", "legacy_last_poll_delta", "price_distance_from_max",
+        "price_deviation", "spread_pct", "time_phase", "velocity_x_phase",
+    ):
+        assert expected_col in res.columns
+

@@ -37,6 +37,29 @@ POINT_IN_TIME_FEATURE_NAMES: tuple[str, ...] = (
 )
 
 
+def apply_market_feature_pipeline(
+    df: pd.DataFrame,
+    decision_at: datetime | None = None,
+    global_max: float | None = None,
+) -> pd.DataFrame:
+    """
+    Unified feature pipeline applied identically in both training (ModelTrainer.train_model)
+    and live inference (build_inference_dataframe).
+    Chains:
+      1. add_derived_features
+      2. add_lag_features
+      3. compute_point_in_time_features
+    Guarantees complete train/serve parity and prefix invariance.
+    """
+    from polyflip.models.trainer import add_derived_features
+    from polyflip.models.feature_lags import add_lag_features
+
+    df = add_derived_features(df)
+    df = add_lag_features(df)
+    df = compute_point_in_time_features(df, decision_at=decision_at, global_max=global_max)
+    return df
+
+
 def compute_point_in_time_features(
     df: pd.DataFrame,
     decision_at: datetime | None = None,
@@ -68,6 +91,20 @@ def compute_point_in_time_features(
     else:
         out["_rec_dt"] = pd.date_range("2026-01-01", periods=len(out), freq="1min", tz="UTC")
 
+    # If some values are NaT, fill them causally
+    if out["_rec_dt"].isna().any():
+        if decision_at is not None:
+            dec_dt = pd.to_datetime(decision_at, utc=True)
+            if "time_left_min" in out.columns:
+                dec_rows = out[out["_is_decision_row"]] if "_is_decision_row" in out.columns else pd.DataFrame()
+                dec_time_left = float(dec_rows["time_left_min"].iloc[0]) if len(dec_rows) > 0 else 0.0
+                deltas = (pd.to_numeric(out["time_left_min"], errors="coerce").fillna(0.0) - dec_time_left)
+                imputed = [dec_dt - timedelta(minutes=float(d)) if float(d) > 0 else dec_dt for d in deltas]
+                out["_rec_dt"] = out["_rec_dt"].fillna(pd.Series(imputed, index=out.index))
+        out["_rec_dt"] = out["_rec_dt"].bfill().ffill()
+        if out["_rec_dt"].isna().any():
+            out["_rec_dt"] = out["_rec_dt"].fillna(pd.Timestamp.now(tz=timezone.utc))
+
     # If decision_at is specified, strictly exclude any rows beyond decision_at
     if decision_at is not None:
         dec_utc = pd.to_datetime(decision_at, utc=True)
@@ -79,13 +116,14 @@ def compute_point_in_time_features(
     if market_col not in out.columns:
         out[market_col] = "m_default"
     else:
-        out[market_col] = out[market_col].fillna("m_default")
+        out[market_col] = out[market_col].replace("", "m_default").fillna("m_default")
 
-    # Sort deterministically: market, recorded_at, and decision row last on collision
+    # Sort deterministically: market, recorded_at, decision row last on collision, original order tiebreaker
     sort_cols = [market_col, "_rec_dt"]
     if "_is_decision_row" in out.columns:
         sort_cols.append("_is_decision_row")
-    out = out.sort_values(sort_cols).reset_index(drop=True)
+    sort_cols.append("_orig_row_pos")
+    out = out.sort_values(sort_cols, kind="stable").reset_index(drop=True)
 
     pm_change_60s = []
     pm_change_180s = []

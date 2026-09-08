@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 import structlog
 from dataclasses import dataclass, field
@@ -221,9 +221,24 @@ def build_inference_dataframe(
     Строит DataFrame для инференса модели на основе исторических снапшотов и текущих (свежих) данных.
     Явно помечает decision row по decision_id.
     """
-    eff_decision_id = decision_id or f"decision_{getattr(market, 'market_id', '')}_{start_time.isoformat()}"
+    start_time_utc = start_time if getattr(start_time, "tzinfo", None) is not None else start_time.replace(tzinfo=timezone.utc)
+    eff_market_id = getattr(market, "market_id", "") or "m_default"
+    eff_decision_id = decision_id or f"decision_{eff_market_id}_{start_time_utc.isoformat()}"
     rows = []
     for i, snap in enumerate(history_snaps):
+        snap_market_id = getattr(snap, "market_id", "") or eff_market_id
+        snap_rec = getattr(snap, "recorded_at", None)
+        if snap_rec is not None:
+            if getattr(snap_rec, "tzinfo", None) is None:
+                snap_rec = snap_rec.replace(tzinfo=timezone.utc)
+        else:
+            snap_time_left = float(getattr(snap, "time_left_min", 0.0) or 0.0)
+            dec_time_left = time_left_sec / 60.0
+            if snap_time_left > 0.0 and dec_time_left > 0.0:
+                snap_rec = start_time_utc - timedelta(minutes=(snap_time_left - dec_time_left))
+            else:
+                snap_rec = start_time_utc - timedelta(seconds=max(1, len(history_snaps) - i) * 60)
+
         rows.append({
             "time_left_min": getattr(snap, "time_left_min", 0.0),
             "mid_price": getattr(snap, "mid_price", 0.0),
@@ -231,8 +246,8 @@ def build_inference_dataframe(
             "price_velocity": getattr(snap, "price_velocity", 0.0),
             "volume_5min": getattr(snap, "volume_5min", 0.0),
             "hour_of_day": getattr(snap, "hour_of_day", 0),
-            "market_id": getattr(snap, "market_id", ""),
-            "recorded_at": getattr(snap, "recorded_at", None),
+            "market_id": snap_market_id,
+            "recorded_at": snap_rec,
             "market_duration_min": float(getattr(snap, "market_duration_min", 15.0) or 15.0),
             "_row_id": str(getattr(snap, "id", None) or f"hist_{i}"),
             "_is_decision_row": False,
@@ -244,22 +259,18 @@ def build_inference_dataframe(
         "spread": fresh_spread,
         "price_velocity": getattr(market, "price_velocity", 0.0) or 0.0,
         "volume_5min": getattr(market, "volume_5min", 0.0) or 0.0,
-        "hour_of_day": start_time.hour,
-        "market_id": getattr(market, "market_id", ""),
-        "recorded_at": start_time,
+        "hour_of_day": start_time_utc.hour,
+        "market_id": eff_market_id,
+        "recorded_at": start_time_utc,
         "market_duration_min": float(getattr(market, "market_duration_min", 15.0) or 15.0),
         "_row_id": eff_decision_id,
         "_is_decision_row": True,
     })
     
-    from polyflip.models.trainer import add_derived_features
-    from polyflip.models.feature_lags import add_lag_features
-    from polyflip.models.point_in_time_features import compute_point_in_time_features
+    from polyflip.models.point_in_time_features import apply_market_feature_pipeline
 
     df = pd.DataFrame(rows)
-    df = add_derived_features(df)
-    df = add_lag_features(df)
-    df = compute_point_in_time_features(df, decision_at=start_time, global_max=global_max)
+    df = apply_market_feature_pipeline(df, decision_at=start_time_utc, global_max=global_max)
     
     if closed_candles is not None:
         from polyflip.models.sequence_features import attach_closed_candle_features
@@ -270,7 +281,7 @@ def build_inference_dataframe(
     if "recorded_at" in df.columns:
         df["day_of_week"] = pd.to_datetime(df["recorded_at"]).dt.dayofweek.astype(float)
         # Deterministic sort keeping decision_row traceable via _row_id
-        df = df.sort_values(["recorded_at", "_is_decision_row"]).reset_index(drop=True)
+        df = df.sort_values(["recorded_at", "_is_decision_row"], kind="stable").reset_index(drop=True)
         df = df.drop(columns=["recorded_at"], errors="ignore")
     if "market_id" in df.columns:
         df = df.drop(columns=["market_id"], errors="ignore")
@@ -312,14 +323,28 @@ def run_model_inference(
             df[col] = 0.0
 
     X = df[features]
+
+    # Determine row index for inference
+    if decision_row_id is not None and "_row_id" in df.columns:
+        matching = np.where(df["_row_id"].astype(str) == str(decision_row_id))[0]
+        row_idx = int(matching[0]) if len(matching) > 0 else -1
+    elif "_is_decision_row" in df.columns:
+        matching = np.where(df["_is_decision_row"].astype(bool))[0]
+        row_idx = int(matching[0]) if len(matching) > 0 else -1
+    else:
+        row_idx = -1
+
+    # Extract target decision row for evaluation
+    X_target = X.iloc[[row_idx]]
+
     has_imputer = (
         hasattr(model, "named_steps") and "imputer" in getattr(model, "named_steps", {})
     )
     if not has_imputer:
-        non_finite = ~np.isfinite(X.astype(float).to_numpy())
+        non_finite = ~np.isfinite(X_target.astype(float).to_numpy())
         if non_finite.any():
             invalid_features = sorted(set(
-                X.columns[np.flatnonzero(non_finite.any(axis=0))].tolist()
+                X_target.columns[np.flatnonzero(non_finite.any(axis=0))].tolist()
             ))
             raise ValueError(
                 "MODEL_FEATURE_DATA_UNAVAILABLE: non-finite values for "
@@ -346,17 +371,7 @@ def run_model_inference(
             )
             raise ValueError(f"Feature order mismatch: expected {expected_features}, got {actual_features}")
 
-    # Determine row index for inference
-    if decision_row_id is not None and "_row_id" in df.columns:
-        matching = np.where(df["_row_id"].astype(str) == str(decision_row_id))[0]
-        row_idx = int(matching[0]) if len(matching) > 0 else -1
-    elif "_is_decision_row" in df.columns:
-        matching = np.where(df["_is_decision_row"].astype(bool))[0]
-        row_idx = int(matching[0]) if len(matching) > 0 else -1
-    else:
-        row_idx = -1
-
-    proba = model.predict_proba(X)
+    proba = model.predict_proba(X_target)
 
     # Determine positive class index using classes_ contract
     classes = None
@@ -388,12 +403,12 @@ def run_model_inference(
         pos_idx = 1
 
     try:
-        p_flip = float(proba[row_idx][pos_idx])
+        p_flip = float(proba[0][pos_idx])
     except (IndexError, KeyError) as e:
         logger.warning(
             "inference_prediction_index_error",
             error=str(e),
-            row_idx=row_idx,
+            row_idx=0,
             pos_idx=pos_idx,
             proba_shape=getattr(proba, "shape", None),
             model_type=type(model).__name__,
