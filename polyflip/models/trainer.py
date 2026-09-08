@@ -677,6 +677,8 @@ def _fit_and_serialize(
         "ece": round(float(ece), 6),
         "ece_diag": ece_diag,
         "model_config": {"penalty": "l2", "solver": "lbfgs", "C": best_C, "class_weight": None},
+        "best_c": best_C,
+        "c_selected_per_fold": fold_c_selected,
         "c_search_loss": {str(key): round(float(value), 6) for key, value in c_final_losses.items()},
         "market_balanced_weights": True,
     })
