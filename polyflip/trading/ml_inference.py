@@ -14,17 +14,47 @@ logger = structlog.get_logger(__name__)
 
 @dataclass
 class ModelsCache:
-    models: dict[str, Any]
-    versions: dict[str, int]
-    features: dict[str, list[str]]
+    models: dict[str, Any] = field(default_factory=dict)
+    versions: dict[str, int] = field(default_factory=dict)
+    features: dict[str, list[str]] = field(default_factory=dict)
     eces: dict[str, float] = field(default_factory=dict) # BUG-AO
+    entries: dict[tuple[str, str, int], Any] = field(default_factory=dict)
+
+    def get(self, asset: str, model_type: str = "logreg", version: int | None = None) -> Any | None:
+        m_type = model_type.lower()
+        if version is not None:
+            return self.entries.get((m_type, asset, version))
+        v = self.versions.get(asset)
+        if v is not None and (m_type, asset, v) in self.entries:
+            return self.entries[(m_type, asset, v)]
+        for (mtype, a, ver), model in self.entries.items():
+            if mtype == m_type and a == asset:
+                return model
+        return self.models.get(asset)
+
+    def put(
+        self,
+        asset: str,
+        model: Any,
+        model_type: str = "logreg",
+        version: int = 1,
+        features: list[str] | None = None,
+        ece: float = 0.0,
+    ) -> None:
+        m_type = model_type.lower()
+        self.entries[(m_type, asset, version)] = model
+        if m_type == "logreg" or asset not in self.models:
+            self.models[asset] = model
+            self.versions[asset] = version
+            self.features[asset] = features or []
+            self.eces[asset] = ece
 
 _models_cache = None
 
 def get_models_cache() -> ModelsCache:
     global _models_cache
     if _models_cache is None:
-        _models_cache = ModelsCache(models={}, versions={}, features={}, eces={})
+        _models_cache = ModelsCache(models={}, versions={}, features={}, eces={}, entries={})
     return _models_cache
 
 def clear_models_cache() -> None:
@@ -34,26 +64,34 @@ def clear_models_cache() -> None:
 async def populate_models_cache(db_session: AsyncSession) -> None:
     cache = get_models_cache()
     
-    # 1. Запрашиваем asset и version активных моделей
-    stmt = select(ModelRegistry.asset, ModelRegistry.version).where(ModelRegistry.is_active)
+    # 1. Запрашиваем asset, version и model_type активных моделей
+    stmt = select(ModelRegistry.asset, ModelRegistry.version, ModelRegistry.model_type).where(ModelRegistry.is_active)
     res = await db_session.execute(stmt)
     active_info = res.all()
     
+    active_keys = {
+        ((row.model_type or "logreg").lower(), row.asset, row.version)
+        for row in active_info
+    }
     db_assets = {row.asset for row in active_info}
     
     # 2. Удаляем из кэша модели, которые больше не активны в базе
+    for cached_key in list(cache.entries.keys()):
+        if cached_key not in active_keys:
+            cache.entries.pop(cached_key, None)
+
     for cached_asset in list(cache.models.keys()):
         if cached_asset not in db_assets:
             cache.models.pop(cached_asset, None)
             cache.versions.pop(cached_asset, None)
             cache.features.pop(cached_asset, None)
-            cache.eces.pop(cached_asset, None) # BUG-AO
+            cache.eces.pop(cached_asset, None)
             
     # 3. Находим модели, версии которых изменились или которых нет в кэше
     to_load = []
     for row in active_info:
-        cached_ver = cache.versions.get(row.asset)
-        if cached_ver is None or cached_ver != row.version:
+        m_type = (row.model_type or "logreg").lower()
+        if (m_type, row.asset, row.version) not in cache.entries:
             to_load.append(row.asset)
             
     if not to_load:
@@ -69,16 +107,21 @@ async def populate_models_cache(db_session: AsyncSession) -> None:
     for m in models_to_load:
         try:
             model_obj = pickle.loads(m.model_blob)
-            cache.models[m.asset] = model_obj
-            cache.versions[m.asset] = m.version
-            cache.eces[m.asset] = m.ece or 0.0 # BUG-AO
-            
-            m_feats = [f.strip() for f in m.features.split(",") if f.strip()] if m.features else []
-            if not m_feats and hasattr(model_obj, "feature_names_in_"):
-                m_feats = list(model_obj.feature_names_in_)
+            m_type = (m.model_type or "logreg").lower()
+            cache.entries[(m_type, m.asset, m.version)] = model_obj
+
+            # LogReg takes precedence in legacy cache.models to prevent clobbering by LGBM
+            if m.asset not in cache.models or m_type in ("logreg", "logisticregression"):
+                cache.models[m.asset] = model_obj
+                cache.versions[m.asset] = m.version
+                cache.eces[m.asset] = m.ece or 0.0
                 
-            cache.features[m.asset] = m_feats
-            logger.info("model_cache_updated", asset=m.asset, version=m.version)
+                m_feats = [f.strip() for f in m.features.split(",") if f.strip()] if m.features else []
+                if not m_feats and hasattr(model_obj, "feature_names_in_"):
+                    m_feats = list(model_obj.feature_names_in_)
+                cache.features[m.asset] = m_feats
+
+            logger.info("model_cache_updated", asset=m.asset, version=m.version, model_type=m_type)
         except Exception as e:
             logger.error("Failed to load model", asset=m.asset, error=str(e))
 
@@ -93,6 +136,7 @@ async def populate_models_cache(db_session: AsyncSession) -> None:
         base_models=sorted(base_keys),
         phase_models=sorted(phase_keys),
         total=len(cache.models),
+        total_entries=len(cache.entries),
     )
 
 
@@ -105,12 +149,15 @@ def build_inference_dataframe(
     start_time: datetime,
     time_left_sec: float,
     closed_candles: list[Any] | None = None,
+    decision_id: str | None = None,
 ) -> pd.DataFrame:
     """
     Строит DataFrame для инференса модели на основе исторических снапшотов и текущих (свежих) данных.
+    Явно помечает decision row по decision_id.
     """
+    eff_decision_id = decision_id or f"decision_{getattr(market, 'market_id', '')}_{start_time.isoformat()}"
     rows = []
-    for snap in history_snaps:
+    for i, snap in enumerate(history_snaps):
         rows.append({
             "time_left_min": getattr(snap, "time_left_min", 0.0),
             "mid_price": getattr(snap, "mid_price", 0.0),
@@ -121,6 +168,8 @@ def build_inference_dataframe(
             "market_id": getattr(snap, "market_id", ""),
             "recorded_at": getattr(snap, "recorded_at", None),
             "market_duration_min": float(getattr(snap, "market_duration_min", 15.0) or 15.0),
+            "_row_id": str(getattr(snap, "id", None) or f"hist_{i}"),
+            "_is_decision_row": False,
         })
         
     rows.append({
@@ -133,6 +182,8 @@ def build_inference_dataframe(
         "market_id": getattr(market, "market_id", ""),
         "recorded_at": start_time,
         "market_duration_min": float(getattr(market, "market_duration_min", 15.0) or 15.0),
+        "_row_id": eff_decision_id,
+        "_is_decision_row": True,
     })
     
     from polyflip.models.trainer import add_derived_features
@@ -151,7 +202,8 @@ def build_inference_dataframe(
 
     if "recorded_at" in df.columns:
         df["day_of_week"] = pd.to_datetime(df["recorded_at"]).dt.dayofweek.astype(float)
-        df = df.sort_values("recorded_at").reset_index(drop=True)
+        # Deterministic sort keeping decision_row traceable via _row_id
+        df = df.sort_values(["recorded_at", "_is_decision_row"]).reset_index(drop=True)
         df = df.drop(columns=["recorded_at"], errors="ignore")
     if "market_id" in df.columns:
         df = df.drop(columns=["market_id"], errors="ignore")
@@ -163,10 +215,12 @@ def run_model_inference(
     df: pd.DataFrame,
     model: Any,
     features: list[str],
+    decision_row_id: str | None = None,
 ) -> float:
     """
     Прогоняет DataFrame через модель и возвращает вероятность для класса 1 (flip).
-    Если модель возвращает только один класс, возвращает 0.0.
+    Если модель возвращает только один класс, возвращает 0.0 (или 1.0 если единственный класс - 1).
+    Возвращает предсказание конкретно для decision row по decision_row_id или _is_decision_row.
     """
     missing = [f for f in features if f not in df.columns]
     if missing:
@@ -191,15 +245,19 @@ def run_model_inference(
             df[col] = 0.0
 
     X = df[features]
-    non_finite = ~np.isfinite(X.astype(float).to_numpy())
-    if non_finite.any():
-        invalid_features = sorted(set(
-            X.columns[np.flatnonzero(non_finite.any(axis=0))].tolist()
-        ))
-        raise ValueError(
-            "MODEL_FEATURE_DATA_UNAVAILABLE: non-finite values for "
-            f"{invalid_features}"
-        )
+    has_imputer = (
+        hasattr(model, "named_steps") and "imputer" in getattr(model, "named_steps", {})
+    )
+    if not has_imputer:
+        non_finite = ~np.isfinite(X.astype(float).to_numpy())
+        if non_finite.any():
+            invalid_features = sorted(set(
+                X.columns[np.flatnonzero(non_finite.any(axis=0))].tolist()
+            ))
+            raise ValueError(
+                "MODEL_FEATURE_DATA_UNAVAILABLE: non-finite values for "
+                f"{invalid_features}"
+            )
 
     # Явная проверка порядка фич
     expected_features = None
@@ -221,11 +279,45 @@ def run_model_inference(
             )
             raise ValueError(f"Feature order mismatch: expected {expected_features}, got {actual_features}")
 
+    # Determine row index for inference
+    if decision_row_id is not None and "_row_id" in df.columns:
+        matching = np.where(df["_row_id"].astype(str) == str(decision_row_id))[0]
+        row_idx = int(matching[0]) if len(matching) > 0 else -1
+    elif "_is_decision_row" in df.columns:
+        matching = np.where(df["_is_decision_row"].astype(bool))[0]
+        row_idx = int(matching[0]) if len(matching) > 0 else -1
+    else:
+        row_idx = -1
+
     proba = model.predict_proba(X)
-    
+
+    # Determine positive class index using classes_ contract
+    classes = None
+    if hasattr(model, "classes_"):
+        classes = list(model.classes_)
+    elif hasattr(model, "named_steps") and hasattr(model.named_steps.get("model"), "classes_"):
+        classes = list(model.named_steps["model"].classes_)
+    elif hasattr(model, "calibrated_classifiers_") and model.calibrated_classifiers_:
+        cal = model.calibrated_classifiers_[0]
+        classes = getattr(cal, "classes_", None) or getattr(getattr(cal, "estimator", None), "classes_", None)
+        if classes is not None:
+            classes = list(classes)
+
+    if classes is not None:
+        if 1 in classes:
+            pos_idx = classes.index(1)
+        elif True in classes:
+            pos_idx = classes.index(True)
+        elif len(classes) == 1:
+            return 1.0 if classes[0] in (1, True) else 0.0
+        else:
+            pos_idx = 1
+    else:
+        pos_idx = 1
+
     try:
-        p_flip = float(proba[-1][1])
-    except IndexError:
+        p_flip = float(proba[row_idx][pos_idx])
+    except (IndexError, KeyError):
         p_flip = 0.0
-        
+
     return p_flip

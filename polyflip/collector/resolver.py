@@ -106,7 +106,8 @@ async def resolve_pending_markets(db_session: AsyncSession):
                             
                             if final_outcome in ("YES", "NO"):
                                 if snap.mid_price == 0.5:
-                                    snap.flip_vs_final = False
+                                    # At mid_price == 0.5, neither side is favourite; flip is undefined
+                                    snap.flip_vs_final = None
                                 else:
                                     market_believed_yes = snap.mid_price > 0.5
                                     actual_is_yes = (final_outcome == "YES")

@@ -1,10 +1,12 @@
 import asyncio
+from dataclasses import dataclass
 import httpx
 from typing import List, Dict, Any, TypedDict
 from datetime import datetime, timezone
 import structlog
 import json
 import time
+import pandas as pd
 from polyflip.constants import HTTP_TIMEOUT_SEC, VOLUME_WINDOW_MIN
 
 logger = structlog.get_logger(__name__)
@@ -22,29 +24,80 @@ class MarketPricesResult(TypedDict, total=False):
     bids: list[dict[str, float]]
     asks: list[dict[str, float]]
 
-def _canonical_strike(market: Dict[str, Any], event: Dict[str, Any]) -> float | None:
-    """Extract Polymarket's opening/Chainlink strike without Binance fallbacks."""
+@dataclass(frozen=True)
+class StrikeProvenance:
+    strike_value: float | None
+    strike_source: str
+    strike_effective_at: datetime | None
+    strike_received_at: datetime | None
+
+    def __float__(self) -> float:
+        return float(self.strike_value or 0.0)
+
+
+@dataclass(frozen=True)
+class VolumeResult:
+    volume: float | None
+    status: str  # "VALID", "HTTP_ERROR", "AUTH_REQUIRED", "PARSE_ERROR", "UNAVAILABLE"
+    timestamp: datetime
+    source: str = "CLOB_TRADES"
+
+    def __float__(self) -> float:
+        return float(self.volume or 0.0)
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, (int, float)):
+            return float(self) == float(other)
+        return super().__eq__(other)
+
+
+def _canonical_strike_provenance(market: Dict[str, Any], event: Dict[str, Any]) -> StrikeProvenance:
+    """Extract Polymarket opening/Chainlink strike with full provenance."""
+    now = datetime.now(timezone.utc)
     candidates = [
-        market.get("underlying_price"),
-        market.get("underlyingPrice"),
-        market.get("strike"),
-        market.get("strikePrice"),
-        market.get("priceToBeat"),
-        market.get("openingPrice"),
-        event.get("underlying_price"),
-        event.get("underlyingPrice"),
-        event.get("strike"),
-        event.get("strikePrice"),
-        event.get("priceToBeat"),
+        ("market.underlying_price", market.get("underlying_price")),
+        ("market.underlyingPrice", market.get("underlyingPrice")),
+        ("market.strike", market.get("strike")),
+        ("market.strikePrice", market.get("strikePrice")),
+        ("market.priceToBeat", market.get("priceToBeat")),
+        ("market.openingPrice", market.get("openingPrice")),
+        ("event.underlying_price", event.get("underlying_price")),
+        ("event.underlyingPrice", event.get("underlyingPrice")),
+        ("event.strike", event.get("strike")),
+        ("event.strikePrice", event.get("strikePrice")),
+        ("event.priceToBeat", event.get("priceToBeat")),
     ]
-    for candidate in candidates:
+    effective_at = None
+    start_str = market.get("startDate") or market.get("market_start") or event.get("startDate")
+    if start_str:
+        try:
+            effective_at = pd.to_datetime(start_str, utc=True).to_pydatetime()
+        except Exception:
+            effective_at = None
+
+    for src_name, candidate in candidates:
         try:
             value = float(candidate)
         except (TypeError, ValueError):
             continue
         if value > 0.0 and value == value and value != float("inf"):
-            return value
-    return None
+            return StrikeProvenance(
+                strike_value=value,
+                strike_source=src_name,
+                strike_effective_at=effective_at or now,
+                strike_received_at=now,
+            )
+    return StrikeProvenance(
+        strike_value=None,
+        strike_source="UNKNOWN",
+        strike_effective_at=effective_at,
+        strike_received_at=now,
+    )
+
+
+def _canonical_strike(market: Dict[str, Any], event: Dict[str, Any]) -> float | None:
+    """Extract Polymarket's opening/Chainlink strike without Binance fallbacks."""
+    return _canonical_strike_provenance(market, event).strike_value
 
 class PolymarketClient:
     GAMMA_API = "https://gamma-api.polymarket.com"
@@ -417,25 +470,26 @@ class PolymarketClient:
             logger.error("error_fetching_clob_book", market_id=yes_token_id, error=str(e))
             return {"error": f"API Error: {str(e)}"}
 
-    async def get_recent_trades_volume(self, yes_token_id: str, minutes: int = VOLUME_WINDOW_MIN) -> float:
+    async def get_recent_trades_volume(self, yes_token_id: str, minutes: int = VOLUME_WINDOW_MIN) -> VolumeResult:
         """
         Получает историю сделок из CLOB API и суммирует объем за последние N минут.
-        Используется для вычисления volume_5min (BUG-003).
+        Возвращает VolumeResult с явным статусом (VALID, AUTH_REQUIRED, HTTP_ERROR, UNAVAILABLE).
         """
+        now = datetime.now(timezone.utc)
         try:
             # Пытаемся получить последние сделки по токену
             response = await self.client.get(f"{self.CLOB_API}/trades", params={"token_id": yes_token_id})
+            if response.status_code == 401:
+                return VolumeResult(volume=None, status="AUTH_REQUIRED", timestamp=now)
             if response.status_code != 200:
-                if response.status_code != 401: # 401 means no CLOB API keys, don't spam
-                    logger.warning("clob_trades_api_error", token_id=yes_token_id, status=response.status_code)
-                return 0.0
+                logger.warning("clob_trades_api_error", token_id=yes_token_id, status=response.status_code)
+                return VolumeResult(volume=None, status="HTTP_ERROR", timestamp=now)
                 
             trades = response.json()
             if not isinstance(trades, list):
                 # Иногда API отдает словарь с ключом data или history
                 trades = trades.get("data", []) or trades.get("trades", [])
 
-            now = datetime.now(timezone.utc)
             total_volume = 0.0
             
             for t in trades:
@@ -453,11 +507,11 @@ class PolymarketClient:
                     price = float(t.get("price", 0))
                     total_volume += size * price # Учитываем объем в долларах (USDC)
                     
-            return total_volume
+            return VolumeResult(volume=total_volume, status="VALID", timestamp=now)
             
         except Exception as e:
             logger.error("error_fetching_clob_trades", token_id=yes_token_id, error=str(e))
-            return 0.0
+            return VolumeResult(volume=None, status="UNAVAILABLE", timestamp=now)
 
     async def get_positions(self, market_id: str) -> dict:
         """

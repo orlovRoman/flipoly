@@ -68,10 +68,13 @@ def add_lag_features(df: pd.DataFrame) -> pd.DataFrame:
     df["volume_trend"] = df["volume_5min"] / (vol_lag + 1e-8)
     df["volume_trend"] = df["volume_trend"].clip(upper=10.0)
 
-    # ── Imputation: NaN (первые LAG_N строк каждого рынка) → медиана ─────
-    for col in LAG_FEATURE_NAMES:
-        median_val = df[col].median()
-        fill_val = 0.0 if pd.isna(median_val) else float(median_val)
-        df[col] = df[col].fillna(fill_val)
+    # ── History flag: 1.0 if lag history is ready, 0.0 otherwise ────────
+    # Preserves NaN for missing history; imputation is performed within
+    # the training Pipeline / imputer rather than globally leaking across rows.
+    df["has_lag_history"] = (
+        df["price_momentum"].notna() &
+        df["spread_trend"].notna() &
+        df["volume_trend"].notna()
+    ).astype(float)
 
     return df

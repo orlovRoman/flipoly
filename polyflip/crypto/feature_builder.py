@@ -63,6 +63,43 @@ CRYPTO_FEATURE_COLUMNS: list[str] = [
 ]
 
 
+FEATURE_BUILDER_VERSION = "1.1.0"
+
+
+def compute_rolling_std(
+    values: np.ndarray,
+    window: int,
+    min_periods: int = 2,
+    ddof: int = 1,
+) -> float:
+    """Unified rolling standard deviation with explicit ddof."""
+    sub = values[-window:] if len(values) >= window else values
+    if len(sub) < min_periods:
+        return 0.0
+    val = float(np.std(sub, ddof=ddof))
+    return val if np.isfinite(val) else 0.0
+
+
+def compute_bollinger_bands(
+    close: np.ndarray,
+    window: int = 20,
+    min_periods: int = 10,
+    num_std: float = 2.0,
+    ddof: int = 1,
+) -> tuple[float, float, float, float]:
+    """Return (bb_mean, bb_std, bb_width, bb_position) with explicit ddof."""
+    sub = close[-window:] if len(close) >= window else close
+    if len(sub) < min_periods:
+        return float(close[-1]), 0.0, 0.0, 0.5
+    bb_mean = float(np.mean(sub))
+    bb_std = float(np.std(sub, ddof=ddof))
+    bb_upper = bb_mean + num_std * bb_std
+    bb_lower = bb_mean - num_std * bb_std
+    bb_width = float((bb_upper - bb_lower) / (bb_mean + 1e-10))
+    bb_pos = float((close[-1] - bb_lower) / (bb_upper - bb_lower + 1e-10))
+    return bb_mean, bb_std, bb_width, bb_pos
+
+
 @dataclass(frozen=True)
 class CryptoFeatureVector:
     symbol:    str
@@ -76,6 +113,7 @@ def build_crypto_features(
     min_candles: int = 100,
     underlying_price: float | None = None,
     market_context: Any | None = None,
+    ddof: int = 1,
 ) -> CryptoFeatureVector:
     if isinstance(candles, pd.DataFrame):
         df = candles.copy()
@@ -110,14 +148,14 @@ def build_crypto_features(
     ret_6  = float(np.log(close[-1] / close[-7]))  if len(close) > 6  else 0.0
 
     # ── 2. Volatility ────────────────────────────────────────────
-    vol_6   = float(np.std(log_ret[-6:]))   if len(log_ret) >= 6  else 0.0
-    vol_24  = float(np.std(log_ret[-24:]))  if len(log_ret) >= 24 else 0.0
+    vol_6   = compute_rolling_std(log_ret, window=6, min_periods=2, ddof=ddof)
+    vol_24  = compute_rolling_std(log_ret, window=24, min_periods=6, ddof=ddof)
     vol_trend = float(vol_6 / (vol_24 + 1e-10))
 
     # ── 3. Volume anomaly & CVD ──────────────────────────────────
     v24      = volume[-24:] if len(volume) >= 24 else volume
     vol_mean = float(np.mean(v24))
-    vol_std  = float(np.std(v24))
+    vol_std  = compute_rolling_std(volume, window=24, min_periods=6, ddof=ddof)
     vol_z_1  = float((volume[-1] - vol_mean) / (vol_std + 1e-10))
 
     taker_buy_ratio = float(tbv[-1] / (volume[-1] + 1e-10))
@@ -146,13 +184,9 @@ def build_crypto_features(
     ema_ratio_9_21 = float(ema9 / (ema21 + 1e-10))
 
     # ── 6. Bollinger Bands (20, 2σ) ──────────────────────────────
-    c20      = close[-20:] if len(close) >= 20 else close
-    bb_mean  = float(np.mean(c20))
-    bb_std   = float(np.std(c20))
-    bb_upper = bb_mean + 2.0 * bb_std
-    bb_lower = bb_mean - 2.0 * bb_std
-    bb_width = float((bb_upper - bb_lower) / (bb_mean + 1e-10))
-    bb_position = float((close[-1] - bb_lower) / (bb_upper - bb_lower + 1e-10))
+    bb_mean, bb_std, bb_width, bb_position = compute_bollinger_bands(
+        close, window=20, min_periods=10, num_std=2.0, ddof=ddof
+    )
 
     # ── 7. Distance to extremes (24h) ────────────────────────────
     h24 = high[-24:] if len(high) >= 24 else high
@@ -261,6 +295,7 @@ def build_crypto_features(
 def build_features(
     candles: Sequence | pd.DataFrame,
     underlying_price: float | None = None,
+    ddof: int = 1,
 ) -> pd.DataFrame:
     if isinstance(candles, pd.DataFrame):
         df = candles.copy()
@@ -293,13 +328,13 @@ def build_features(
     out["ret_6"]  = np.log(close / close.shift(6))
 
     # ── Volatility ───────────────────────────────────────────────
-    out["vol_6"]   = log_ret.rolling(6,  min_periods=2).std()
-    out["vol_24"]  = log_ret.rolling(24, min_periods=6).std()
+    out["vol_6"]   = log_ret.rolling(6,  min_periods=2).std(ddof=ddof)
+    out["vol_24"]  = log_ret.rolling(24, min_periods=6).std(ddof=ddof)
     out["vol_trend"] = out["vol_6"] / (out["vol_24"] + 1e-10)
 
     # ── Volume anomaly & CVD ─────────────────────────────────────
     vol_mean = volume.rolling(24, min_periods=6).mean()
-    vol_std  = volume.rolling(24, min_periods=6).std()
+    vol_std  = volume.rolling(24, min_periods=6).std(ddof=ddof)
     out["vol_z_1"]         = (volume - vol_mean) / (vol_std + 1e-10)
     out["taker_buy_ratio"] = tbv / (volume + 1e-10)
 
@@ -324,7 +359,7 @@ def build_features(
 
     # ── Bollinger Bands (20, 2σ) ───────────────────────────────
     bb_mean  = close.rolling(20, min_periods=10).mean()
-    bb_std   = close.rolling(20, min_periods=10).std()
+    bb_std   = close.rolling(20, min_periods=10).std(ddof=ddof)
     bb_upper = bb_mean + 2 * bb_std
     bb_lower = bb_mean - 2 * bb_std
     bb_width = (bb_upper - bb_lower) / (bb_mean + 1e-10)

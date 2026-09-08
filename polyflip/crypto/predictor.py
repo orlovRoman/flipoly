@@ -353,6 +353,11 @@ class CryptoPredictor:
                     self._model_intervals[symbol][regime] = getattr(row, 'interval', '15m')
                     self._model_eces[symbol][regime] = row.ece or 0.0
 
+                    # Item 1.11: Model training_params as source of truth for vol tertiles
+                    if params.get("vol_p33") is not None and params.get("vol_p67") is not None:
+                        self._vol_p33s[symbol] = float(params["vol_p33"])
+                        self._vol_p67s[symbol] = float(params["vol_p67"])
+
                     # Item 9: ModelRegistry как единственный источник истины для порогов
                     th_up = row.decision_threshold if row.decision_threshold is not None else 0.55
                     th_down = row.decision_threshold_down if row.decision_threshold_down is not None else 0.45
@@ -431,6 +436,25 @@ class CryptoPredictor:
             )
 
         try:
+            # 0. Point-in-time filtering: never use candles beyond decision_time
+            if decision_time is not None:
+                dt_utc = decision_time if getattr(decision_time, "tzinfo", None) is not None else decision_time.replace(tzinfo=timezone.utc)
+                filtered_candles = []
+                for c in candles:
+                    c_time = getattr(c, "close_time", None) or getattr(c, "open_time", None)
+                    if c_time is None and isinstance(c, dict):
+                        c_time = c.get("close_time") or c.get("open_time")
+                    if c_time is not None:
+                        if hasattr(c_time, "tzinfo") and c_time.tzinfo is None:
+                            c_time = c_time.replace(tzinfo=timezone.utc)
+                        elif isinstance(c_time, str):
+                            c_time = pd.to_datetime(c_time, utc=True)
+                        if c_time <= dt_utc:
+                            filtered_candles.append(c)
+                    else:
+                        filtered_candles.append(c)
+                candles = filtered_candles
+
             # 1. Сборка вектора признаков
             feature_vector = build_crypto_features(
                 candles,

@@ -142,20 +142,34 @@ async def infer_flip_for_market(
     start_time: datetime,
     time_left_sec: float,
     max_time_left: float,
+    decision_at: datetime | None = None,
+    decision_id: str | None = None,
 ) -> float:
     from datetime import timedelta
-    cutoff_time = start_time - timedelta(seconds=max_time_left)
+    effective_decision_at = decision_at or start_time
+    if effective_decision_at.tzinfo is None:
+        effective_decision_at = effective_decision_at.replace(tzinfo=timezone.utc)
+    cutoff_time = effective_decision_at - timedelta(seconds=max_time_left)
+    eff_decision_id = decision_id or f"dec_{getattr(market, 'market_id', '')}_{effective_decision_at.isoformat()}"
 
     snapshots_stmt = select(MarketSnapshot).where(
         MarketSnapshot.market_id == market.market_id,
-        MarketSnapshot.recorded_at >= cutoff_time
+        MarketSnapshot.recorded_at >= cutoff_time,
+        MarketSnapshot.recorded_at <= effective_decision_at,
     ).order_by(MarketSnapshot.recorded_at.asc())
     snapshots_res = await db_session.execute(snapshots_stmt)
     history_snaps = snapshots_res.scalars().all()
 
+    # Filter received_timestamp <= effective_decision_at if available
+    history_snaps = [
+        s for s in history_snaps
+        if getattr(s, "received_timestamp", None) is None
+        or (s.received_timestamp.replace(tzinfo=timezone.utc) if s.received_timestamp.tzinfo is None else s.received_timestamp) <= effective_decision_at
+    ]
+
     filtered_prices = [
         float(s.mid_price) for s in history_snaps
-        if s.recorded_at >= cutoff_time
+        if s.recorded_at >= cutoff_time and s.recorded_at <= effective_decision_at
     ] + [fresh_price]
     global_max = max(filtered_prices) if filtered_prices else fresh_price
     from polyflip.constants import resolve_binance_symbol
@@ -172,7 +186,7 @@ async def infer_flip_for_market(
                 continue
             if close_time.tzinfo is None:
                 close_time = close_time.replace(tzinfo=timezone.utc)
-            if close_time <= start_time:
+            if close_time <= effective_decision_at:
                 closed_candles.append(candle)
 
 
@@ -182,12 +196,13 @@ async def infer_flip_for_market(
         fresh_yes_price=fresh_price,
         fresh_spread=fresh_spread,
         global_max=global_max,
-        start_time=start_time,
+        start_time=effective_decision_at,
         time_left_sec=time_left_sec,
         closed_candles=closed_candles,
+        decision_id=eff_decision_id,
     )
     
-    return float(run_model_inference(df, model, active_features))
+    return float(run_model_inference(df, model, active_features, decision_row_id=eff_decision_id))
 
 async def _get_funding_rate(db_session: AsyncSession, binance_symbol: str) -> float | None:
     from sqlalchemy import select

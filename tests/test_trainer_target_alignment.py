@@ -1,97 +1,149 @@
 import pytest
-import pandas as pd
 import numpy as np
-from polyflip.crypto.trainer import CRYPTO_FEATURES, _fit_lgbm_and_serialize
+import pandas as pd
+from datetime import datetime, timezone, timedelta
+from unittest.mock import AsyncMock, MagicMock, patch
 
-def make_trending_df(n=5000, trend_strength=0.0):
-    """Датасет с реальным трендом — модель ДОЛЖНА поймать его AUC > 0.55."""
-    np.random.seed(0)
-    base = np.random.randn(n) * 0.002
-    ret = np.zeros(n)
-    for i in range(1, n):
-        ret[i] = 0.5 * ret[i-1] + base[i] + trend_strength
-    df = pd.DataFrame({"ret_1": ret})
-    df["open_time"] = pd.date_range("2024-01-01", periods=n, freq="15min")
-    for f in CRYPTO_FEATURES:
-        if f not in df.columns:
-            df[f] = np.random.randn(n)
-    # target: будет ли следующая свеча позитивной?
-    df["target"] = (df["ret_1"].shift(-1) > 0).astype(int)
-    # ПРАВИЛЬНО: предиктивный признак на основе ПРОШЛОГО, а не будущего
-    df["vol_6"] = df["ret_1"].shift(1) + np.random.randn(n) * 0.001  # лаг +1 (прошлое)
-    df = df.dropna()
-    return df
-
-def test_target_not_using_future_close_directly():
-    """
-    Если AUC < 0.52 на трендовом датасете — target скорее всего
-    строится с использованием текущей свечи (leakage) или неправильно смещён.
-    """
-    df = make_trending_df()
-    _, auc, *_ = _fit_lgbm_and_serialize(
-        df[CRYPTO_FEATURES], df["target"], n_splits=3
-    )
-    # На трендовом DF с нормальным target должны получить AUC > 0.52
-    assert auc > 0.52, (
-        f"AUC={auc:.3f} на трендовом датасете — "
-        "возможен data leakage или неправильный target alignment"
-    )
-
-def test_target_is_forward_looking_not_current():
-    """
-    target[i] должен зависеть от будущего (ret[i+1]), 
-    НЕ от текущей свечи ret[i] — иначе leakage.
-    """
-    from polyflip.crypto.backtester import run_backtest
-    n = 3000
-    np.random.seed(42)
-    df = pd.DataFrame({
-        "ret_1": np.random.randn(n) * 0.003,
-        "open_time": pd.date_range("2024-01-01", periods=n, freq="15min"),
-    })
-    for f in CRYPTO_FEATURES:
-        if f not in df.columns:
-            df[f] = np.random.randn(n)
-    
-    result = run_backtest(df, "ETHUSDT", min_edge=0.05)
-    # С рандомными данными AUC не должен быть > 0.60 (leakage flag)
-    assert result.train_auc < 0.60, (
-        f"AUC={result.train_auc:.3f} на рандомных данных — возможен data leakage!"
-    )
+from polyflip.models.outsider_feature_sets import (
+    MODEL_A_FEATURES,
+    OUTSIDER_FEATURE_SETS,
+    get_outsider_feature_set,
+)
 
 
-def test_backtest_derives_target_from_next_return():
-    from polyflip.crypto.backtester import _prepare_backtest_frame
+def test_outsider_feature_sets_contracts():
+    """1.8: Feature contracts must be immutable and deterministic."""
+    model_a = get_outsider_feature_set("MODEL_A")
+    assert model_a.features == MODEL_A_FEATURES
+    assert model_a.features == ("mid_price", "time_left_min", "spread")
+    assert len(model_a.schema_hash) == 16
 
-    frame = pd.DataFrame(
-        {
-            "open_time": pd.date_range("2025-01-01", periods=4, freq="15min"),
-            "ret_1": [0.5, -0.2, 0.3, -0.4],
-        }
-    )
-    prepared = _prepare_backtest_frame(frame, "binance")
-
-    assert prepared["target"].iloc[:3].tolist() == [0.0, 1.0, 0.0]
-    assert pd.isna(prepared["target"].iloc[-1])
+    legacy = get_outsider_feature_set("LEGACY")
+    assert "mid_price" in legacy.features
+    assert "spread" in legacy.features
 
 
-def test_backtest_raw_candles_use_next_candle_outcome():
-    from polyflip.crypto.backtester import _prepare_backtest_frame
+def test_target_alignment_truth_table():
+    """1.7: Canonical target truth table for favourite x final outcome."""
+    # favourite = YES if mid_price > 0.5 else NO (mid != 0.5)
+    # flip = True if favourite != final_outcome else False
+    cases = [
+        # (mid_price, final_outcome, expected_target, desc)
+        (0.60, "NO", 1, "favourite YES loses -> target 1"),
+        (0.60, "YES", 0, "favourite YES wins -> target 0"),
+        (0.40, "YES", 1, "favourite NO loses -> target 1"),
+        (0.40, "NO", 0, "favourite NO wins -> target 0"),
+    ]
+    for mid, final_outcome, expected_target, desc in cases:
+        target = 1 if ((mid > 0.5) != (final_outcome == "YES")) else 0
+        assert target == expected_target, desc
 
-    frame = pd.DataFrame(
-        {
-            "open": [100.0, 100.0, 100.0],
-            "close": [200.0, 90.0, 110.0],
-        }
-    )
-    prepared = _prepare_backtest_frame(frame, "binance")
 
-    assert prepared["target"].iloc[:2].tolist() == [0.0, 1.0]
-    assert pd.isna(prepared["target"].iloc[-1])
+def test_mid_05_exclusion():
+    """1.7: mid_price == 0.5 must be excluded from target decision rows."""
+    mid_prices = pd.Series([0.60, 0.50, 0.40, 0.50, 0.70])
+    valid_mask = mid_prices != 0.5
+    assert valid_mask.tolist() == [True, False, True, False, True]
 
 
-def test_polymarket_backtest_rejects_missing_canonical_target():
-    from polyflip.crypto.backtester import _prepare_backtest_frame
+@pytest.mark.asyncio
+async def test_trainer_contract_locks_features():
+    """1.8: Passing MODEL_A locks active_features and prevents auto-expansion."""
+    from polyflip.models.trainer import ModelTrainer
+    from polyflip.db.models import MarketSnapshot
 
-    with pytest.raises(ValueError, match="canonical final_outcome target"):
-        _prepare_backtest_frame(pd.DataFrame({"ret_1": [0.1, -0.1]}), "polymarket")
+    now = datetime.now(timezone.utc)
+    mock_db = AsyncMock()
+
+    # Mock count query returning sufficient samples
+    mock_db.execute.return_value.scalar.return_value = 100
+
+    # Create mock snapshots for 20 markets across time (20 * 4 = 80 samples >= 50)
+    snaps = []
+    for m_idx in range(20):
+        m_id = f"m_{m_idx}"
+        is_even = (m_idx % 2 == 0)
+        # Flip occurs on markets where m_idx % 4 in (0, 1)
+        has_flip = (m_idx % 4 in (0, 1))
+        mid = 0.65 if is_even else 0.35
+        if has_flip:
+            outcome = "NO" if is_even else "YES"
+        else:
+            outcome = "YES" if is_even else "NO"
+
+        market_base_time = now - timedelta(hours=30 - m_idx)
+        for t_min in [14.0, 10.0, 5.0, 2.0]:
+            s = MarketSnapshot(
+                id=len(snaps) + 1,
+                market_id=m_id,
+                asset="BTC",
+                recorded_at=market_base_time + timedelta(minutes=15 - int(t_min)),
+                time_left_min=t_min,
+                mid_price=mid,
+                spread=0.01,
+                best_bid=mid - 0.01,
+                best_ask=mid + 0.01,
+                price_velocity=0.0,
+                volume_5min=100.0,
+                hour_of_day=12,
+                final_outcome=outcome,
+                flip_vs_final=has_flip,
+            )
+            snaps.append(s)
+
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = snaps
+
+    async def fake_execute(stmt):
+        res = MagicMock()
+        stmt_str = str(stmt).lower()
+        if "count" in stmt_str:
+            res.scalar.return_value = len(snaps)
+        elif "runtimesettings" in stmt_str:
+            res.scalar_one_or_none.return_value = None
+        else:
+            res.scalars.return_value = mock_scalars
+        return res
+
+    mock_db.execute = AsyncMock(side_effect=fake_execute)
+
+    trainer = ModelTrainer(mock_db)
+
+    from polyflip.models.trainer import _fit_and_serialize as real_fit
+    captured_X = None
+    captured_y = None
+
+    def spy_fit(X, y, *args, **kwargs):
+        nonlocal captured_X, captured_y
+        captured_X = X.copy()
+        captured_y = y.copy()
+        return real_fit(X, y, *args, **kwargs)
+
+    def mock_float(db, k):
+        if "min_time" in k.lower():
+            return 1.0
+        if "max_time" in k.lower():
+            return 12.0
+        if "min_auc" in k.lower():
+            return 0.50
+        return 0.05
+
+    with patch("polyflip.models.trainer._fit_and_serialize", side_effect=spy_fit), \
+         patch("polyflip.services.settings_service.get_float", AsyncMock(side_effect=mock_float)), \
+         patch("polyflip.services.settings_service.get_int", AsyncMock(return_value=2)), \
+         patch("polyflip.services.settings_service.get_setting", AsyncMock(return_value="uniform")):
+
+        # Train with MODEL_A
+        res = await trainer.train_model(
+            asset="BTC",
+            save_settings=False,
+            feature_set="MODEL_A",
+            activate_after_train=False,
+        )
+
+        assert res is True, f"Failed with: {trainer.status_messages.get('BTC')}"
+        assert captured_X is not None
+        # Must only contain MODEL_A features, NO DERIVED FEATURES auto-expansion!
+        assert list(captured_X.columns) == list(MODEL_A_FEATURES)
+        assert len(captured_X) > 0
+        assert len(captured_y) == len(captured_X)

@@ -66,11 +66,12 @@ def test_add_lag_features_basic():
     assert abs(r.iloc[6]["spread_trend"] - 1.0) < 1e-6
 
 def test_engine_inference_empty_history():
-    """При пустой истории снапшотов инференс не должен падать."""
-    import pandas as pd
-    from datetime import datetime, timezone
-    from polyflip.models.trainer import add_derived_features
-    from polyflip.models.feature_lags import add_lag_features, LAG_FEATURE_NAMES
+    """При пустой истории снапшотов лаги сохраняют NaN, has_lag_history=0.0, а Pipeline с импьютером не падает."""
+    import numpy as np
+    from sklearn.pipeline import Pipeline
+    from sklearn.impute import SimpleImputer
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.linear_model import LogisticRegression
 
     # Симулируем: history_snaps пустой, только live-строка
     rows = [{
@@ -94,5 +95,59 @@ def test_engine_inference_empty_history():
 
     assert len(df) == 1
     for col in LAG_FEATURE_NAMES:
-        assert not pd.isna(df.iloc[0][col]), f"NaN в {col}"
+        assert pd.isna(df.iloc[0][col]), f"Ожидался NaN для {col} при отсутствии истории"
+    assert df.iloc[0]["has_lag_history"] == 0.0
     assert df.iloc[0]["price_distance_from_max"] == 0.0
+
+    # Pipeline с импьютером корректно обрабатывает пустую историю
+    pipe = Pipeline([
+        ("imputer", SimpleImputer(strategy="median")),
+        ("scaler", StandardScaler()),
+        ("model", LogisticRegression()),
+    ])
+    train_X = pd.DataFrame({
+        "price_momentum": [0.01, -0.02, 0.03, 0.0],
+        "spread_trend": [1.0, 1.1, 0.9, 1.0],
+        "volume_trend": [1.0, 1.5, 0.8, 1.2],
+    })
+    train_y = pd.Series([1, 0, 1, 0])
+    pipe.fit(train_X, train_y)
+    prob = pipe.predict_proba(df[LAG_FEATURE_NAMES])
+    assert prob.shape == (1, 2)
+    assert np.isfinite(prob).all()
+
+
+def test_prefix_invariance_and_market_isolation():
+    """
+    Самопроверка 1.3:
+    Добавление будущих строк, изменение будущих цен и добавление другого market_id
+    НЕ меняют уже рассчитанные прошлые признаки. Исходный баг momentum 0.030->0.015
+    больше не воспроизводится.
+    """
+    from tests.fixtures.model_audit.audit_data import generate_market_history_with_future
+
+    past_df, combined_df = generate_market_history_with_future()
+
+    res_past = add_lag_features(past_df)
+    res_combined = add_lag_features(combined_df)
+
+    # Filter combined back to past rows (market-1, first 5 timestamps)
+    filtered_combined = res_combined[
+        (res_combined["market_id"] == "market-1") &
+        (res_combined["recorded_at"].isin(past_df["recorded_at"]))
+    ].sort_values("recorded_at").reset_index(drop=True)
+
+    res_past_sorted = res_past.sort_values("recorded_at").reset_index(drop=True)
+
+    for col in LAG_FEATURE_NAMES:
+        past_vals = res_past_sorted[col].values
+        comb_vals = filtered_combined[col].values
+        # Check that where past is NaN, comb is NaN; where float, values match exactly
+        for i, (p, c) in enumerate(zip(past_vals, comb_vals)):
+            if pd.isna(p):
+                assert pd.isna(c), f"Row {i} col {col}: past was NaN, comb became {c}"
+            else:
+                assert abs(p - c) < 1e-9, f"Row {i} col {col} mismatch: past={p}, comb={c}"
+
+    assert (res_past_sorted["has_lag_history"].values == filtered_combined["has_lag_history"].values).all()
+

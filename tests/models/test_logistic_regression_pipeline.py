@@ -107,23 +107,32 @@ class TestLagFeatures:
     def test_all_lag_columns_present(self, df_with_lags):
         for col in LAG_FEATURE_NAMES:
             assert col in df_with_lags.columns
+        assert "has_lag_history" in df_with_lags.columns
 
-    def test_no_nan_in_lag_features(self, df_with_lags):
-        nan_counts = df_with_lags[LAG_FEATURE_NAMES].isna().sum()
-        assert nan_counts.sum() == 0
-
-    def test_lag_features_imputed_for_first_rows(self, df_with_lags):
+    def test_nan_preserved_for_missing_history(self, df_with_lags):
+        """Step 1.3: missing lag history preserves NaN instead of future median leakage."""
         first_rows = df_with_lags.groupby("market_id").head(1)
-        assert not first_rows["price_momentum"].isna().any()
+        assert first_rows["price_momentum"].isna().all()
+        assert (first_rows["has_lag_history"] == 0.0).all()
+
+    def test_full_history_has_no_nan(self, df_with_lags):
+        """Rows with full history have no NaNs and has_lag_history == 1.0."""
+        tail_rows = df_with_lags.groupby("market_id").tail(3)
+        assert not tail_rows[LAG_FEATURE_NAMES].isna().any().any()
+        assert (tail_rows["has_lag_history"] == 1.0).all()
 
     def test_spread_trend_clipped(self, df_with_lags):
-        assert (df_with_lags["spread_trend"] <= 10.0 + 1e-9).all()
+        valid_spread = df_with_lags["spread_trend"].dropna()
+        assert (valid_spread <= 10.0 + 1e-9).all()
 
     def test_volume_trend_clipped(self, df_with_lags):
-        assert (df_with_lags["volume_trend"] <= 10.0 + 1e-9).all()
+        valid_vol = df_with_lags["volume_trend"].dropna()
+        assert (valid_vol <= 10.0 + 1e-9).all()
 
 class TestFullFeaturePipeline:
-    def test_all_derived_features_no_nan_after_full_pipeline(self):
+    def test_all_derived_features_imputed_cleanly_in_pipeline(self):
+        """Step 1.3: Pipeline SimpleImputer fills missing lags cleanly without leakage."""
+        from sklearn.impute import SimpleImputer
         df = build_test_df(n_markets=10, snaps_per_market=10)
         df = add_derived_features(df)
         df = add_lag_features(df)
@@ -131,8 +140,9 @@ class TestFullFeaturePipeline:
 
         missing = [f for f in DERIVED_FEATURES if f not in df.columns]
         assert not missing
-        nan_counts = df[DERIVED_FEATURES].isna().sum()
-        assert nan_counts.sum() == 0
+        imputer = SimpleImputer(strategy="median")
+        imputed_X = imputer.fit_transform(df[DERIVED_FEATURES])
+        assert not np.isnan(imputed_X).any()
 
 from sklearn.model_selection import GroupKFold
 from polyflip.constants import CV_N_SPLITS
@@ -214,7 +224,9 @@ def run_full_oof_pipeline(df: pd.DataFrame):
     y = df["target"]
     groups = df["market_id"]
 
+    from sklearn.impute import SimpleImputer
     base_model = Pipeline([
+        ("imputer", SimpleImputer(strategy="median")),
         ("scaler", StandardScaler()),
         ("model", LogisticRegression(
             class_weight="balanced", C=5.0,

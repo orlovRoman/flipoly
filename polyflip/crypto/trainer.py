@@ -7,51 +7,30 @@ LightGBM-тренер для крипто-модели Up/Down на OHLCV-све
 """
 from __future__ import annotations
 
-import asyncio
-import hashlib
-import json
-import pickle
-import time
+import asyncio, hashlib, json, pickle, time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-
-import numpy as np
-import pandas as pd
-import structlog
+import numpy as np, pandas as pd, structlog
 from lightgbm import LGBMClassifier, early_stopping
 from sklearn.calibration import CalibratedClassifierCV, FrozenEstimator, calibration_curve
-from sklearn.metrics import roc_auc_score, precision_score, recall_score, f1_score, brier_score_loss, precision_recall_curve, log_loss
+from sklearn.metrics import roc_auc_score, precision_score, recall_score, f1_score, precision_recall_curve
+from polyflip.models.probability_metrics import brier_score, expected_calibration_error, log_loss_score
 from sklearn.model_selection import TimeSeriesSplit
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from polyflip.constants import (
-    CV_N_SPLITS,
-    CV_RANDOM_STATE,
-)
+from polyflip.constants import CV_N_SPLITS, CV_RANDOM_STATE
 from polyflip.services.settings_service import get_float, get_int
 from polyflip.crypto.candle_repository import get_recent_candles
 from polyflip.crypto.feature_builder import build_features, CRYPTO_FEATURE_COLUMNS
-from polyflip.crypto.feature_audit import (
-    feature_audit_summary,
-    model_gain_importance,
-    summarize_fold_importance,
-)
+from polyflip.crypto.feature_audit import feature_audit_summary, model_gain_importance, summarize_fold_importance
 from polyflip.crypto.market_outcome_dataset import build_market_outcome_dataset
 from polyflip.db.models import CryptoCandle, ModelRegistry, ModelRegistryOOFArtifact, RuntimeSettings
 from polyflip.crypto.polymarket_backtest import compute_oof_polymarket_backtest, load_market_entry_quotes
 from polyflip.crypto.oof_artifact import serialize_oof_artifact, OOF_ARTIFACT_SCHEMA_VERSION
 from polyflip.crypto.threshold_optimizer import TARGET_COVERAGES, optimize_joint_thresholds
-
-# Импортируем общий семафор из LogReg-трейнера.
-# NOTE: Семафор инициализируется один раз при первом вызове и кэшируется до перезапуска сервиса.
-# Изменение TRAIN_MAX_PARALLEL_JOBS в RuntimeSettings вступит в силу только после рестарта.
 from polyflip.models.trainer import _get_training_semaphore
 from polyflip.crypto.feature_sets import CONTROL_FEATURES, feature_schema_hash, get_feature_set
-from polyflip.crypto.experiment_configs import (
-    experiment_config_hash,
-    legacy_threshold_backtest_options,
-    normalize_experiment_config,
-)
+from polyflip.crypto.experiment_configs import experiment_config_hash, legacy_threshold_backtest_options, normalize_experiment_config
 
 logger = structlog.get_logger(__name__)
 
@@ -253,12 +232,44 @@ class LGBMFitResult:
 class CalibratedLightGBMModel:
     """Pickle-safe model bundle with separate raw and calibrated scores."""
 
-    def __init__(self, raw_model, calibrated_model, calibration_method: str) -> None:
+    def __init__(
+        self,
+        raw_model,
+        calibrated_model,
+        calibration_method: str,
+        ordered_feature_names: tuple[str, ...] | list[str] | None = None,
+        target: str = "UP",
+        positive_class: int = 1,
+    ) -> None:
         self.raw_model = raw_model
         self.calibrated_model = calibrated_model
         self.calibration_method = str(calibration_method).upper()
         self.n_features_in_ = getattr(raw_model, "n_features_in_", None)
         self.feature_importances_ = getattr(raw_model, "feature_importances_", None)
+        self.target = target
+        self.positive_class = positive_class
+        if ordered_feature_names is not None:
+            self.ordered_feature_names = tuple(ordered_feature_names)
+        elif hasattr(raw_model, "feature_names_in_"):
+            self.ordered_feature_names = tuple(raw_model.feature_names_in_)
+        else:
+            self.ordered_feature_names = ()
+
+    @property
+    def base_estimator(self):
+        return self.raw_model
+
+    @property
+    def calibrator(self):
+        return self.calibrated_model
+
+    @property
+    def classes_(self) -> np.ndarray:
+        if hasattr(self.calibrated_model, "classes_"):
+            return np.asarray(self.calibrated_model.classes_)
+        if hasattr(self.raw_model, "classes_"):
+            return np.asarray(self.raw_model.classes_)
+        return np.array([0, 1])
 
     def predict_raw_proba(self, rows):
         return self.raw_model.predict_proba(rows)
@@ -408,19 +419,6 @@ def _fit_lgbm_and_serialize(
     val_auc = float(np.mean(aucs))
     baseline_auc = 0.5
 
-    def _ece(y_true: np.ndarray, probs: np.ndarray) -> float:
-        if len(y_true) <= 10:
-            return 0.5
-        try:
-            frac_pos, mean_pred = calibration_curve(y_true, probs, n_bins=10, strategy="uniform")
-            edges = np.linspace(0.0, 1.0, 11)
-            bucket = np.clip(np.digitize(probs, edges[1:-1], right=False), 0, 9)
-            counts = np.bincount(bucket, minlength=10)
-            weights = counts[counts > 0] / len(probs)
-            return float(np.sum(weights * np.abs(frac_pos - mean_pred)))
-        except ValueError:
-            return 0.5
-
     calibration_comparison: dict[str, dict[str, float | None]] = {}
     for method, scores in calibration_oof.items():
         valid = np.isfinite(scores)
@@ -429,8 +427,8 @@ def _fit_lgbm_and_serialize(
         y_valid = y[valid].to_numpy(dtype=float)
         p_valid = scores[valid]
         try:
-            method_log_loss = float(log_loss(y_valid, p_valid, labels=[0, 1]))
-        except ValueError:
+            method_log_loss = float(log_loss_score(y_valid, p_valid))
+        except Exception:
             method_log_loss = None
         method_pnl = None
         if backtest_frame is not None and backtest_quotes is not None and not backtest_quotes.empty:
@@ -445,9 +443,10 @@ def _fit_lgbm_and_serialize(
                 method_pnl = float(economic.get("net_profit") or 0.0)
             except Exception:
                 method_pnl = None
+        ece_res, _ = expected_calibration_error(y_valid, p_valid, n_bins=20)
         calibration_comparison[method] = {
-            "brier": float(brier_score_loss(y_valid, p_valid)),
-            "ece": _ece(y_valid, p_valid),
+            "brier": float(brier_score(y_valid, p_valid)),
+            "ece": float(ece_res) if ece_res is not None else 0.0,
             "log_loss": method_log_loss,
             "polymarket_pnl": method_pnl,
         }
@@ -478,7 +477,7 @@ def _fit_lgbm_and_serialize(
         selected_method = calibration_methods[0]
     oof_scores = calibration_oof[selected_method].copy()
     valid_mask = np.isfinite(oof_scores)
-    ece = calibration_comparison.get(selected_method, {}).get("ece", 0.5) or 0.5
+    ece = calibration_comparison.get(selected_method, {}).get("ece", 0.0) or 0.0
     logger.info(
         "crypto_calibration",
         method=selected_method,
@@ -516,7 +515,14 @@ def _fit_lgbm_and_serialize(
             logger.warning("final_calibration_failed_fallback_raw", method=selected_method)
             selected_method = "NONE"
             final_cal = final_lgbm
-    model_bundle = CalibratedLightGBMModel(final_lgbm, final_cal, selected_method)
+    model_bundle = CalibratedLightGBMModel(
+        final_lgbm,
+        final_cal,
+        selected_method,
+        ordered_feature_names=tuple(X.columns),
+        target="UP",
+        positive_class=1,
+    )
 
     valid_mask = np.isfinite(oof_scores) & np.isfinite(raw_oof_scores)
     threshold_sweep: list[dict[str, object]] = []
@@ -608,10 +614,10 @@ def _fit_lgbm_and_serialize(
     precision = float(precision_score(y_oof, y_pred, zero_division=0))
     recall = float(recall_score(y_oof, y_pred, zero_division=0))
     f1_metric = float(f1_score(y_oof, y_pred, zero_division=0))
-    brier = float(brier_score_loss(y_oof, p_oof))
+    brier = float(brier_score(y_oof, p_oof))
     try:
-        oot_log_loss = float(log_loss(y_oof, p_oof, labels=[0, 1]))
-    except ValueError:
+        oot_log_loss = float(log_loss_score(y_oof, p_oof))
+    except Exception:
         oot_log_loss = None
 
     return LGBMFitResult(
@@ -983,9 +989,22 @@ class CryptoModelTrainer:
             future_feature_rows=0,
         )
 
-        # 7. Синхронизированный расчет границ волатильности через VolatilityRegimePolicy
-        vol_p33 = float(df_filtered["vol_trend"].quantile(0.33))
-        vol_p67 = float(df_filtered["vol_trend"].quantile(0.67))
+        # 7. Outer chronological split & synchronized volatility regime tertiles (Item 1.10 & 1.11)
+        import uuid
+        now = datetime.now(timezone.utc)
+        bundle_id = f"bundle_{symbol}_{int(now.timestamp())}_{uuid.uuid4().hex[:8]}"
+        regime_formula_version = "1.1.0"
+        bundle_version = "1.1.0"
+
+        # Split outer train/test chronologically to compute vol tertiles without future leakage
+        n_total = len(df_filtered)
+        split_ratio = 0.8
+        train_cutoff_idx = max(int(n_total * split_ratio), 1)
+        df_train_outer = df_filtered.iloc[:train_cutoff_idx]
+        df_test_outer = df_filtered.iloc[train_cutoff_idx:]
+
+        vol_p33 = float(df_train_outer["vol_trend"].quantile(0.33))
+        vol_p67 = float(df_train_outer["vol_trend"].quantile(0.67))
 
         from polyflip.crypto.volatility import VolatilityRegimePolicy
         vol_policy = VolatilityRegimePolicy(low_boundary=vol_p33, high_boundary=vol_p67)
@@ -995,6 +1014,9 @@ class CryptoModelTrainer:
             symbol=symbol,
             p33=round(vol_p33, 4),
             p67=round(vol_p67, 4),
+            bundle_id=bundle_id,
+            outer_train_rows=len(df_train_outer),
+            outer_test_rows=len(df_test_outer),
         )
 
         now = datetime.now(timezone.utc)
@@ -1009,9 +1031,11 @@ class CryptoModelTrainer:
                     self.db.add(RuntimeSettings(key=key, value=str(round(val, 4)), updated_at=now, updated_by="crypto_train_job"))
 
         # Разбиваем датасет на 3 режима по vol_policy
-        df_low  = df_filtered[df_filtered["vol_trend"].apply(lambda v: vol_policy.classify(v) == "low_vol")]
-        df_mid  = df_filtered[df_filtered["vol_trend"].apply(lambda v: vol_policy.classify(v) == "mid_vol")]
-        df_high = df_filtered[df_filtered["vol_trend"].apply(lambda v: vol_policy.classify(v) == "high_vol")]
+        # Step 1.10: Train models strictly on outer train split to avoid test leakage
+        df_train_regimes = df_train_outer if len(df_train_outer) >= 150 else df_filtered
+        df_low  = df_train_regimes[df_train_regimes["vol_trend"].apply(lambda v: vol_policy.classify(v) == "low_vol")]
+        df_mid  = df_train_regimes[df_train_regimes["vol_trend"].apply(lambda v: vol_policy.classify(v) == "mid_vol")]
+        df_high = df_train_regimes[df_train_regimes["vol_trend"].apply(lambda v: vol_policy.classify(v) == "high_vol")]
 
         trained_any = False
         from polyflip.crypto.predictor import CryptoPredictor
@@ -1261,6 +1285,31 @@ class CryptoModelTrainer:
                             updated_by="crypto_train_job",
                         ))
 
+                # Step 1.10: Evaluate on outer test partition to distinguish tuning from external metrics
+                external_metrics = {}
+                if len(df_test_outer) > 0 and available:
+                    df_test_regime = df_test_outer[df_test_outer["vol_trend"].apply(lambda v: vol_policy.classify(v) == regime)]
+                    if len(df_test_regime) > 0:
+                        X_test_r = df_test_regime[available].reset_index(drop=True)
+                        y_test_r = df_test_regime["target"].reset_index(drop=True).to_numpy(dtype=float)
+                        try:
+                            m_obj = pickle.loads(model_bytes)
+                            p_test = m_obj.predict_proba(X_test_r)
+                            p_pos = p_test[:, 1] if p_test.ndim == 2 else p_test
+                            ext_brier = float(brier_score(y_test_r, p_pos))
+                            ext_log_loss = float(log_loss_score(y_test_r, p_pos))
+                            ext_ece, _ = expected_calibration_error(y_test_r, p_pos, n_bins=20)
+                            ext_auc = float(roc_auc_score(y_test_r, p_pos)) if len(np.unique(y_test_r)) >= 2 else None
+                            external_metrics = {
+                                "samples": len(df_test_regime),
+                                "brier": ext_brier,
+                                "log_loss": ext_log_loss,
+                                "ece": float(ext_ece) if ext_ece is not None else None,
+                                "auc": ext_auc,
+                            }
+                        except Exception as ex:
+                            logger.warning("external_metrics_evaluation_failed", regime=regime, error=str(ex))
+
                 # Сохраняем модель
                 model_row = ModelRegistry(
                     asset=regime_asset,
@@ -1335,6 +1384,16 @@ class CryptoModelTrainer:
                         "model_config": effective_params,
                         "vol_p33": vol_p33,
                         "vol_p67": vol_p67,
+                        "bundle_id": bundle_id,
+                        "bundle_version": bundle_version,
+                        "regime_formula_version": regime_formula_version,
+                        "vol_regime": regime,
+                        "outer_split": {
+                            "total_rows": n_total,
+                            "train_rows": len(df_train_outer),
+                            "test_rows": len(df_test_outer),
+                            "external_metrics": external_metrics,
+                        },
                         "backtest_pnl_mode": "POLYMARKET_OOF",
                         "backtest": backtest_outsider,
                         "backtest_variants": backtest_variants,

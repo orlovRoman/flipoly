@@ -11,8 +11,19 @@ from sklearn.model_selection import GroupKFold, GroupShuffleSplit
 from sklearn.base import clone
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score, precision_recall_curve
+from sklearn.metrics import precision_recall_curve, roc_auc_score
+
+from polyflip.models.probability_metrics import (
+    brier_score,
+    expected_calibration_error,
+    log_loss_score,
+)
+from polyflip.models.outsider_feature_sets import (
+    OUTSIDER_FEATURE_SETS,
+    get_outsider_feature_set,
+)
 
 from polyflip.db.models import (
     CryptoCandle,
@@ -334,53 +345,32 @@ def _fit_and_serialize(
             ),
         )
 
-    # --- Grid search по C (оптимизировано: 1 сплит GroupShuffleSplit) ---
-    C_GRID = [0.1, 0.5, 1.0, 5.0]
-    c_results = {}
+    def _build_logreg_pipeline(c_val: float) -> Pipeline:
+        return Pipeline([
+            ("imputer", SimpleImputer(strategy="median")),
+            ("scaler", StandardScaler()),
+            ("model", LogisticRegression(
+                class_weight=None,
+                C=c_val,
+                random_state=CV_RANDOM_STATE,
+                max_iter=300,
+                solver="lbfgs",
+            )),
+        ])
 
-    try:
-        tr_idx, vl_idx = _group_holdout_indices(
-            X, y, groups, timestamps,
-            validation_fraction=0.25,
-        )
-        if len(np.unique(y.iloc[tr_idx])) >= 2 and len(np.unique(y.iloc[vl_idx])) >= 2:
-            m_weight_tr = sample_weight[tr_idx] if sample_weight is not None else None
-            for c_val in C_GRID:
-                probe = Pipeline([
-                    ("scaler", StandardScaler()),
-                    ("model", LogisticRegression(
-                        class_weight="balanced", C=c_val,
-                        random_state=CV_RANDOM_STATE, max_iter=300,
-                        solver="lbfgs", n_jobs=1,
-                    )),
-                ])
-                probe.fit(X.iloc[tr_idx], y.iloc[tr_idx], model__sample_weight=m_weight_tr)
-                proba = probe.predict_proba(X.iloc[vl_idx])[:, 1]
-                c_results[c_val] = round(float(roc_auc_score(y.iloc[vl_idx], proba)), 4)
-    except Exception as e:
-        logger.warning("c_grid_search_fallback", error=str(e))
-
-    best_C = max(c_results, key=c_results.get) if c_results else 1.0
-    logger.info("c_grid_search_results", c_grid=c_results, best_C=best_C)
+    C_GRID = [0.1, 0.5, 1.0]
 
     # 3. Обучаем модель с кросс-валидацией
     validation_splits, validation_fold_metadata = _outer_validation_splits(
         X, y, groups, timestamps
     )
-    base_model = Pipeline([
-        ("scaler", StandardScaler()),
-        ("model", LogisticRegression(
-            class_weight="balanced", C=best_C,
-            random_state=CV_RANDOM_STATE, max_iter=300,
-            solver="lbfgs", n_jobs=1,
-        ))
-    ])
     
     from sklearn.calibration import CalibratedClassifierCV, FrozenEstimator
     
     aucs = []
     calibration_fallback_folds = 0
     oof_scores = np.full(len(y), np.nan, dtype=float)
+    fold_c_selected = []
     for train_index, val_index in validation_splits:
         X_train, X_val = X.iloc[train_index], X.iloc[val_index]
         y_train, y_val = y.iloc[train_index], y.iloc[val_index]
@@ -388,8 +378,8 @@ def _fit_and_serialize(
         if len(np.unique(y_train)) < 2 or len(np.unique(y_val)) < 2:
             continue
         
-        # Split the outer training markets again: the calibrator must never see
-        # rows used to fit the base estimator.
+        # Split the outer training markets again: the calibrator and C-selection must never see
+        # rows used in outer test fold.
         inner_groups = groups.iloc[train_index].reset_index(drop=True)
         inner_timestamps = (
             timestamps.iloc[train_index].reset_index(drop=True)
@@ -401,16 +391,48 @@ def _fit_and_serialize(
                 validation_fraction=0.2,
             )
         except (ValueError, IndexError) as exc:
-            # The earliest walk-forward fold can contain only one market. It
-            # cannot be split into disjoint calibration groups; fit that fold
-            # without calibration instead of aborting the whole training job.
             logger.warning(
                 "calibration_split_unavailable",
                 error=str(exc),
                 train_groups=int(inner_groups.nunique()),
             )
             base_idx = calibration_idx = None
-        fold_base = clone(base_model)
+
+        # Inner grid search for C over [0.1, 0.5, 1.0] on inner holdout evaluated on log loss
+        fold_best_C = 1.0
+        if (
+            base_idx is not None
+            and calibration_idx is not None
+            and len(np.unique(y_train.iloc[base_idx])) >= 2
+            and len(np.unique(y_train.iloc[calibration_idx])) >= 2
+        ):
+            c_losses = {}
+            inner_base_w = (
+                sample_weight[train_index][base_idx]
+                if sample_weight is not None else None
+            )
+            inner_cal_w = (
+                sample_weight[train_index][calibration_idx]
+                if sample_weight is not None else None
+            )
+            for c_val in C_GRID:
+                probe = _build_logreg_pipeline(c_val)
+                try:
+                    probe.fit(
+                        X_train.iloc[base_idx], y_train.iloc[base_idx],
+                        model__sample_weight=inner_base_w,
+                    )
+                    proba_val = probe.predict_proba(X_train.iloc[calibration_idx])[:, 1]
+                    c_losses[c_val] = log_loss_score(
+                        y_train.iloc[calibration_idx], proba_val, sample_weight=inner_cal_w
+                    )
+                except Exception:
+                    pass
+            if c_losses:
+                fold_best_C = min(c_losses, key=c_losses.get)
+        fold_c_selected.append(fold_best_C)
+
+        fold_base = _build_logreg_pipeline(fold_best_C)
         if (
             base_idx is None
             or calibration_idx is None
@@ -426,17 +448,27 @@ def _fit_and_serialize(
                 sample_weight[train_index][base_idx]
                 if sample_weight is not None else None
             )
+            cal_weight = (
+                sample_weight[train_index][calibration_idx]
+                if sample_weight is not None else None
+            )
             fold_base.fit(
                 X_train.iloc[base_idx], y_train.iloc[base_idx],
                 model__sample_weight=tr_weight,
             )
-            fold_calib = CalibratedClassifierCV(
-                estimator=FrozenEstimator(fold_base), method="sigmoid", cv=None
-            )
-            fold_calib.fit(
-                X_train.iloc[calibration_idx], y_train.iloc[calibration_idx]
-            )
-            y_proba = fold_calib.predict_proba(X_val)[:, 1]
+            try:
+                fold_calib = CalibratedClassifierCV(
+                    estimator=FrozenEstimator(fold_base), method="sigmoid", cv=None
+                )
+                fold_calib.fit(
+                    X_train.iloc[calibration_idx], y_train.iloc[calibration_idx],
+                    sample_weight=cal_weight,
+                )
+                y_proba = fold_calib.predict_proba(X_val)[:, 1]
+            except (ValueError, IndexError) as exc:
+                calibration_fallback_folds += 1
+                logger.warning("fold_calibration_fallback_to_base", error=str(exc))
+                y_proba = fold_base.predict_proba(X_val)[:, 1]
         oof_scores[val_index] = y_proba
         aucs.append(roc_auc_score(y_val, y_proba))
 
@@ -445,7 +477,7 @@ def _fit_and_serialize(
             "calibration_fold_fallback",
             fallback_folds=calibration_fallback_folds,
             evaluated_folds=len(aucs),
-            reason="inner split does not contain both target classes",
+            reason="inner split does not contain both target classes or calibration failed",
         )
 
     val_acc = float(np.mean(aucs)) if aucs else 0.5
@@ -459,15 +491,9 @@ def _fit_and_serialize(
 
     baseline_acc = 0.5
     
-    # ECE Diagnostic по откалиброванным предсказаниям
-    bin_ids = np.minimum((valid_scores * 10).astype(int), 9)
-    ece = 0.0
-    for bin_id in range(10):
-        in_bin = bin_ids == bin_id
-        if in_bin.any():
-            ece += float(in_bin.mean()) * abs(
-                float(valid_y[in_bin].mean()) - float(valid_scores[in_bin].mean())
-            )
+    # ECE Diagnostic по откалиброванным предсказаниям через canonical metrics
+    ece_val, ece_diag = expected_calibration_error(valid_y, valid_scores, n_bins=20)
+    ece = float(ece_val) if ece_val is not None else 0.0
     logger.info("calibration_check", ece=round(ece, 4))
     
     # Обучаем финальную модель на всех данных (с holdout для честной калибровки)
@@ -479,26 +505,49 @@ def _fit_and_serialize(
     X_train_cal, X_cal = X.iloc[train_idx], X.iloc[cal_idx]
     y_train_cal, y_cal = y.iloc[train_idx], y.iloc[cal_idx]
     
+    # Best C for final model using inner holdout evaluated on log loss
+    c_final_losses = {}
+    best_C = 1.0
+    if len(np.unique(y_train_cal)) >= 2 and len(np.unique(y_cal)) >= 2:
+        for c_val in C_GRID:
+            cand_pipe = _build_logreg_pipeline(c_val)
+            try:
+                tr_cal_w = sample_weight[train_idx] if sample_weight is not None else None
+                cal_w = sample_weight[cal_idx] if sample_weight is not None else None
+                cand_pipe.fit(X_train_cal, y_train_cal, model__sample_weight=tr_cal_w)
+                cand_proba = cand_pipe.predict_proba(X_cal)[:, 1]
+                c_final_losses[c_val] = log_loss_score(y_cal, cand_proba, sample_weight=cal_w)
+            except Exception:
+                pass
+        if c_final_losses:
+            best_C = min(c_final_losses, key=c_final_losses.get)
+    logger.info("c_inner_search_selected", best_C=best_C, fold_c=fold_c_selected, c_losses=c_final_losses)
+
     if len(np.unique(y_train_cal)) < 2 or len(np.unique(y_cal)) < 2:
         # Fallback to uncalibrated model on entire dataset if split is invalid
-        final_model = clone(base_model)
+        final_base = _build_logreg_pipeline(best_C)
         try:
             sw_all = sample_weight if sample_weight is not None else None
-            final_model.fit(X, y, model__sample_weight=sw_all)
+            final_base.fit(X, y, model__sample_weight=sw_all)
         except Exception:
             return None # Impossible to fit
-        final_base = final_model
+        final_model = final_base
     else:
-        final_base = clone(base_model)
+        final_base = _build_logreg_pipeline(best_C)
         tr_cal_weight = sample_weight[train_idx] if sample_weight is not None else None
+        cal_weight = sample_weight[cal_idx] if sample_weight is not None else None
         final_base.fit(X_train_cal, y_train_cal, model__sample_weight=tr_cal_weight)
         
-        final_model = CalibratedClassifierCV(
-            estimator=FrozenEstimator(final_base),
-            method="sigmoid",
-            cv=None
-        )
-        final_model.fit(X_cal, y_cal)
+        try:
+            final_model = CalibratedClassifierCV(
+                estimator=FrozenEstimator(final_base),
+                method="sigmoid",
+                cv=None
+            )
+            final_model.fit(X_cal, y_cal, sample_weight=cal_weight)
+        except (ValueError, IndexError) as exc:
+            logger.warning("final_calibration_fallback_raw", error=str(exc))
+            final_model = final_base
     
     coefs = final_base.named_steps["model"].coef_[0]
     coef_info = dict(zip(list(X.columns), [round(float(c), 4) for c in coefs]))
@@ -601,10 +650,12 @@ def _fit_and_serialize(
         "oot_markets": int(pd.Series(
             groups.to_numpy()[valid_oof_mask]
         ).nunique()),
-        "brier_score": round(float(brier_score_loss(valid_y, valid_scores)), 6),
-        "log_loss": round(float(log_loss(valid_y, valid_scores, labels=[0, 1])), 6),
-        "model_config": {"penalty": "l2", "solver": "lbfgs", "C": best_C},
-        "c_search_auc": {str(key): value for key, value in c_results.items()},
+        "brier_score": round(float(brier_score(valid_y, valid_scores)), 6),
+        "log_loss": round(float(log_loss_score(valid_y, valid_scores)), 6),
+        "ece": round(float(ece), 6),
+        "ece_diag": ece_diag,
+        "model_config": {"penalty": "l2", "solver": "lbfgs", "C": best_C, "class_weight": None},
+        "c_search_loss": {str(key): round(float(value), 6) for key, value in c_final_losses.items()},
         "market_balanced_weights": True,
     })
 
@@ -668,30 +719,44 @@ class ModelTrainer:
         """
         logger.info("starting_training", asset=asset)
         
-        # Получаем активные фичи из RuntimeSettings
-        experiment_variant = normalize_experiment_variant(feature_set)
-        settings_stmt = select(RuntimeSettings).where(RuntimeSettings.key == "ACTIVE_FEATURES")
-        settings_result = await self.db.execute(settings_stmt)
-        active_features_setting = settings_result.scalar_one_or_none()
-        
-        if active_features_setting and active_features_setting.value.strip():
-            active_features = active_features_setting.value.split(",")
+        # Получаем активные фичи с учётом контрактов признаков
+        is_contract_feature_set = feature_set.upper() in OUTSIDER_FEATURE_SETS
+        if is_contract_feature_set:
+            contract = get_outsider_feature_set(feature_set)
+            active_features = list(contract.features)
+            experiment_variant = "CONTRACT"
+            logger.info(
+                "outsider_feature_contract_locked",
+                feature_set=contract.key,
+                version=contract.version,
+                schema_hash=contract.schema_hash,
+                features=active_features,
+            )
         else:
-            active_features = settings.ACTIVE_FEATURES.split(",")
+            experiment_variant = normalize_experiment_variant(feature_set)
+            settings_stmt = select(RuntimeSettings).where(RuntimeSettings.key == "ACTIVE_FEATURES")
+            settings_result = await self.db.execute(settings_stmt)
+            active_features_setting = settings_result.scalar_one_or_none()
             
-        active_features = [f.strip() for f in active_features if f.strip()]
-        
-        if experiment_variant in FEATURE_EXPERIMENT_VARIANTS:
-            active_features = [
-                feature for feature in active_features
-                if feature not in SEQUENCE_CANDLE_FEATURES
-            ]
+            if active_features_setting and active_features_setting.value.strip():
+                active_features = active_features_setting.value.split(",")
+            else:
+                active_features = settings.ACTIVE_FEATURES.split(",")
+                
+            active_features = [f.strip() for f in active_features if f.strip()]
+            
+            if experiment_variant in FEATURE_EXPERIMENT_VARIANTS:
+                active_features = [
+                    feature for feature in active_features
+                    if feature not in SEQUENCE_CANDLE_FEATURES
+                ]
+
         if not active_features:
             logger.error("no_active_features_selected", asset=asset)
             self.status_messages[asset] = "Ошибка: не выбраны активные признаки"
             return False
         
-        # 1. Сначала проверяем количество доступных сэмплов через быстрый COUNT(*)
+        # 1. Проверяем количество доступных сэмплов через быстрый COUNT(*)
         from polyflip.services.settings_service import get_float, get_int, get_setting
         min_time_min = await get_float(self.db, "LR_TRAIN_MIN_TIME_LEFT_MIN")
         max_time_min = await get_float(self.db, "LR_TRAIN_MAX_TIME_LEFT_MIN")
@@ -699,46 +764,33 @@ class ModelTrainer:
         count_stmt = select(func.count(MarketSnapshot.id)).where(
             MarketSnapshot.asset == asset,
             MarketSnapshot.final_outcome.in_(["YES", "NO"]),
-            MarketSnapshot.flip_vs_final.is_not(None),
+            MarketSnapshot.mid_price != 0.5,
             MarketSnapshot.time_left_min >= min_time_min,
             MarketSnapshot.time_left_min <= max_time_min
         )
         count_result = await self.db.execute(count_stmt)
         total_samples = count_result.scalar() or 0
         
-        # BUG-004 FIX: Используем настройку из конфига
         if total_samples < settings.MIN_SAMPLES_FOR_MODEL:
             logger.warning("not_enough_data_for_training", asset=asset, samples=total_samples, required=settings.MIN_SAMPLES_FOR_MODEL)
             self.status_messages[asset] = f"Пропущено: недостаточно данных ({total_samples}/{settings.MIN_SAMPLES_FOR_MODEL})"
             return False
 
-        # Получаем обучающую выборку (только YES и NO, и где есть рассчитанный флип)
+        # 2. Загружаем полную историю для разрезолвленных рынков (YES / NO)
+        # без предварительной обрезки по time_left_min, чтобы лаги (add_lag_features)
+        # и expanding max для ранних точек окна имели полную причинно-следственную историю.
         stmt = select(MarketSnapshot).where(
             MarketSnapshot.asset == asset,
             MarketSnapshot.final_outcome.in_(["YES", "NO"]),
-            MarketSnapshot.flip_vs_final.is_not(None),
-            MarketSnapshot.time_left_min >= min_time_min,
-            MarketSnapshot.time_left_min <= max_time_min
-        )
+        ).order_by(MarketSnapshot.market_id, MarketSnapshot.recorded_at.asc())
         result = await self.db.execute(stmt)
         snapshots = result.scalars().all()
 
-        # 2. Формируем DataFrame
+        # 3. Формируем DataFrame по всей истории
         data = []
-        target_mismatches = 0
         for s in snapshots:
             if s.recorded_at is None:
-                target_mismatches += 1
                 continue
-            expected_flip = (
-                False
-                if float(s.mid_price) == 0.5
-                else ((float(s.mid_price) > 0.5) != (s.final_outcome == "YES"))
-            )
-            if bool(s.flip_vs_final) != expected_flip:
-                target_mismatches += 1
-                continue
-
             data.append({
                 "market_id": s.market_id,
                 "recorded_at": s.recorded_at,
@@ -751,32 +803,24 @@ class ModelTrainer:
                 "volume_5min": s.volume_5min,
                 "hour_of_day": s.hour_of_day,
                 "day_of_week": float(s.recorded_at.weekday()) if s.recorded_at else 0.0,
-                "target": 1 if s.flip_vs_final else 0,
                 "final_outcome": s.final_outcome,
             })
             
         df = pd.DataFrame(data)
-        
-        if target_mismatches:
-            logger.warning(
-                "training_rows_rejected_by_target_contract",
-                asset=asset,
-                rejected=target_mismatches,
-                target_source="POLYMARKET_FLIP_VS_FINAL_OUTCOME",
-            )
+        if df.empty:
+            self.status_messages[asset] = "Training failed: no resolved market snapshots"
+            return False
+            
         df = (
             df.drop_duplicates(["market_id", "recorded_at"], keep="last")
             .sort_values(["market_id", "recorded_at"])
             .reset_index(drop=True)
         )
-        if df.empty:
-            self.status_messages[asset] = "Training failed: no target-consistent rows"
-            return False
 
         sequence_coverage = 0.0
         sequence_enabled = False
         sequence_symbol = ASSET_TO_BINANCE_SYMBOL.get(asset.split("_")[0])
-        if sequence_symbol:
+        if sequence_symbol and not is_contract_feature_set:
             candle_start = (
                 pd.Timestamp(df["recorded_at"].min()).to_pydatetime()
                 - timedelta(minutes=SEQUENCE_LOOKBACK_MINUTES)
@@ -820,12 +864,37 @@ class ModelTrainer:
             )
             return False
 
+        # Добавляем инженерные признаки по полной причинной истории
+        df = add_derived_features(df)
+        df = add_lag_features(df)
+
+        # Фильтруем строки для обучения (таргет):
+        # 1. time_left_min в диапазоне [min_time_min, max_time_min]
+        # 2. mid_price != 0.5 (при 0.5 фаворит не определён, нет аутсайдера)
+        decision_mask = (
+            (df["time_left_min"] >= min_time_min)
+            & (df["time_left_min"] <= max_time_min)
+            & (df["mid_price"] != 0.5)
+        )
+        df = df.loc[decision_mask].copy()
+
+        # Канонический расчет таргета:
+        # flip = True (1), если текущий фаворит проиграл:
+        # (mid_price > 0.5) != (final_outcome == "YES")
+        df["target"] = np.where(
+            (df["mid_price"] > 0.5) != (df["final_outcome"] == "YES"),
+            1,
+            0,
+        )
+
+        df["_decision_at"] = pd.to_datetime(df["recorded_at"], utc=True)
+        df.drop(columns=["recorded_at"], errors="ignore", inplace=True)
+
         if len(df) < settings.MIN_SAMPLES_FOR_MODEL:
             self.status_messages[asset] = (
                 f"Training failed: {len(df)} valid rows remain after data contracts"
             )
             return False
-
 
         logger.info(
             "time_left_distribution",
@@ -842,16 +911,10 @@ class ModelTrainer:
             ),
         )
 
-        # Добавляем инженерные признаки
-        df = add_derived_features(df)
-        df = add_lag_features(df)
-        df["_decision_at"] = pd.to_datetime(df["recorded_at"], utc=True)
-        df.drop(columns=["recorded_at"], errors="ignore", inplace=True)
-
         # Автоматически расширяем active_features производными признаками,
-        # если их базовые источники (mid_price, spread, time_left_min) присутствуют
+        # ТОЛЬКО если feature_set НЕ заблокирован явным контрактом (например, MODEL_A)
         base_for_derived = {"mid_price", "spread", "time_left_min"}
-        if base_for_derived.issubset(set(active_features)):
+        if not is_contract_feature_set and base_for_derived.issubset(set(active_features)):
             generated_features = list(DERIVED_FEATURES)
             if experiment_variant in FEATURE_EXPERIMENT_VARIANTS:
                 generated_features.extend(
@@ -1225,7 +1288,7 @@ class ModelTrainer:
         logger.info("model_saved_to_db", asset=asset, version=next_version, threshold=optimal_threshold)
         
         diff_str = ""
-        if prev_auc is not None:
+        if prev_auc is not None and isinstance(prev_auc, (int, float)):
             diff = val_acc - prev_auc
             if diff > 0.0001:
                 diff_str = f" (+{diff:.4f} 🟢 лучше)"
