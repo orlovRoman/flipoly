@@ -44,7 +44,7 @@ class SimpleRateLimitMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         # Пропускаем статические файлы и проверку здоровья /health
-        if request.url.path.startswith("/static") or request.url.path == "/health":
+        if request.url.path.startswith("/static") or request.url.path.startswith("/health"):
             return await call_next(request)
 
         client_ip = request.client.host if request.client else "unknown"
@@ -73,7 +73,7 @@ class SimpleRateLimitMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         return response
 
-from polyflip.db.connection import async_session
+from polyflip.db.connection import async_session, get_db_session
 from polyflip.db.init_runtime_settings import seed_runtime_settings, migrate_auto_dead_zone_width, migrate_stop_loss_pct, migrate_crypto_to_lightgbm, migrate_paper_execution_profile
 
 @asynccontextmanager
@@ -154,6 +154,33 @@ app.mount("/static", StaticFiles(directory=os.path.join(base_dir, "static")), na
 async def health_check():
     """Health check endpoint, open to public."""
     return {"status": "ok"}
+
+
+@app.get("/health/observations")
+async def observations_health(db: AsyncSession = Depends(get_db_session)):
+    """Health check for underlying observations ingestion and repository state."""
+    from polyflip.crypto.underlying_observations import get_observation_writer, ObservationRepository
+    writer = get_observation_writer()
+    repo = ObservationRepository(db)
+    health = writer.get_health()
+    btc_state = await repo.get_underlying_state("BTC")
+    total_count = await repo.count("BTC")
+    return {
+        "status": health["status"],
+        "healthy": health["healthy"],
+        "writer": health,
+        "btc_count": total_count,
+        "btc_state": {
+            "instrument": btc_state.instrument,
+            "status": btc_state.status,
+            "binance_price": btc_state.binance_price,
+            "oracle_price": btc_state.oracle_price,
+            "latest_price": btc_state.latest_price,
+            "latest_source": btc_state.latest_source,
+            "age_seconds": btc_state.age_seconds,
+        },
+    }
+
 
 @app.get("/stats/{asset}", dependencies=[Depends(verify_api_key)])
 async def get_stats(asset: str):

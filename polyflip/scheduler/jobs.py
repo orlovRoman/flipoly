@@ -784,6 +784,35 @@ async def main():
         id="backup_job",
         replace_existing=True
     )
+
+    # Запуск сборщика спот-тиков реального времени (Binance WS/REST + Chainlink/Oracle)
+    spot_collector = None
+    spot_task = None
+    embedded_spot_enabled = os.getenv("SPOT_COLLECTOR_EMBEDDED_ENABLED", "true").lower() in ("true", "1", "yes")
+    if embedded_spot_enabled:
+        from polyflip.crypto.spot_collector import get_spot_collector_daemon
+        spot_collector = get_spot_collector_daemon(session_factory=async_session)
+        spot_task = asyncio.create_task(spot_collector.run(), name="spot_collector_daemon")
+        logger.info("embedded_spot_collector_started")
+
+        async def spot_collector_health_job():
+            if spot_collector:
+                health = spot_collector.get_health()
+                logger.info(
+                    "spot_collector_scheduler_health",
+                    status=health.get("status"),
+                    healthy=health.get("healthy"),
+                    ticks_written=health.get("writer", {}).get("ticks_written"),
+                    buffer_size=health.get("writer", {}).get("buffer_size"),
+                )
+
+        scheduler.add_job(
+            spot_collector_health_job,
+            trigger=IntervalTrigger(minutes=1),
+            id="spot_collector_health_job",
+            replace_existing=True,
+            max_instances=1,
+        )
     
     scheduler.start()
     
@@ -807,6 +836,15 @@ async def main():
         
     logger.info("scheduler_stopping")
     scheduler.shutdown(wait=True)
+
+    if spot_collector and spot_task:
+        logger.info("stopping_embedded_spot_collector")
+        await spot_collector.stop()
+        spot_task.cancel()
+        try:
+            await spot_task
+        except asyncio.CancelledError:
+            pass
     
     # Закрываем общие сетевые клиенты
     await api_client.close()

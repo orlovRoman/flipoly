@@ -75,6 +75,24 @@ async def run_collector_cycle(db_session: AsyncSession):
             strike_eff = getattr(prov, "strike_effective_at", None) if prov else None
             strike_rec = getattr(prov, "strike_received_at", None) if prov else current_time
 
+            # Retrieve real-time spot & oracle prices from ObservationWriter
+            from polyflip.crypto.underlying_observations import get_observation_writer
+            obs_writer = get_observation_writer()
+            binance_price = obs_writer.get_latest_cached_price(m_data["asset"], "BINANCE")
+            oracle_price = obs_writer.get_latest_cached_price(m_data["asset"], "ORACLE")
+            if oracle_price is None and strike_val is not None:
+                oracle_price = float(strike_val)
+
+            if strike_val is not None and strike_val > 0:
+                obs_writer.record_tick(
+                    instrument=m_data["asset"],
+                    price=float(strike_val),
+                    source="ORACLE",
+                    event_at=strike_eff or current_time,
+                    received_at=strike_rec,
+                    extra_data={"market_id": market_id, "strike_source": strike_src},
+                )
+
             price_velocity = 0.0
 
             if live_m:
@@ -99,6 +117,10 @@ async def run_collector_cycle(db_session: AsyncSession):
                     live_m.strike_source = strike_src
                     live_m.strike_effective_at = strike_eff
                     live_m.strike_received_at = strike_rec
+                if binance_price is not None:
+                    live_m.binance_price = binance_price
+                if oracle_price is not None:
+                    live_m.oracle_price = oracle_price
             else:
                 # Создаем новую запись в LiveMarket
                 live_m = LiveMarket(
@@ -120,6 +142,8 @@ async def run_collector_cycle(db_session: AsyncSession):
                     strike_source=strike_src,
                     strike_effective_at=strike_eff,
                     strike_received_at=strike_rec,
+                    binance_price=binance_price,
+                    oracle_price=oracle_price,
                 )
                 db_session.add(live_m)
 
@@ -145,10 +169,14 @@ async def run_collector_cycle(db_session: AsyncSession):
                 strike_source=strike_src,
                 strike_effective_at=strike_eff,
                 strike_received_at=strike_rec,
+                binance_price=binance_price,
+                oracle_price=oracle_price,
             )
             db_session.add(snapshot)
             markets_saved += 1
 
+        # Flush pending observations to db
+        await obs_writer.flush(session=db_session)
         await db_session.commit()
         status_str = "success"
 
