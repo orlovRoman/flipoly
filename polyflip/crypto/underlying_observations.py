@@ -44,6 +44,9 @@ class Observation:
             object.__setattr__(self, "event_at", self.event_at.replace(tzinfo=timezone.utc))
         if self.received_at.tzinfo is None:
             object.__setattr__(self, "received_at", self.received_at.replace(tzinfo=timezone.utc))
+        if self.event_at > self.received_at:
+            # Clock skew protection: an observation cannot physically be received before it occurred.
+            object.__setattr__(self, "event_at", self.received_at)
 
 
 @dataclass(frozen=True)
@@ -166,16 +169,25 @@ def get_underlying_state(
     as_of: datetime,
     instrument: str = "BTC",
     max_age_seconds: float = 60.0,
+    oracle_max_age_seconds: float = 1200.0,
 ) -> UnderlyingState:
     """
     Extracts distinct named fields for Binance price and Oracle price at as_of.
+    Oracle/strike prices use oracle_max_age_seconds (default 20 minutes) since Polymarket
+    15m binary markets establish their reference strike at market open.
     """
     binance_res = get_latest_observation(
         observations, as_of, instrument=instrument, source="BINANCE", max_age_seconds=max_age_seconds
     )
     oracle_res = get_latest_observation(
-        observations, as_of, instrument=instrument, source="ORACLE", max_age_seconds=max_age_seconds
+        observations, as_of, instrument=instrument, source="ORACLE", max_age_seconds=oracle_max_age_seconds
     )
+    if not oracle_res.is_valid:
+        chainlink_res = get_latest_observation(
+            observations, as_of, instrument=instrument, source="CHAINLINK", max_age_seconds=oracle_max_age_seconds
+        )
+        if chainlink_res.is_valid:
+            oracle_res = chainlink_res
 
     # General latest regardless of source
     any_res = get_latest_observation(
@@ -311,6 +323,7 @@ class ObservationRepository:
         Idempotently inserts multiple observations in a single batch.
         Uses ON CONFLICT (instrument, source, event_at, received_at) DO NOTHING.
         Works across both PostgreSQL and SQLite.
+        Deduplicates within batch to prevent PostgreSQL CardinalityViolation (SQLSTATE 21000).
         Returns the number of rows inserted.
         """
         if not observations:
@@ -318,20 +331,30 @@ class ObservationRepository:
 
         from polyflip.db.models import UnderlyingObservation
 
+        seen_keys = set()
         values = []
         for o in observations:
             e_at = pd.to_datetime(o.event_at, utc=True).to_pydatetime()
             r_at = pd.to_datetime(o.received_at, utc=True).to_pydatetime()
+            inst = o.instrument.upper()
+            src = o.source.upper()
+            key = (inst, src, e_at, r_at)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
             values.append(
                 {
-                    "instrument": o.instrument.upper(),
-                    "source": o.source.upper(),
+                    "instrument": inst,
+                    "source": src,
                     "price": float(o.price),
                     "event_at": e_at,
                     "received_at": r_at,
                     "extra_data": o.extra_data,
                 }
             )
+
+        if not values:
+            return 0
 
         bind = self.session.bind
         if bind is None and hasattr(self.session, "get_bind"):
@@ -354,11 +377,18 @@ class ObservationRepository:
                 index_elements=["instrument", "source", "event_at", "received_at"]
             )
 
-        result = await self.session.execute(stmt)
-        await self.session.commit()
-        if result.rowcount is not None and result.rowcount >= 0:
-            return result.rowcount
-        return len(values)
+        try:
+            result = await self.session.execute(stmt)
+            await self.session.commit()
+            if result.rowcount is not None and result.rowcount >= 0:
+                return result.rowcount
+            return len(values)
+        except Exception:
+            try:
+                await self.session.rollback()
+            except Exception:
+                pass
+            raise
 
     async def get_latest_observation(
         self,
@@ -424,6 +454,7 @@ class ObservationRepository:
         instrument: str = "BTC",
         as_of: datetime | None = None,
         max_age_seconds: float = 60.0,
+        oracle_max_age_seconds: float = 1200.0,
     ) -> UnderlyingState:
         """
         Reconstructs the UnderlyingState containing distinct named fields for
@@ -437,8 +468,15 @@ class ObservationRepository:
             instrument=instrument, source="BINANCE", as_of=as_of_utc, max_age_seconds=max_age_seconds
         )
         oracle_res = await self.get_latest_observation(
-            instrument=instrument, source="ORACLE", as_of=as_of_utc, max_age_seconds=max_age_seconds
+            instrument=instrument, source="ORACLE", as_of=as_of_utc, max_age_seconds=oracle_max_age_seconds
         )
+        if not oracle_res.is_valid:
+            chainlink_res = await self.get_latest_observation(
+                instrument=instrument, source="CHAINLINK", as_of=as_of_utc, max_age_seconds=oracle_max_age_seconds
+            )
+            if chainlink_res.is_valid:
+                oracle_res = chainlink_res
+
         any_res = await self.get_latest_observation(
             instrument=instrument, source=None, as_of=as_of_utc, max_age_seconds=max_age_seconds
         )
@@ -549,12 +587,16 @@ class ObservationWriter:
         Convenience builder to record a single tick into the buffer.
         """
         now = datetime.now(timezone.utc)
+        e_at = event_at if event_at is not None else now
+        r_at = received_at if received_at is not None else now
+        if e_at > r_at:
+            e_at = r_at
         obs = Observation(
             instrument=instrument.upper(),
             price=float(price),
             source=source.upper(),
-            event_at=event_at if event_at is not None else now,
-            received_at=received_at if received_at is not None else now,
+            event_at=e_at,
+            received_at=r_at,
             extra_data=extra_data,
             source_event_id=source_event_id,
         )
@@ -595,6 +637,11 @@ class ObservationWriter:
             self._error_count += 1
             self._last_error = str(exc)
             logger.error("observation_writer_flush_error", error=str(exc), batch_size=len(batch))
+            if session is not None:
+                try:
+                    await session.rollback()
+                except Exception:
+                    pass
             async with self._lock:
                 remaining_space = max(0, self.buffer_capacity - len(self._buffer))
                 self._buffer = batch[:remaining_space] + self._buffer
@@ -642,14 +689,23 @@ class ObservationWriter:
         """
         Returns freshest in-memory price without hitting database.
         """
+        inst = instrument.upper()
         if source is not None:
-            return self._latest_prices.get(f"{instrument.upper()}:{source.upper()}")
+            src = source.upper()
+            val = self._latest_prices.get(f"{inst}:{src}")
+            if val is not None:
+                return val
+            if src == "ORACLE":
+                return self._latest_prices.get(f"{inst}:CHAINLINK")
+            if src == "CHAINLINK":
+                return self._latest_prices.get(f"{inst}:ORACLE")
+            return None
         for s in ("BINANCE", "ORACLE", "CHAINLINK"):
-            val = self._latest_prices.get(f"{instrument.upper()}:{s}")
+            val = self._latest_prices.get(f"{inst}:{s}")
             if val is not None:
                 return val
         for k, v in self._latest_prices.items():
-            if k.startswith(f"{instrument.upper()}:"):
+            if k.startswith(f"{inst}:"):
                 return v
         return None
 

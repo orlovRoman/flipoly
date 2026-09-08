@@ -71,7 +71,7 @@ class BinanceSpotStream:
         self._reconnect_count = 0
         self._last_error: str | None = None
 
-    def _build_stream_url(self) -> str:
+    def _build_stream_url(self, use_backup: bool = False) -> str:
         if self.ws_url:
             return self.ws_url
         stream_names = []
@@ -82,16 +82,18 @@ class BinanceSpotStream:
         if not stream_names:
             stream_names = ["btcusdt@miniTicker"]
         combined = "/".join(stream_names)
-        return f"{BINANCE_WS_BASE}/stream?streams={combined}"
+        base = BINANCE_WS_BACKUP if use_backup else BINANCE_WS_BASE
+        return f"{base}/stream?streams={combined}"
 
     async def run(self) -> None:
         self._running = True
         attempt = 0
-        url = self._build_stream_url()
 
         while self._running:
+            use_backup = (attempt > 0 and attempt % 2 == 1)
+            url = self._build_stream_url(use_backup=use_backup)
             try:
-                logger.info("binance_ws_connecting", url=url, attempt=attempt)
+                logger.info("binance_ws_connecting", url=url, attempt=attempt, use_backup=use_backup)
                 timeout = aiohttp.ClientTimeout(total=None, connect=10.0, sock_read=30.0)
                 async with aiohttp.ClientSession(timeout=timeout) as session:
                     async with session.ws_connect(url, heartbeat=15.0) as ws:
@@ -225,15 +227,20 @@ class BinanceRestPoller:
     async def _poll_once(self, client: httpx.AsyncClient, symbols: list[str]) -> None:
         now_utc = datetime.now(timezone.utc)
         endpoint = f"{self.base_url}/api/v3/ticker/price"
+        backup_endpoint = f"{BINANCE_REST_BACKUP}/api/v3/ticker/price"
 
-        try:
-            resp = await client.get(endpoint)
-            if resp.status_code != 200:
-                # Fallback to secondary endpoint
-                resp = await client.get(f"{BINANCE_REST_BACKUP}/api/v3/ticker/price")
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception:
+        data = None
+        for ep in (endpoint, backup_endpoint):
+            try:
+                resp = await client.get(ep)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    break
+            except Exception as e:
+                logger.debug("binance_rest_poll_endpoint_error", endpoint=ep, error=str(e))
+                continue
+
+        if not data or not isinstance(data, list):
             return
 
         target_symbols = set(symbols)
@@ -282,6 +289,7 @@ class PolymarketOracleCollector:
         self._running = False
         self._last_poll_at: datetime | None = None
         self._last_error: str | None = None
+        self._recorded_strikes: dict[str, tuple[float, datetime]] = {}
 
     async def run(self) -> None:
         self._running = True
@@ -316,19 +324,30 @@ class PolymarketOracleCollector:
                 if strike_val is None or strike_val <= 0:
                     continue
 
-                strike_src = getattr(prov, "strike_source", "UNKNOWN") if prov else "UNKNOWN"
+                market_id = str(m.get("market_id", ""))
+                cache_key = f"{asset}:{market_id}"
                 event_at = getattr(prov, "strike_effective_at", None) or now
+                strike_f = float(strike_val)
+
+                # Deduplicate: if this market's strike was already recorded and hasn't changed, skip
+                if cache_key in self._recorded_strikes:
+                    prev_val, prev_event = self._recorded_strikes[cache_key]
+                    if abs(prev_val - strike_f) < 1e-6 and prev_event == event_at:
+                        continue
+
+                self._recorded_strikes[cache_key] = (strike_f, event_at)
+                strike_src = getattr(prov, "strike_source", "UNKNOWN") if prov else "UNKNOWN"
                 received_at = getattr(prov, "strike_received_at", None) or now
 
                 # Record as ORACLE
                 self.writer.record_tick(
                     instrument=asset,
-                    price=float(strike_val),
+                    price=strike_f,
                     source="ORACLE",
                     event_at=event_at,
                     received_at=received_at,
                     extra_data={
-                        "market_id": m.get("market_id"),
+                        "market_id": market_id,
                         "condition_id": m.get("condition_id"),
                         "strike_source": strike_src,
                         "question": m.get("question"),
@@ -337,16 +356,22 @@ class PolymarketOracleCollector:
                 # Also record as CHAINLINK for explicit resolution attribution
                 self.writer.record_tick(
                     instrument=asset,
-                    price=float(strike_val),
+                    price=strike_f,
                     source="CHAINLINK",
                     event_at=event_at,
                     received_at=received_at,
                     extra_data={
-                        "market_id": m.get("market_id"),
+                        "market_id": market_id,
                         "condition_id": m.get("condition_id"),
                         "strike_source": strike_src,
                     },
                 )
+
+            if len(self._recorded_strikes) > 500:
+                active_keys = {f"{m.get('asset')}:{m.get('market_id')}" for m in markets}
+                self._recorded_strikes = {
+                    k: v for k, v in self._recorded_strikes.items() if k in active_keys
+                }
         finally:
             await client.close()
 

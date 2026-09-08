@@ -186,3 +186,64 @@ async def test_writer_background_loop_and_graceful_stop(engine, base_time: datet
         repo = ObservationRepository(s)
         assert await repo.count("SOL") == 1
         assert await repo.count() == 3
+
+
+@pytest.mark.asyncio
+async def test_save_batch_intra_batch_duplicates(db_session: AsyncSession, base_time: datetime):
+    """save_batch must deduplicate identical keys within the same batch to prevent PostgreSQL CardinalityViolation."""
+    repo = ObservationRepository(db_session)
+    t0 = base_time
+
+    # Same instrument, source, event_at, received_at twice in the same batch
+    obs1 = Observation("BTC", 50000.0, "BINANCE", t0, t0)
+    obs1_dup = Observation("BTC", 50000.0, "BINANCE", t0, t0)
+    obs2 = Observation("BTC", 50100.0, "BINANCE", t0 + timedelta(seconds=1), t0 + timedelta(seconds=1))
+
+    batch = [obs1, obs1_dup, obs2]
+    written = await repo.save_batch(batch)
+    assert written == 2
+
+    count = await repo.count("BTC")
+    assert count == 2
+
+
+def test_clock_skew_clamping(base_time: datetime):
+    """If exchange timestamp is ahead of local clock, event_at must be clamped to received_at."""
+    t0 = base_time
+    # event_at is 1 second ahead of received_at due to clock skew
+    obs = Observation("BTC", 50000.0, "BINANCE", event_at=t0 + timedelta(seconds=1), received_at=t0)
+    assert obs.event_at == t0
+    assert obs.received_at == t0
+
+
+@pytest.mark.asyncio
+async def test_oracle_strike_retention_over_time(db_session: AsyncSession, base_time: datetime):
+    """Oracle strike prices must remain valid across the 15-minute market window (not expiring at 60s)."""
+    repo = ObservationRepository(db_session)
+    t0 = base_time
+
+    # Market opened at t0 with strike 60000
+    obs_oracle = Observation("BTC", 60000.0, "ORACLE", t0, t0)
+    obs_binance = Observation("BTC", 60100.0, "BINANCE", t0 + timedelta(seconds=300), t0 + timedelta(seconds=300))
+    await repo.save_batch([obs_oracle, obs_binance])
+
+    # Query at t0 + 300s (5 minutes in)
+    state = await repo.get_underlying_state("BTC", as_of=t0 + timedelta(seconds=300), max_age_seconds=60.0, oracle_max_age_seconds=1200.0)
+    assert state.status == "VALID"
+    assert state.binance_price == 60100.0
+    # Oracle strike is 300s old, but valid because oracle_max_age_seconds=1200s
+    assert state.oracle_price == 60000.0
+
+
+def test_writer_cached_price_oracle_chainlink_fallback():
+    """get_latest_cached_price must treat ORACLE and CHAINLINK as compatible fallbacks."""
+    writer = ObservationWriter(buffer_capacity=100)
+    now = datetime.now(timezone.utc)
+
+    # Record as CHAINLINK
+    writer.record_tick("BTC", 62000.0, "CHAINLINK", event_at=now, received_at=now)
+
+    # Query as ORACLE should return the CHAINLINK price
+    assert writer.get_latest_cached_price("BTC", "ORACLE") == 62000.0
+    assert writer.get_latest_cached_price("BTC", "CHAINLINK") == 62000.0
+

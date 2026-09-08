@@ -23,6 +23,9 @@ async def run_collector_cycle(db_session: AsyncSession):
     markets_saved = 0
     error_msg = None
 
+    from polyflip.crypto.underlying_observations import get_observation_writer
+    obs_writer = get_observation_writer()
+
     try:
         # 1. Получаем список 15-минутных рынков для наших активов
         active_markets = await client.get_active_15m_markets(settings.asset_list)
@@ -76,8 +79,6 @@ async def run_collector_cycle(db_session: AsyncSession):
             strike_rec = getattr(prov, "strike_received_at", None) if prov else current_time
 
             # Retrieve real-time spot & oracle prices from ObservationWriter
-            from polyflip.crypto.underlying_observations import get_observation_writer
-            obs_writer = get_observation_writer()
             binance_price = obs_writer.get_latest_cached_price(m_data["asset"], "BINANCE")
             oracle_price = obs_writer.get_latest_cached_price(m_data["asset"], "ORACLE")
             if oracle_price is None and strike_val is not None:
@@ -193,6 +194,7 @@ async def run_collector_cycle(db_session: AsyncSession):
     # Записываем статистику работы сборщика
     try:
         status_record = CollectorStatus(
+            service_name="collector",
             run_at=start_time,
             status=status_str,
             markets_found=markets_found,
@@ -204,3 +206,7 @@ async def run_collector_cycle(db_session: AsyncSession):
         await db_session.commit()
     except Exception as e:
         logger.error("error_saving_collector_status", error=str(e))
+        try:
+            await db_session.rollback()
+        except Exception:
+            pass
