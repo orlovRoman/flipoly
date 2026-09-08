@@ -598,7 +598,9 @@ class OpenCodeClient:
                 "You are an autonomous quant researcher for Polymarket crypto "
                 "binary markets. Formulate one testable hypothesis for model "
                 "architecture, feature set and strategy parameters. Never "
-                "propose shell commands, external network calls or LIVE trades."
+                "propose shell commands, external network calls or LIVE trades. "
+                "IMPORTANT: Write all free-text fields (hypothesis, reasoning, risks, "
+                "rationale, key_findings, next_step_focus) in Russian language."
             ),
             context={"context": context},
             schema_name="hypothesis_proposal",
@@ -625,7 +627,9 @@ class OpenCodeClient:
                 "MUTATE_HYPOTHESIS, RECOMMEND_SHADOW, FINALIZE_NO_WINNER, "
                 "APPLY_OVERLAY, REQUEST_LIVE_APPROVAL, or "
                 "STOP_BUDGET_EXHAUSTED. Use the exact uppercase token. Never "
-                "request direct LIVE activation."
+                "request direct LIVE activation. "
+                "IMPORTANT: Write all free-text fields (rationale, key_findings, next_step_focus) "
+                "in Russian language."
             ),
             context={
                 "context": context,

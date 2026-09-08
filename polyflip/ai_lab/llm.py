@@ -924,7 +924,9 @@ class OpenAIResponsesProvider:
         instructions = (
             "You are an autonomous quant researcher for Polymarket crypto binary markets. "
             "Formulate one testable hypothesis for model architecture, feature set and "
-            "strategy parameters. Never propose shell commands, external network calls or direct LIVE trades."
+            "strategy parameters. Never propose shell commands, external network calls or direct LIVE trades. "
+            "IMPORTANT: Write all free-text fields (hypothesis, reasoning, risks, rationale, "
+            "key_findings, next_step_focus) in Russian language."
         )
         prompt = {"instructions": instructions, "context": context.model_dump()}
         payload, usage = await self._responses_json(
@@ -942,7 +944,9 @@ class OpenAIResponsesProvider:
         instructions = (
             "Analyze Polymarket-OOT results, compare to baseline, obey the strict finalization "
             "gate, and choose exactly one next action. Request live approval only after the "
-            "policy gate; never activate LIVE directly."
+            "policy gate; never activate LIVE directly. "
+            "IMPORTANT: Write all free-text fields (rationale, key_findings, next_step_focus) "
+            "in Russian language."
         )
         prompt = {"instructions": instructions, "context": context.model_dump()}
         payload, usage = await self._responses_json(
