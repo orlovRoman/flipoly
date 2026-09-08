@@ -2308,8 +2308,8 @@ def build_meta_model_dataset(
 
     from polyflip.models.temporal_validation import grouped_walk_forward_folds
 
-    p_b = pd.to_numeric(df.get(p_b_col, df.get("p_b_win", 0.5)), errors="coerce").fillna(0.5).to_numpy()
-    l_p = pd.to_numeric(df.get(lgbm_prob_col, df.get("lgbm_oof_prob", 0.5)), errors="coerce").fillna(0.5).to_numpy()
+    p_b = pd.to_numeric(df.get(p_b_col, df.get("p_b_win", np.nan)), errors="coerce").to_numpy()
+    l_p = pd.to_numeric(df.get(lgbm_prob_col, df.get("lgbm_oof_prob", np.nan)), errors="coerce").to_numpy()
     p_b_clip = np.clip(p_b, 1e-4, 1.0 - 1e-4)
     l_p_clip = np.clip(l_p, 1e-4, 1.0 - 1e-4)
 
@@ -2487,23 +2487,31 @@ def evaluate_lgbm_outsider_interaction(
     unique_groups = np.unique(groups)
     n_groups = len(unique_groups)
 
-    if n_groups >= 2 and len(np.unique(targets)) >= 2:
-        from sklearn.model_selection import GroupKFold, cross_val_predict
-        cv_splits = min(5, n_groups)
-        cv = GroupKFold(n_splits=cv_splits)
+    if splits:
         m_model = LogisticRegression(C=1.0, solver="lbfgs", max_iter=500, random_state=42)
-        try:
-            cv_preds = cross_val_predict(m_model, X_meta, targets, groups=groups, cv=cv, method="predict_proba")
-            meta_probs = cv_preds[:, 1]
-        except Exception:
-            pass
+        for train_idx, val_idx in splits:
+            valid_train = ~np.isnan(X_meta[train_idx]).any(axis=1)
+            clean_train_idx = train_idx[valid_train]
+            if len(clean_train_idx) > 0 and len(np.unique(targets[clean_train_idx])) >= 2:
+                try:
+                    m_model.fit(X_meta[clean_train_idx], targets[clean_train_idx])
+                    valid_val = ~np.isnan(X_meta[val_idx]).any(axis=1)
+                    clean_val_idx = val_idx[valid_val]
+                    if len(clean_val_idx) > 0:
+                        meta_probs[clean_val_idx] = m_model.predict_proba(X_meta[clean_val_idx])[:, 1]
+                except Exception:
+                    pass
 
     meta_model = LogisticRegression(C=1.0, solver="lbfgs", max_iter=500, random_state=42)
     try:
-        meta_model.fit(X_meta, targets)
-        w_b = round(float(meta_model.coef_[0][0]), 4)
-        w_l = round(float(meta_model.coef_[0][1]), 4)
-        intercept = round(float(meta_model.intercept_[0]), 4)
+        valid_all = ~np.isnan(X_meta).any(axis=1)
+        if valid_all.sum() > 0:
+            meta_model.fit(X_meta[valid_all], targets[valid_all])
+            w_b = round(float(meta_model.coef_[0][0]), 4)
+            w_l = round(float(meta_model.coef_[0][1]), 4)
+            intercept = round(float(meta_model.intercept_[0]), 4)
+        else:
+            w_b, w_l, intercept = 1.0, 0.0, 0.0
     except Exception:
         w_b, w_l, intercept = 1.0, 0.0, 0.0
         

@@ -227,7 +227,7 @@ def generate_ablation_dataset(n_markets: int = 16, seed: int = 42) -> pd.DataFra
             s = 50000.0 + 300.0 * market_bias + float(rng.normal(0, 50.0))
             lag30 = s - float(rng.normal(10.0 * market_bias, 15.0))
             lag120 = s - float(rng.normal(30.0 * market_bias, 30.0))
-            decision_time = base_t + timedelta(hours=m, minutes=(15.0 - tl))
+            decision_time = base_t + timedelta(days=m, minutes=(15.0 - tl))
 
             rows.append({
                 "market_id": m_id,

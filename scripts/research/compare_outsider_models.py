@@ -109,9 +109,9 @@ def compare_all_models(
     total_markets = int(df["market_id"].nunique())
     y_true = df["target"].to_numpy()
     asks = df["executable_ask"].to_numpy() if "executable_ask" in df.columns else np.full(len(df), 0.35)
-    if "market_id" in df.columns and "decision_at" in df.columns:
+    if "decision_at" in df.columns:
         dates = pd.to_datetime(df["decision_at"], utc=True).dt.date.astype(str)
-        clusters_full = (df["market_id"].astype(str) + "_" + dates).to_numpy()
+        clusters_full = dates.to_numpy()
     elif "market_id" in df.columns:
         clusters_full = df["market_id"].to_numpy()
     else:

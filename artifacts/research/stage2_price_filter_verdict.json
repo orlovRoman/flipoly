@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-09-08T16:45:33.628030+00:00",
+  "timestamp": "2026-09-08T23:47:18.448963+00:00",
   "item": "29",
   "title": "Stage 2 Final Evaluation Verdict: Model A1 Hard Max Price Filter (<=0.40)",
   "dataset_integrity": {
@@ -21,8 +21,8 @@
       "win_rate": 0.2174,
       "net_pnl_usdc": -5.7816,
       "expectancy": -0.251374,
-      "ci_lower": -0.813,
-      "ci_upper": 0.3543,
+      "ci_lower": -0.7794,
+      "ci_upper": 0.4426,
       "max_drawdown": 8.899,
       "payoff_ratio": 2.446
     },
@@ -33,8 +33,8 @@
       "win_rate": 0.4067,
       "net_pnl_usdc": -3.3332,
       "expectancy": -0.022221,
-      "ci_lower": -0.205,
-      "ci_upper": 0.1687,
+      "ci_lower": -0.3025,
+      "ci_upper": 0.3137,
       "max_drawdown": 22.8341,
       "payoff_ratio": 1.4045
     },
@@ -45,8 +45,8 @@
       "win_rate": 0.3889,
       "net_pnl_usdc": -9.6954,
       "expectancy": -0.048967,
-      "ci_lower": -0.2205,
-      "ci_upper": 0.1073,
+      "ci_lower": -0.257,
+      "ci_upper": 0.2067,
       "max_drawdown": 26.2989,
       "payoff_ratio": 1.4458
     },
@@ -57,8 +57,8 @@
       "win_rate": 0.3902,
       "net_pnl_usdc": 6.3304,
       "expectancy": 0.0772,
-      "ci_lower": -0.2038,
-      "ci_upper": 0.3757,
+      "ci_lower": -0.3176,
+      "ci_upper": 0.4901,
       "max_drawdown": 10.02,
       "payoff_ratio": 1.7599
     },
@@ -69,8 +69,8 @@
       "win_rate": 0.3672,
       "net_pnl_usdc": 3.7324,
       "expectancy": 0.021087,
-      "ci_lower": -0.1832,
-      "ci_upper": 0.2212,
+      "ci_lower": -0.1839,
+      "ci_upper": 0.2486,
       "max_drawdown": 18.9922,
       "payoff_ratio": 1.7804
     }
@@ -290,8 +290,8 @@
       "win_rate": 0.4037,
       "net_pnl_usdc": -8.7452,
       "expectancy": -0.027159,
-      "ci_lower": -0.1596,
-      "ci_upper": 0.096,
+      "ci_lower": -0.1019,
+      "ci_upper": 0.0409,
       "max_drawdown": 25.6936,
       "payoff_ratio": 1.4098
     },
@@ -302,8 +302,8 @@
       "win_rate": 0.3763,
       "net_pnl_usdc": 5.0767,
       "expectancy": 0.054588,
-      "ci_lower": -0.2348,
-      "ci_upper": 0.3572,
+      "ci_lower": -0.2231,
+      "ci_upper": 0.2693,
       "max_drawdown": 13.5944,
       "payoff_ratio": 1.8019
     },
@@ -314,29 +314,29 @@
       "win_rate": 0.3763,
       "net_pnl_usdc": 5.0767,
       "expectancy": 0.054588,
-      "ci_lower": -0.2348,
-      "ci_upper": 0.3572,
+      "ci_lower": -0.2231,
+      "ci_upper": 0.2693,
       "max_drawdown": 13.5944,
       "payoff_ratio": 1.8019
     },
     "paired_delta_cap_vs_base": {
       "delta_pnl": 13.8219,
-      "ci_lower": -19.3217,
-      "ci_upper": 46.696,
-      "n_clusters": 322,
+      "ci_lower": -5.6768,
+      "ci_upper": 31.2657,
+      "n_clusters": 8,
       "status": "VALID"
     },
     "paired_delta_cap_vs_naive": {
       "delta_pnl": 0.0,
       "ci_lower": 0.0,
       "ci_upper": 0.0,
-      "n_clusters": 322,
+      "n_clusters": 8,
       "status": "VALID"
     }
   },
   "final_verdict": {
     "status": "INCONCLUSIVE",
-    "rationale": "Positive point PnL (+5.08 USDC), but 95% confidence bounds cross zero (Expectancy CI [-0.235, +0.357], Paired Delta CI [-19.322, +46.696]). Edge is statistically INCONCLUSIVE.",
+    "rationale": "Positive point PnL (+5.08 USDC), but 95% confidence bounds cross zero (Expectancy CI [-0.223, +0.269], Paired Delta CI [-5.677, +31.266]). Edge is statistically INCONCLUSIVE.",
     "recommendation": "Deploy Model A1 with max_price <= 0.40 in PAPER execution mode."
   }
 }

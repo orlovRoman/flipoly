@@ -232,7 +232,8 @@ def run_stage2_evaluation() -> dict[str, Any]:
         wr = round(wins / n_trades, 4) if n_trades else 0.0
         pnl = round(float(np.sum(pnls)), 4) if n_trades else 0.0
         exp = round(pnl / n_trades, 6) if n_trades else 0.0
-        unc = compute_clustered_uncertainty(pnls, [t["market_id"] for t in trades]) if n_trades else {"ci_lower": 0.0, "ci_upper": 0.0, "se": 0.0}
+        trade_clusters = [pd.to_datetime(t["decision_at"], utc=True).strftime("%Y-%m-%d") for t in trades]
+        unc = compute_clustered_uncertainty(pnls, trade_clusters) if n_trades else {"ci_lower": 0.0, "ci_upper": 0.0, "se": 0.0}
         dd = compute_drawdown(pnls, initial_equity=100.0)
         payoff = compute_payoff_ratio(pnls)
 
@@ -380,7 +381,8 @@ def run_stage2_evaluation() -> dict[str, Any]:
         wr = round(wins / n_trades, 4) if n_trades else 0.0
         pnl = round(float(np.sum(pnls)), 4) if n_trades else 0.0
         exp = round(pnl / n_trades, 6) if n_trades else 0.0
-        unc = compute_clustered_uncertainty(pnls, [t["market_id"] for t in trades]) if n_trades else {"ci_lower": 0.0, "ci_upper": 0.0, "se": 0.0}
+        trade_clusters = [pd.to_datetime(t["decision_at"], utc=True).strftime("%Y-%m-%d") for t in trades]
+        unc = compute_clustered_uncertainty(pnls, trade_clusters) if n_trades else {"ci_lower": 0.0, "ci_upper": 0.0, "se": 0.0}
         dd = compute_drawdown(pnls, initial_equity=100.0)
         payoff = compute_payoff_ratio(pnls)
 
@@ -410,6 +412,11 @@ def run_stage2_evaluation() -> dict[str, Any]:
 
     all_test_markets = sorted(list(set(test_trades_base_map.keys()) | set(test_trades_cap_map.keys()) | set(test_trades_naive_map.keys())))
 
+    market_to_date = df_test.set_index("market_id")["decision_at"].apply(
+        lambda d: pd.to_datetime(d, utc=True).strftime("%Y-%m-%d")
+    ).to_dict()
+    all_test_clusters = [market_to_date.get(m, "unknown") for m in all_test_markets]
+
     pnl_base_aligned = [test_trades_base_map.get(m, 0.0) for m in all_test_markets]
     pnl_cap_aligned = [test_trades_cap_map.get(m, 0.0) for m in all_test_markets]
     pnl_naive_aligned = [test_trades_naive_map.get(m, 0.0) for m in all_test_markets]
@@ -417,14 +424,14 @@ def run_stage2_evaluation() -> dict[str, Any]:
     paired_cap_vs_base = compute_paired_block_bootstrap(
         pnls_a=pnl_cap_aligned,
         pnls_b=pnl_base_aligned,
-        cluster_ids=all_test_markets,
+        cluster_ids=all_test_clusters,
         seed=42,
     )
 
     paired_cap_vs_naive = compute_paired_block_bootstrap(
         pnls_a=pnl_cap_aligned,
         pnls_b=pnl_naive_aligned,
-        cluster_ids=all_test_markets,
+        cluster_ids=all_test_clusters,
         seed=42,
     )
 

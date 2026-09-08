@@ -326,7 +326,13 @@ def run_empirical_benchmark() -> dict[str, Any]:
 
     y_true = df_feat["target"].to_numpy()
     asks = df_feat["executable_ask"].to_numpy()
-    clusters_full = df_feat["market_id"].to_numpy()
+    if "decision_at" in df_feat.columns:
+        dates = pd.to_datetime(df_feat["decision_at"], utc=True).dt.date.astype(str)
+        clusters_full = dates.to_numpy()
+    elif "market_id" in df_feat.columns:
+        clusters_full = df_feat["market_id"].to_numpy()
+    else:
+        clusters_full = np.arange(len(df_feat))
 
     # 1. Baseline M0 (Market price)
     m0 = MarketPriceBaseline()

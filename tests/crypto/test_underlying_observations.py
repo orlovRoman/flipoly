@@ -152,33 +152,68 @@ def test_30s_return_requires_actual_observation_within_tolerance(base_time: date
     assert has_ref_bad is False
     assert ret_bad is None
 
-def test_underlying_return_strict_causality_received_at(base_time: datetime):
+def test_underlying_return_historical_lag_causality(base_time: datetime):
     """
-    Test that compute_underlying_return strictly filters out observations 
-    where received_at > target_time, even if event_at <= target_time.
+    Item 13: Test that historical reference observation strictly requires received_at <= target_time.
+    Candidate A: event_at = t - 29s (closer to t-30s), received_at = t - 25s (> t - 30s).
+    Candidate B: event_at = t - 25s (farther from t-30s, or event_at = t - 34s), received_at = t - 34s (<= t - 30s).
+    Without reception filtering, Candidate A would win on proximity/recency.
+    With strict reception causality, Candidate A is discarded, and Candidate B is chosen.
     """
     t0 = base_time
-    target_time = t0 + timedelta(seconds=30)
-    
+    as_of = t0 + timedelta(seconds=60)
+    horizon = 30.0
+    # target_time for reference tick is as_of - 30s = t0 + 30s
+
     obs_list = [
-        # Reference observation (t0)
-        Observation("BTC", 50000.0, "BINANCE", t0, t0),
-        
-        # Valid observation at t=30s
-        Observation("BTC", 50500.0, "BINANCE", target_time, target_time),
-        
-        # Leaked observation: event happened before target_time (t=28s) 
-        # but received after target_time (t=32s). Must be discarded.
-        Observation("BTC", 51000.0, "BINANCE", target_time - timedelta(seconds=2), target_time + timedelta(seconds=2)),
+        # Current tick at as_of (t=60s)
+        Observation("BTC", 60000.0, "BINANCE", as_of, as_of),
+
+        # Valid candidate: event_at = t0 + 26s, received_at = t0 + 26s (<= t0 + 30s)
+        Observation("BTC", 50000.0, "BINANCE", t0 + timedelta(seconds=26), t0 + timedelta(seconds=26)),
+
+        # Leaked candidate: event_at = t0 + 29s (closer to t0+30s), but received_at = t0 + 35s (> t0 + 30s)
+        Observation("BTC", 55000.0, "BINANCE", t0 + timedelta(seconds=29), t0 + timedelta(seconds=35)),
     ]
-    
+
     ret, has_ref = compute_underlying_return(
-        obs_list, as_of=target_time, horizon_seconds=30.0, tolerance_seconds=5.0
+        obs_list, as_of=as_of, horizon_seconds=horizon, tolerance_seconds=10.0
     )
-    
+
     assert has_ref is True
     assert ret is not None
-    # The return should be calculated using the 50500 observation, not 51000.
-    # log(50500 / 50000)
-    expected_ret = float(np.log(50500.0 / 50000.0))
+    # Must use 50000 (valid causal), not 55000 (received late)
+    expected_ret = float(np.log(60000.0 / 50000.0))
     assert ret == pytest.approx(expected_ret, rel=1e-6)
+
+
+def test_underlying_return_late_received_current_tick(base_time: datetime):
+    """
+    Item 14: Test that a current tick occurring before as_of but received after as_of
+    is strictly discarded and does not affect the current price or return.
+    """
+    t0 = base_time
+    as_of = t0 + timedelta(seconds=60)
+    horizon = 30.0
+
+    obs_list = [
+        # Historical reference tick at t=30s
+        Observation("BTC", 50000.0, "BINANCE", t0 + timedelta(seconds=30), t0 + timedelta(seconds=30)),
+
+        # Valid current tick at t=58s, received at t=58s (<= as_of)
+        Observation("BTC", 60000.0, "BINANCE", t0 + timedelta(seconds=58), t0 + timedelta(seconds=58)),
+
+        # Leaked current tick: event_at = t0 + 59s, but received_at = t0 + 62s (> as_of)
+        Observation("BTC", 70000.0, "BINANCE", t0 + timedelta(seconds=59), t0 + timedelta(seconds=62)),
+    ]
+
+    ret, has_ref = compute_underlying_return(
+        obs_list, as_of=as_of, horizon_seconds=horizon, tolerance_seconds=10.0
+    )
+
+    assert has_ref is True
+    assert ret is not None
+    # Must use 60000 (valid causal), not 70000 (received late)
+    expected_ret = float(np.log(60000.0 / 50000.0))
+    assert ret == pytest.approx(expected_ret, rel=1e-6)
+

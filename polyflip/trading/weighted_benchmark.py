@@ -1365,7 +1365,7 @@ def cluster_bootstrap_difference_ci(
     for item, sign in ((baseline, -1.0), (candidate, 1.0)):
         for evaluation in item:
             timestamp = evaluation.timestamp.astimezone(timezone.utc)
-            cluster = f"{evaluation.market_id}|{timestamp.date().isoformat()}"
+            cluster = timestamp.date().isoformat()
             grouped.setdefault(cluster, []).append(sign * float(evaluation.pnl))
     if not grouped:
         return None, None
@@ -1933,7 +1933,7 @@ def cluster_bootstrap_ci(
     grouped: dict[str, list[float]] = {}
     for item in evaluations:
         timestamp = item.timestamp.astimezone(timezone.utc)
-        cluster = f"{item.market_id}|{timestamp.date().isoformat()}"
+        cluster = timestamp.date().isoformat()
         grouped.setdefault(cluster, []).append(item.pnl)
     keys = list(grouped)
     rng = np.random.default_rng(seed)

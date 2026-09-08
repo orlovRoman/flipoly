@@ -174,10 +174,11 @@ def train_outsider_model(
 
         # Helper function for safe take
         def safe_take(weights, idxs):
-            idxs_arr = np.asarray(idxs, dtype=int)
-            valid_mask = (idxs_arr >= 0) & (idxs_arr < len(weights))
-            if not np.all(valid_mask):
-                idxs_arr = np.clip(idxs_arr, 0, len(weights) - 1)
+            idxs_arr = np.asarray(idxs)
+            if not np.issubdtype(idxs_arr.dtype, np.integer):
+                raise ValueError("Indices must be integers.")
+            if np.any(idxs_arr < 0) or np.any(idxs_arr >= len(weights)):
+                raise ValueError("Indices out of bounds for weights array.")
             return np.take(weights, idxs_arr)
 
         # Inner grid search over C_GRID = [0.1, 0.5, 1.0] evaluated on log loss
