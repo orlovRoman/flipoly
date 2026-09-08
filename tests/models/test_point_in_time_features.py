@@ -102,3 +102,31 @@ def test_causal_decision_at_isolation():
     # Rows beyond decision_t (i=5, 6, 7) must have has_60s_ref == 0.0 and NaN changes
     assert res.iloc[5]["has_60s_ref"] == 0.0
     assert pd.isna(res.iloc[5]["pm_change_60s"])
+
+
+def test_global_max_support():
+    """global_max initializes/caps the expanding maximum for causal distance computation."""
+    base_t = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    times = [base_t + timedelta(seconds=30 * i) for i in range(3)]
+    prices = [0.45, 0.48, 0.50]
+    df = pd.DataFrame({"market_id": ["m1"] * 3, "recorded_at": times, "mid_price": prices})
+
+    # With global_max=0.60, distance should be 0.60 - price
+    res = compute_point_in_time_features(df, global_max=0.60)
+    assert res.loc[0, "price_distance_from_max"] == pytest.approx(0.15, abs=1e-6)
+    assert res.loc[1, "price_distance_from_max"] == pytest.approx(0.12, abs=1e-6)
+    assert res.loc[2, "price_distance_from_max"] == pytest.approx(0.10, abs=1e-6)
+
+
+def test_point_in_time_feature_names_constant():
+    from polyflip.models.point_in_time_features import POINT_IN_TIME_FEATURE_NAMES
+    expected = (
+        "pm_change_60s",
+        "pm_change_180s",
+        "has_60s_ref",
+        "has_180s_ref",
+        "legacy_last_poll_delta",
+        "price_distance_from_max",
+        "history_age_seconds",
+    )
+    assert POINT_IN_TIME_FEATURE_NAMES == expected

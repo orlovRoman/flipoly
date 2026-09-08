@@ -87,6 +87,10 @@ async def _get_training_semaphore(db: AsyncSession) -> asyncio.Semaphore:
     return _TRAINING_SEMAPHORE
 
 from polyflip.models.feature_lags import add_lag_features, LAG_FEATURE_NAMES
+from polyflip.models.point_in_time_features import (
+    compute_point_in_time_features,
+    POINT_IN_TIME_FEATURE_NAMES,
+)
 from polyflip.models.sequence_features import (
     FEATURE_EXPERIMENT_LABELS,
     FEATURE_EXPERIMENT_VARIANTS,
@@ -884,6 +888,7 @@ class ModelTrainer:
         # Добавляем инженерные признаки по полной причинной истории
         df = add_derived_features(df)
         df = add_lag_features(df)
+        df = compute_point_in_time_features(df)
 
         # Фильтруем строки для обучения (таргет):
         # 1. time_left_min в диапазоне [min_time_min, max_time_min]

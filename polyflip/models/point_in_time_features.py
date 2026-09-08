@@ -26,12 +26,23 @@ TOLERANCE_60S_MAX = 90.0
 TOLERANCE_180S_MIN = 120.0
 TOLERANCE_180S_MAX = 240.0
 
+POINT_IN_TIME_FEATURE_NAMES: tuple[str, ...] = (
+    "pm_change_60s",
+    "pm_change_180s",
+    "has_60s_ref",
+    "has_180s_ref",
+    "legacy_last_poll_delta",
+    "price_distance_from_max",
+    "history_age_seconds",
+)
+
 
 def compute_point_in_time_features(
     df: pd.DataFrame,
     decision_at: datetime | None = None,
     max_reference_age_60s: float = TOLERANCE_60S_MAX,
     max_reference_age_180s: float = TOLERANCE_180S_MAX,
+    global_max: float | None = None,
 ) -> pd.DataFrame:
     """
     Computes time-based dynamic features for each market.
@@ -41,7 +52,8 @@ def compute_point_in_time_features(
         res = df.copy()
         for col in [
             "pm_change_60s", "pm_change_180s", "legacy_last_poll_delta",
-            "price_distance_from_max", "has_60s_ref", "has_180s_ref", "history_age_seconds"
+            "price_distance_from_max", "has_60s_ref", "has_180s_ref",
+            "history_age_seconds", "price_velocity",
         ]:
             res[col] = 0.0
         return res
@@ -58,7 +70,7 @@ def compute_point_in_time_features(
 
     # If decision_at is specified, strictly exclude any rows beyond decision_at
     if decision_at is not None:
-        dec_utc = decision_at if getattr(decision_at, "tzinfo", None) is not None else decision_at.replace(tzinfo=timezone.utc)
+        dec_utc = pd.to_datetime(decision_at, utc=True)
         out["_is_causal"] = out["_rec_dt"] <= dec_utc
     else:
         out["_is_causal"] = True
@@ -66,9 +78,14 @@ def compute_point_in_time_features(
     market_col = "market_id" if "market_id" in out.columns else "_market_dummy"
     if market_col not in out.columns:
         out[market_col] = "m_default"
+    else:
+        out[market_col] = out[market_col].fillna("m_default")
 
-    # Sort deterministically
-    out = out.sort_values([market_col, "_rec_dt"]).reset_index(drop=True)
+    # Sort deterministically: market, recorded_at, and decision row last on collision
+    sort_cols = [market_col, "_rec_dt"]
+    if "_is_decision_row" in out.columns:
+        sort_cols.append("_is_decision_row")
+    out = out.sort_values(sort_cols).reset_index(drop=True)
 
     pm_change_60s = []
     pm_change_180s = []
@@ -140,7 +157,8 @@ def compute_point_in_time_features(
 
             # Update expanding max causal to this row
             exp_max = max(exp_max, p_curr)
-            price_dist_from_max.append(max(0.0, exp_max - p_curr))
+            eff_max = max(exp_max, float(global_max)) if (global_max is not None and np.isfinite(global_max) and global_max > 0.0) else exp_max
+            price_dist_from_max.append(max(0.0, eff_max - p_curr))
 
             # History age
             earliest_t = times[0]
@@ -151,7 +169,12 @@ def compute_point_in_time_features(
             if i > 0:
                 legacy_last_poll_delta.append(p_curr - float(prices[i - 1]))
             else:
-                legacy_last_poll_delta.append(0.0)
+                initial_vel = (
+                    float(grp["price_velocity"].iloc[0])
+                    if ("price_velocity" in grp.columns and pd.notna(grp["price_velocity"].iloc[0]))
+                    else 0.0
+                )
+                legacy_last_poll_delta.append(initial_vel)
 
             # 60s as-of reference search: target ~60s ago via binary search
             val_60, has_60 = _find_as_of_reference(

@@ -254,11 +254,12 @@ def build_inference_dataframe(
     
     from polyflip.models.trainer import add_derived_features
     from polyflip.models.feature_lags import add_lag_features
+    from polyflip.models.point_in_time_features import compute_point_in_time_features
 
     df = pd.DataFrame(rows)
     df = add_derived_features(df)
-    df["price_distance_from_max"] = (global_max - df["mid_price"]).clip(lower=0.0)
     df = add_lag_features(df)
+    df = compute_point_in_time_features(df, decision_at=start_time, global_max=global_max)
     
     if closed_candles is not None:
         from polyflip.models.sequence_features import attach_closed_candle_features
