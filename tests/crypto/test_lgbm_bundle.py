@@ -213,17 +213,22 @@ async def test_regime_bundle_versioning_and_prediction_invariance():
         res.all.return_value = [
             MagicMock(asset=f"BTCUSDT_{reg}", version=1) for reg in ["low_vol", "mid_vol", "high_vol"]
         ]
-        params = {}
-        try:
-            params = stmt.compile().params
-        except Exception:
-            pass
-        matched_row = active_rows["mid_vol"]
-        for p_val in params.values():
+        asset_val = None
+        for crit in getattr(stmt, "_where_criteria", ()):
+            left = getattr(crit, "left", None)
+            if getattr(left, "name", None) == "asset":
+                right = getattr(crit, "right", None)
+                if hasattr(right, "value"):
+                    asset_val = right.value
+                    break
+
+        matched_row = None
+        if asset_val:
             for reg in ["low_vol", "mid_vol", "high_vol"]:
-                if p_val == f"BTCUSDT_{reg}":
+                if asset_val == f"BTCUSDT_{reg}":
                     matched_row = active_rows[reg]
                     break
+
         mock_sc.first.return_value = matched_row
         res.scalars.return_value = mock_sc
         res.scalar_one_or_none.return_value = None

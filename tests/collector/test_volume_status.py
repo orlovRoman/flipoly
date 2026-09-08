@@ -46,8 +46,8 @@ async def test_get_recent_trades_volume_status_variants():
     mock_resp_success.status_code = 200
     mock_resp_success.json.return_value = {
         "data": [
-            {"size": "100.0", "timestamp": str(int(datetime.now(timezone.utc).timestamp()))},
-            {"size": "50.5", "timestamp": str(int(datetime.now(timezone.utc).timestamp()))},
+            {"size": "100.0", "price": "1.0", "timestamp": str(int(datetime.now(timezone.utc).timestamp()))},
+            {"size": "50.5", "price": "1.0", "timestamp": str(int(datetime.now(timezone.utc).timestamp()))},
         ]
     }
     client.client.get = AsyncMock(return_value=mock_resp_success)

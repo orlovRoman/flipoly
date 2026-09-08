@@ -32,7 +32,9 @@ class StrikeProvenance:
     strike_received_at: datetime | None
 
     def __float__(self) -> float:
-        return float(self.strike_value or 0.0)
+        if self.strike_value is None:
+            raise TypeError("Cannot cast unresolved StrikeProvenance to float")
+        return float(self.strike_value)
 
 
 @dataclass(frozen=True)

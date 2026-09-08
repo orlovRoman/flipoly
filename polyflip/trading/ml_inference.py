@@ -1,3 +1,4 @@
+import asyncio
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta, timezone
@@ -113,97 +114,117 @@ def reset_models_cache() -> None:
 
 clear_models_cache = reset_models_cache
 
+_populate_lock = asyncio.Lock()
+
+
 async def populate_models_cache(db_session: AsyncSession) -> None:
-    cache = get_models_cache()
-    
-    # 1. Запрашиваем asset, version и model_type активных моделей
-    stmt = select(ModelRegistry.asset, ModelRegistry.version, ModelRegistry.model_type).where(ModelRegistry.is_active)
-    res = await db_session.execute(stmt)
-    active_info = res.all()
-    
-    active_keys = {
-        (str(row.model_type or "logreg").strip().lower(), row.asset, row.version)
-        for row in active_info
-    }
-    active_type_keys = {(k[0], k[1]) for k in active_keys}
-    for k in list(active_keys):
-        for alias in _model_type_aliases(k[0]):
-            active_type_keys.add((alias, k[1]))
-    db_assets = {row.asset for row in active_info}
-    
-    # 2. Удаляем из кэша модели, которые больше не активны в базе
-    for cached_key in list(cache.entries.keys()):
-        if cached_key not in active_keys:
-            cache.entries.pop(cached_key, None)
-            cache.features_by_entry.pop(cached_key, None)
+    async with _populate_lock:
+        cache = get_models_cache()
 
-    for cached_type_key in list(cache.features_by_type.keys()):
-        if cached_type_key not in active_type_keys:
-            cache.features_by_type.pop(cached_type_key, None)
+        # 1. Запрашиваем asset, version и model_type активных моделей
+        stmt = select(ModelRegistry.asset, ModelRegistry.version, ModelRegistry.model_type).where(ModelRegistry.is_active)
+        res = await db_session.execute(stmt)
+        active_info = res.all()
 
-    for cached_asset in list(cache.models.keys()):
-        if cached_asset not in db_assets:
-            cache.models.pop(cached_asset, None)
-            cache.versions.pop(cached_asset, None)
-            cache.features.pop(cached_asset, None)
-            cache.eces.pop(cached_asset, None)
-            
-    # 3. Находим модели, версии которых изменились или которых нет в кэше
-    to_load = []
-    for row in active_info:
-        m_type = str(row.model_type or "logreg").strip().lower()
-        if (m_type, row.asset, row.version) not in cache.entries:
-            to_load.append(row.asset)
-            
-    if not to_load:
-        return
-        
-    # 4. Загружаем изменившиеся/новые модели
-    load_stmt = select(ModelRegistry).where(
-        ModelRegistry.is_active,
-        ModelRegistry.asset.in_(to_load)
-    )
-    models_to_load = (await db_session.execute(load_stmt)).scalars().all()
-    
-    for m in models_to_load:
-        try:
-            model_obj = pickle.loads(m.model_blob)
-            m_type = str(m.model_type or "logreg").strip().lower()
-            cache.entries[(m_type, m.asset, m.version)] = model_obj
+        active_keys = {
+            (str(row.model_type or "logreg").strip().lower(), row.asset, row.version)
+            for row in active_info
+        }
+        active_type_keys = {(k[0], k[1]) for k in active_keys}
+        for k in list(active_keys):
+            for alias in _model_type_aliases(k[0]):
+                active_type_keys.add((alias, k[1]))
+        db_assets = {row.asset for row in active_info}
 
-            m_feats = [f.strip() for f in m.features.split(",") if f.strip()] if m.features else []
-            if not m_feats and hasattr(model_obj, "feature_names_in_"):
-                m_feats = list(model_obj.feature_names_in_)
-            cache.features_by_entry[(m_type, m.asset, m.version)] = m_feats
-            cache.features_by_type[(m_type, m.asset)] = m_feats
-            for alias in _model_type_aliases(m_type):
-                cache.features_by_type[(alias, m.asset)] = m_feats
-                cache.features_by_entry[(alias, m.asset, m.version)] = m_feats
+        # Local Copy-on-Write dictionaries
+        new_entries = dict(cache.entries)
+        new_features_by_entry = dict(cache.features_by_entry)
+        new_features_by_type = dict(cache.features_by_type)
+        new_models = dict(cache.models)
+        new_versions = dict(cache.versions)
+        new_features = dict(cache.features)
+        new_eces = dict(cache.eces)
 
-            # LogReg takes precedence in legacy cache.models to prevent clobbering by LGBM
-            if m.asset not in cache.models or m_type in ("logreg", "logisticregression"):
-                cache.models[m.asset] = model_obj
-                cache.versions[m.asset] = m.version
-                cache.eces[m.asset] = m.ece or 0.0
-                cache.features[m.asset] = m_feats
+        # 2. Удаляем из локальных словарей модели, которые больше не активны в базе
+        for cached_key in list(new_entries.keys()):
+            if cached_key not in active_keys:
+                new_entries.pop(cached_key, None)
+                new_features_by_entry.pop(cached_key, None)
 
-            logger.info("model_cache_updated", asset=m.asset, version=m.version, model_type=m_type)
-        except Exception as e:
-            logger.error("Failed to load model", asset=m.asset, error=str(e))
+        for cached_type_key in list(new_features_by_type.keys()):
+            if cached_type_key not in active_type_keys:
+                new_features_by_type.pop(cached_type_key, None)
 
-    from polyflip.constants import PRICE_PHASE_BOUNDARIES
-    _phase_suffixes = tuple(f"_{p}" for p in PRICE_PHASE_BOUNDARIES)
+        for cached_asset in list(new_models.keys()):
+            if cached_asset not in db_assets:
+                new_models.pop(cached_asset, None)
+                new_versions.pop(cached_asset, None)
+                new_features.pop(cached_asset, None)
+                new_eces.pop(cached_asset, None)
 
-    phase_keys = [k for k in cache.models if k.endswith(_phase_suffixes)]
-    base_keys  = [k for k in cache.models if k not in phase_keys]
+        # 3. Находим модели, версии которых изменились или которых нет в кэше
+        to_load = []
+        for row in active_info:
+            m_type = str(row.model_type or "logreg").strip().lower()
+            if (m_type, row.asset, row.version) not in new_entries:
+                to_load.append(row.asset)
 
-    logger.info(
-        "models_cache_populated",
-        base_models=sorted(base_keys),
-        phase_models=sorted(phase_keys),
-        total=len(cache.models),
-        total_entries=len(cache.entries),
-    )
+        if to_load:
+            # 4. Загружаем изменившиеся/новые модели
+            load_stmt = select(ModelRegistry).where(
+                ModelRegistry.is_active,
+                ModelRegistry.asset.in_(to_load)
+            )
+            models_to_load = (await db_session.execute(load_stmt)).scalars().all()
+
+            for m in models_to_load:
+                try:
+                    model_obj = pickle.loads(m.model_blob)
+                    m_type = str(m.model_type or "logreg").strip().lower()
+                    new_entries[(m_type, m.asset, m.version)] = model_obj
+
+                    m_feats = [f.strip() for f in m.features.split(",") if f.strip()] if m.features else []
+                    if not m_feats and hasattr(model_obj, "feature_names_in_"):
+                        m_feats = list(model_obj.feature_names_in_)
+                    new_features_by_entry[(m_type, m.asset, m.version)] = m_feats
+                    new_features_by_type[(m_type, m.asset)] = m_feats
+                    for alias in _model_type_aliases(m_type):
+                        new_features_by_type[(alias, m.asset)] = m_feats
+                        new_features_by_entry[(alias, m.asset, m.version)] = m_feats
+
+                    # LogReg takes precedence in legacy cache.models to prevent clobbering by LGBM
+                    if m.asset not in new_models or m_type in ("logreg", "logisticregression"):
+                        new_models[m.asset] = model_obj
+                        new_versions[m.asset] = m.version
+                        new_eces[m.asset] = m.ece or 0.0
+                        new_features[m.asset] = m_feats
+
+                    logger.info("model_cache_updated", asset=m.asset, version=m.version, model_type=m_type)
+                except Exception as e:
+                    logger.error("Failed to load model", asset=m.asset, error=str(e))
+
+        # Atomic assignment to cache
+        cache.entries = new_entries
+        cache.features_by_entry = new_features_by_entry
+        cache.features_by_type = new_features_by_type
+        cache.models = new_models
+        cache.versions = new_versions
+        cache.features = new_features
+        cache.eces = new_eces
+
+        from polyflip.constants import PRICE_PHASE_BOUNDARIES
+        _phase_suffixes = tuple(f"_{p}" for p in PRICE_PHASE_BOUNDARIES)
+
+        phase_keys = [k for k in cache.models if k.endswith(_phase_suffixes)]
+        base_keys  = [k for k in cache.models if k not in phase_keys]
+
+        logger.info(
+            "models_cache_populated",
+            base_models=sorted(base_keys),
+            phase_models=sorted(phase_keys),
+            total=len(cache.models),
+            total_entries=len(cache.entries),
+        )
 
 
 def build_inference_dataframe(
@@ -289,6 +310,30 @@ def build_inference_dataframe(
     return df
 
 
+def _model_supports_missing(model: Any) -> bool:
+    """Check if model natively supports missing values (e.g. LightGBM)."""
+    if model is None:
+        return False
+    cls_name = model.__class__.__name__
+    mod_name = getattr(model.__class__, "__module__", "")
+    if "CalibratedLightGBMModel" in cls_name or "LGBM" in cls_name or "lightgbm" in mod_name.lower():
+        return True
+    for attr in ("base_estimator", "raw_model", "calibrated_model", "estimator"):
+        sub = getattr(model, attr, None)
+        if sub is not None and _model_supports_missing(sub):
+            return True
+    if hasattr(model, "calibrated_classifiers_") and model.calibrated_classifiers_:
+        for cal in model.calibrated_classifiers_:
+            estimator = getattr(cal, "estimator", None) or getattr(cal, "base_estimator", None)
+            if estimator is not None and _model_supports_missing(estimator):
+                return True
+    if hasattr(model, "named_steps"):
+        for step in model.named_steps.values():
+            if _model_supports_missing(step):
+                return True
+    return False
+
+
 def run_model_inference(
     df: pd.DataFrame,
     model: Any,
@@ -340,7 +385,8 @@ def run_model_inference(
     has_imputer = (
         hasattr(model, "named_steps") and "imputer" in getattr(model, "named_steps", {})
     )
-    if not has_imputer:
+    supports_missing = has_imputer or _model_supports_missing(model)
+    if not supports_missing:
         non_finite = ~np.isfinite(X_target.astype(float).to_numpy())
         if non_finite.any():
             invalid_features = sorted(set(
@@ -387,8 +433,9 @@ def run_model_inference(
 
     # Directly check for single-class output from proba shape
     if hasattr(proba, "shape") and len(proba.shape) == 2 and proba.shape[1] == 1:
-        single_val = classes[0] if (classes and len(classes) == 1) else None
-        return 1.0 if single_val in (1, True) else 0.0
+        if classes is not None and len(classes) == 1:
+            return 1.0 if classes[0] in (1, True) else 0.0
+        return float(proba[0][0])
 
     if classes is not None:
         if 1 in classes:

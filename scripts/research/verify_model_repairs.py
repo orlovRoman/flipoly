@@ -127,12 +127,36 @@ def check_item_1_5() -> tuple[bool, str]:
 
 def check_item_1_6() -> tuple[bool, str]:
     """1.6: Full causal snapshot loading before decision window filtering."""
-    from polyflip.models.trainer import ModelTrainer
-    import inspect
+    from polyflip.models.point_in_time_features import apply_market_feature_pipeline
+    from datetime import datetime, timezone, timedelta
 
-    src = inspect.getsource(ModelTrainer.train_model)
-    # Trainer must fetch full causal history before filtering to decision window
-    assert "all_snapshots" in src or "history" in src or "full_snaps" in src or "all_snaps" in src
+    t0 = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    # Market with 8 chronological snapshots starting from market open (15m down to 8m)
+    # Decision window is [10m, 5m].
+    # Causal loading ensures that early decision rows (e.g. at 9m) retain full lag and PIT history
+    df = pd.DataFrame({
+        "market_id": ["m1"] * 8,
+        "recorded_at": [t0 + timedelta(minutes=i) for i in range(8)],
+        "time_left_min": [15.0 - i for i in range(8)],
+        "mid_price": [0.40 + 0.01 * i for i in range(8)],
+        "spread": [0.01] * 8,
+        "volume_5min": [100.0] * 8,
+        "price_velocity": [0.0] * 8,
+        "hour_of_day": [12] * 8,
+        "day_of_week": [0.0] * 8,
+        "final_outcome": ["YES"] * 8,
+        "market_duration_min": [15.0] * 8,
+    })
+
+    transformed = apply_market_feature_pipeline(df)
+
+    # Row at index 6 (time_left_min=9.0, inside decision window) has valid lag history and PIT references
+    # only because snapshots prior to the decision window (indices 0..4) were loaded causally
+    decision_row = transformed.iloc[6]
+    assert decision_row["has_lag_history"] == 1.0
+    assert decision_row["has_60s_ref"] == 1.0
+    assert np.isclose(decision_row["pm_change_60s"], 0.01)
+    assert "price_distance_from_max" in transformed.columns
     return True, "Trainer loads full causal snapshot history prior to decision window selection"
 
 
@@ -279,6 +303,19 @@ def check_item_1_16() -> tuple[bool, str]:
     assert prov.strike_value == 50000.0
     assert prov.strike_source == "CHAINLINK_POLYGON"
     assert float(prov) == 50000.0
+
+    prov_none = StrikeProvenance(
+        strike_value=None,
+        strike_source="UNKNOWN",
+        strike_effective_at=None,
+        strike_received_at=now,
+    )
+    try:
+        float(prov_none)
+        raise AssertionError("Expected TypeError when casting unresolved StrikeProvenance to float")
+    except TypeError:
+        pass
+
     return True, "StrikeProvenance model tracks explicit provenance and float conversion"
 
 

@@ -20,7 +20,7 @@ def test_strike_provenance_dataclass_contract():
     assert prov.strike_received_at == now
     assert float(prov) == 64500.25
 
-    # None strike value converts safely to 0.0
+    # None strike value raises TypeError
     prov_none = StrikeProvenance(
         strike_value=None,
         strike_source="UNKNOWN",
@@ -28,7 +28,8 @@ def test_strike_provenance_dataclass_contract():
         strike_received_at=now,
     )
     assert prov_none.strike_value is None
-    assert float(prov_none) == 0.0
+    with pytest.raises(TypeError, match="Cannot cast unresolved StrikeProvenance to float"):
+        float(prov_none)
 
 
 def test_canonical_strike_provenance_hierarchy_and_timestamps():

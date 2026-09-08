@@ -1073,13 +1073,20 @@ class CryptoModelTrainer:
         df_mid  = df_train_regimes[df_train_regimes["vol_trend"].apply(lambda v: vol_policy.classify(v) == "mid_vol")]
         df_high = df_train_regimes[df_train_regimes["vol_trend"].apply(lambda v: vol_policy.classify(v) == "high_vol")]
 
+        regime_datasets = [("low_vol", df_low), ("mid_vol", df_mid), ("high_vol", df_high)]
+        # If any regime has < 50 rows but outer train has at least 50 rows,
+        # fallback to training on df_train_outer across all regimes to prevent test set leakage
+        if any(len(d) < 50 for _, d in regime_datasets) and len(df_train_outer) >= 50:
+            logger.info("crypto_trainer_unified_fallback", symbol=symbol, outer_rows=len(df_train_outer))
+            regime_datasets = [("low_vol", df_train_outer), ("mid_vol", df_train_outer), ("high_vol", df_train_outer)]
+
         trained_any = False
         from polyflip.crypto.predictor import CryptoPredictor
 
         # Получаем семафор один раз для всего цикла по режимам
         sem = await _get_training_semaphore(self.db)
 
-        for regime, df_regime in [("low_vol", df_low), ("mid_vol", df_mid), ("high_vol", df_high)]:
+        for regime, df_regime in regime_datasets:
             if len(df_regime) < 50:
                 logger.warning("regime_too_small", regime=regime, rows=len(df_regime))
                 continue
