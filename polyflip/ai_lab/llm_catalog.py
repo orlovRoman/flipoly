@@ -339,8 +339,28 @@ async def refresh_model_catalog(
     # With no discovery endpoint configured, the curated OpenCode catalogue
     # is the source of truth. Do not let an old DB cache shrink the UI list.
     if provider_name == "opencode" and not endpoint.strip():
+        rows = (
+            await db.execute(
+                select(AILLMModelCatalog).where(
+                    AILLMModelCatalog.provider == provider_name
+                )
+            )
+        ).scalars().all()
+        by_id = {row.model_id: row for row in rows}
+        shape = static_shape()
+        for item in shape.get("models", []):
+            m_id = item.get("id")
+            row = by_id.get(m_id)
+            if row:
+                item["is_available"] = bool(row.is_available)
+                item["is_discovered"] = bool(getattr(row, "is_discovered", True))
+                item["probe_status"] = str(getattr(row, "probe_status", "UNCHECKED"))
+                last = getattr(row, "last_checked_at", None)
+                item["last_checked_at"] = _as_utc(last).isoformat() if last else None
+                if row.raw_metadata and isinstance(row.raw_metadata, dict):
+                    item["last_check"] = row.raw_metadata.get("last_check")
         return _catalog_response(
-            static_shape(), [], source="static", stale=False, checked_at=now
+            shape, [], source="static", stale=False, checked_at=now
         )
     ttl_seconds = int(
         getattr(cfg, f"AI_LAB_{prefix}_CATALOG_TTL_SECONDS", DEFAULT_TTL_SECONDS)
