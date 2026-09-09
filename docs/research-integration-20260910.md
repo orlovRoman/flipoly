@@ -9,19 +9,23 @@ Integrated sources:
   remain synthetic; changing proxy strike changes about 9.67% of labels.
 - paper-ct-outsider 33a283e: production-pipeline tests and reservation updates.
   Integration fixes the missing typing.Any import in execution/worker.py.
+- price-time-map a198f26: independent universe, cross-universe comparison and
+  recentered day-block permutation outputs. Its acceptance remains provisional:
+  no holdout exists and the study is descriptive gross research.
 
 Repository-wide .gitattributes rules are preserved. The strike-baseline binary
 rules are additive. Trade-economics/CURRENT.md is a Windows-compatible pointer
 to the final historical scenario run.
 
-Price-time-map a198f26 is deferred, not merged:
+Price-time-map is now merged as research artifacts, not as a trading rule:
 - With 2000 bootstrap repetitions and 309 Holm tests, the minimum attainable
   first adjusted p-value is 309/2001 (about 0.1544). Zero survivors at 0.05 is
   therefore forced by resolution, not evidence that all cells lack an edge.
 - Time comparisons use all rows, including missing quotes, rather than only
   markets with usable quotes at both times; missing data become zero positions.
 - Their sign-flip p-values randomize individual markets, unlike the day-block CIs.
-- The branch replaces the repository .gitignore with two freeze patterns.
+- The branch's replacement of .gitignore was resolved by preserving the
+  repository rules and adding only freeze-chunk patterns.
 
 These findings do not invalidate the descriptive decline of CT T-5 gross PnL
 from 100.10 to 40.56 when expanding the universe. The universes overlap and

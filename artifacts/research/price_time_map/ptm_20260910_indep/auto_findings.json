@@ -1,0 +1,211 @@
+{
+  "measure": "gross",
+  "cells_tested": 393,
+  "cells_ci_ok": 311,
+  "positive_lower_ci": 11,
+  "positive_cells": [
+    {
+      "key": [
+        "FUNNEL",
+        "FUNNEL_OBSERVED",
+        "SOL",
+        "YES_FAVORITE",
+        "[0.80,0.90)"
+      ],
+      "n": 27,
+      "pnl": 3.5776,
+      "ci": [
+        0.035517,
+        0.187555
+      ],
+      "holm_adj_p": 0.1555,
+      "p_perm": 0.0005,
+      "day_var": 0.076136
+    },
+    {
+      "key": [
+        "FUNNEL",
+        "FUNNEL_OBSERVED",
+        "XRP",
+        "NO_FAVORITE",
+        "[0.60,0.70)"
+      ],
+      "n": 49,
+      "pnl": 8.8393,
+      "ci": [
+        0.016127,
+        0.355982
+      ],
+      "holm_adj_p": 1.0,
+      "p_perm": 0.013993,
+      "day_var": 0.841182
+    },
+    {
+      "key": [
+        "FUNNEL",
+        "FUNNEL_OBSERVED",
+        "XRP",
+        "YES_OUTSIDER",
+        "[0.30,0.35)"
+      ],
+      "n": 19,
+      "pnl": 12.1102,
+      "ci": [
+        0.105169,
+        1.075839
+      ],
+      "holm_adj_p": 1.0,
+      "p_perm": 0.010495,
+      "day_var": 2.57046
+    },
+    {
+      "key": [
+        "GRID",
+        "T-12",
+        "XRP",
+        "YES_OUTSIDER",
+        "[0.25,0.30)"
+      ],
+      "n": 132,
+      "pnl": 45.2279,
+      "ci": [
+        0.053871,
+        0.629407
+      ],
+      "holm_adj_p": 1.0,
+      "p_perm": 0.008996,
+      "day_var": 13.642417
+    },
+    {
+      "key": [
+        "GRID",
+        "T-5",
+        "BTC",
+        "YES_FAVORITE",
+        "ABOVE_0.99"
+      ],
+      "n": 30,
+      "pnl": 0.1106,
+      "ci": [
+        0.002919,
+        0.004683
+      ],
+      "holm_adj_p": 0.1555,
+      "p_perm": 0.0005,
+      "day_var": 1.9e-05
+    },
+    {
+      "key": [
+        "GRID",
+        "T-5",
+        "DOGE",
+        "YES_FAVORITE",
+        "ABOVE_0.99"
+      ],
+      "n": 32,
+      "pnl": 0.0451,
+      "ci": [
+        0.001117,
+        0.001696
+      ],
+      "holm_adj_p": 0.1555,
+      "p_perm": 0.0005,
+      "day_var": 5e-06
+    },
+    {
+      "key": [
+        "GRID",
+        "T-5",
+        "ETH",
+        "YES_FAVORITE",
+        "[0.60,0.70)"
+      ],
+      "n": 89,
+      "pnl": 13.078,
+      "ci": [
+        0.00842,
+        0.286519
+      ],
+      "holm_adj_p": 1.0,
+      "p_perm": 0.024488,
+      "day_var": 1.715145
+    },
+    {
+      "key": [
+        "GRID",
+        "T-5",
+        "SOL",
+        "YES_FAVORITE",
+        "ABOVE_0.99"
+      ],
+      "n": 42,
+      "pnl": 0.0843,
+      "ci": [
+        0.001608,
+        0.002567
+      ],
+      "holm_adj_p": 0.1555,
+      "p_perm": 0.0005,
+      "day_var": 8e-06
+    },
+    {
+      "key": [
+        "GRID",
+        "T-5",
+        "XRP",
+        "YES_FAVORITE",
+        "ABOVE_0.99"
+      ],
+      "n": 32,
+      "pnl": 0.0632,
+      "ci": [
+        0.001451,
+        0.002598
+      ],
+      "holm_adj_p": 0.1555,
+      "p_perm": 0.0005,
+      "day_var": 7e-06
+    },
+    {
+      "key": [
+        "GRID",
+        "T-8",
+        "DOGE",
+        "YES_FAVORITE",
+        "[0.90,0.99]"
+      ],
+      "n": 256,
+      "pnl": 6.4849,
+      "ci": [
+        0.005316,
+        0.042275
+      ],
+      "holm_adj_p": 1.0,
+      "p_perm": 0.003498,
+      "day_var": 0.235358
+    },
+    {
+      "key": [
+        "GRID",
+        "T-8",
+        "ETH",
+        "YES_FAVORITE",
+        "[0.70,0.80)"
+      ],
+      "n": 173,
+      "pnl": 13.3474,
+      "ci": [
+        0.008725,
+        0.137958
+      ],
+      "holm_adj_p": 1.0,
+      "p_perm": 0.01949,
+      "day_var": 1.307671
+    }
+  ],
+  "method": "one-sided day-block recentered bootstrap H0:E<=0, Holm over tested cells; NO normal approximation (removed v1 pseudo-p)",
+  "coverage_statuses": {
+    "MISSING_ENTRY_QUOTE": 16907,
+    "OK": 40294
+  }
+}

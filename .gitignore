@@ -56,3 +56,7 @@ GEMINI.md
 # Heavy research data (reproducible; SHA-256 in manifests)
 artifacts/research/strike_baseline/data_export/*/raw/*.csv.gz
 artifacts/research/strike_baseline/data_export/*/fixture_1m/*.csv.gz
+
+# Price-time-map freeze chunks remain outside Git; hashes live in meta.json.
+_freeze/*/chunks/
+_freeze/*/*.csv.gz

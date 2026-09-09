@@ -1,0 +1,55 @@
+{
+  "branch": "research/price-time-map",
+  "commit": "d3c4620b2e5540c5e390a619bf160ad539b2e1e7",
+  "scripts": {
+    "ptm_lib2.py": {
+      "sha256": "334c2be21ab393b733869fda153b2e1e0a1292777ae888635a190ba3e1a7c6c0",
+      "last_commit": "a2e156f8648e1ce3fd41833732ccff371643f865"
+    },
+    "ptm_build2.py": {
+      "sha256": "2e686b73f2b5e837acb33542b5009bb6b087bcb2c1a28eeb37549b4a1431d9af",
+      "last_commit": "d3c4620b2e5540c5e390a619bf160ad539b2e1e7"
+    },
+    "ptm_analyze2.py": {
+      "sha256": "e5a8fd399647c34514772f9413b4fbdbb3f4951a898991f1c6bf775e1a793841",
+      "last_commit": "d3c4620b2e5540c5e390a619bf160ad539b2e1e7"
+    },
+    "ptm_ct2.py": {
+      "sha256": "9e97e61e08b9205274c44529b1cf4182f1b149dd4ce4ea5a6238d0542f294baf",
+      "last_commit": "5a17c02e75e140e6634a671a6f10c3ea95bed201"
+    },
+    "ptm_stage2.py": {
+      "sha256": "51c2125175baffd0ed693bf8cc2451da55a576ef1cccb210b7a043188ff13c3a",
+      "last_commit": "d3c4620b2e5540c5e390a619bf160ad539b2e1e7"
+    },
+    "ptm_stage2b.py": {
+      "sha256": "0aa301aae1574ada94ac7f026fa039d066191b8ffdb5c08f70b0f6d489e75cb4",
+      "last_commit": "d3c4620b2e5540c5e390a619bf160ad539b2e1e7"
+    },
+    "ptm_verify2.py": {
+      "sha256": "30bf5313ca79cd4147e72045f6c46770e153d738dc4170dd988db5e7cf8ba52f",
+      "last_commit": "d3c4620b2e5540c5e390a619bf160ad539b2e1e7"
+    },
+    "ptm_bias.py": {
+      "sha256": "4103997e5a9f8854b6f29f8c405edc5392824c4ae81b5cc15381fba5c2f34429",
+      "last_commit": "d3c4620b2e5540c5e390a619bf160ad539b2e1e7"
+    },
+    "ptm_freeze.py": {
+      "sha256": "fa3d3cdc13873e967a2f5fdd6fba2b47c65583269db413041357ccf324c8a10e",
+      "last_commit": "35d285b1111b0b7c1243ae4a14c40d4eae5347fd"
+    }
+  },
+  "freeze_chunks": {
+    "freeze_funnel": {
+      "files": 13,
+      "rows": 2821414,
+      "meta_sha256": "b9bb2cfac8140e1009935c307adb9d9f987cf1a67af546acda5c47a2af1eea76"
+    },
+    "freeze_independent": {
+      "files": 35,
+      "rows": 8254342,
+      "meta_sha256": "5cf3d95e6275f033254b1bd6538213f178caafd153793265a57ff063bec2b52e"
+    }
+  },
+  "note": "Manifests record script hashes AT BUILD TIME (dirty_worktree=true means the worktree had uncommitted changes then). This file records hashes AT COMMIT TIME. Ledger-affecting equivalence for the build2 streaming refactor was proven byte-identical on the funnel freeze (ptm_tmp_equiv run). Freeze chunks live on server disk (not git); per-chunk sha256 in _freeze/*/meta.json. Re-freeze from mutable DB does NOT reproduce inputs."
+}

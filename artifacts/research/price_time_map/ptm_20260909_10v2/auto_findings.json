@@ -1,0 +1,236 @@
+{
+  "measure": "gross",
+  "cells_tested": 393,
+  "cells_ci_ok": 309,
+  "positive_lower_ci": 14,
+  "positive_cells": [
+    {
+      "key": [
+        "FUNNEL",
+        "FUNNEL_OBSERVED",
+        "XRP",
+        "NO_FAVORITE",
+        "[0.60,0.70)"
+      ],
+      "n": 49,
+      "pnl": 8.8393,
+      "ci": [
+        0.016127,
+        0.355982
+      ],
+      "holm_adj_p": 1.0
+    },
+    {
+      "key": [
+        "FUNNEL",
+        "FUNNEL_OBSERVED",
+        "XRP",
+        "YES_OUTSIDER",
+        "[0.30,0.35)"
+      ],
+      "n": 19,
+      "pnl": 12.1102,
+      "ci": [
+        0.105169,
+        1.075839
+      ],
+      "holm_adj_p": 1.0
+    },
+    {
+      "key": [
+        "GRID",
+        "T-12",
+        "BTC",
+        "YES_FAVORITE",
+        "[0.90,0.99]"
+      ],
+      "n": 20,
+      "pnl": 1.6688,
+      "ci": [
+        0.072158,
+        0.093785
+      ],
+      "holm_adj_p": 0.0
+    },
+    {
+      "key": [
+        "GRID",
+        "T-5",
+        "BTC",
+        "YES_FAVORITE",
+        "ABOVE_0.99"
+      ],
+      "n": 26,
+      "pnl": 0.0935,
+      "ci": [
+        0.002749,
+        0.004731
+      ],
+      "holm_adj_p": 0.0
+    },
+    {
+      "key": [
+        "GRID",
+        "T-5",
+        "DOGE",
+        "YES_FAVORITE",
+        "ABOVE_0.99"
+      ],
+      "n": 30,
+      "pnl": 0.0431,
+      "ci": [
+        0.001126,
+        0.001734
+      ],
+      "holm_adj_p": 0.0
+    },
+    {
+      "key": [
+        "GRID",
+        "T-5",
+        "DOGE",
+        "YES_FAVORITE",
+        "[0.90,0.99]"
+      ],
+      "n": 293,
+      "pnl": 5.369,
+      "ci": [
+        0.00568,
+        0.030498
+      ],
+      "holm_adj_p": 1.0
+    },
+    {
+      "key": [
+        "GRID",
+        "T-5",
+        "ETH",
+        "YES_FAVORITE",
+        "ABOVE_0.99"
+      ],
+      "n": 37,
+      "pnl": 0.0842,
+      "ci": [
+        0.001877,
+        0.002723
+      ],
+      "holm_adj_p": 0.0
+    },
+    {
+      "key": [
+        "GRID",
+        "T-5",
+        "ETH",
+        "YES_FAVORITE",
+        "[0.60,0.70)"
+      ],
+      "n": 74,
+      "pnl": 12.8769,
+      "ci": [
+        0.026349,
+        0.317589
+      ],
+      "holm_adj_p": 1.0
+    },
+    {
+      "key": [
+        "GRID",
+        "T-5",
+        "SOL",
+        "YES_FAVORITE",
+        "ABOVE_0.99"
+      ],
+      "n": 37,
+      "pnl": 0.0742,
+      "ci": [
+        0.001575,
+        0.002583
+      ],
+      "holm_adj_p": 0.0
+    },
+    {
+      "key": [
+        "GRID",
+        "T-5",
+        "XRP",
+        "YES_FAVORITE",
+        "ABOVE_0.99"
+      ],
+      "n": 29,
+      "pnl": 0.0582,
+      "ci": [
+        0.001419,
+        0.00271
+      ],
+      "holm_adj_p": 0.0
+    },
+    {
+      "key": [
+        "GRID",
+        "T-8",
+        "BTC",
+        "YES_FAVORITE",
+        "[0.50,0.60)"
+      ],
+      "n": 132,
+      "pnl": 20.5659,
+      "ci": [
+        0.005075,
+        0.32071
+      ],
+      "holm_adj_p": 1.0
+    },
+    {
+      "key": [
+        "GRID",
+        "T-8",
+        "DOGE",
+        "YES_FAVORITE",
+        "[0.90,0.99]"
+      ],
+      "n": 218,
+      "pnl": 6.759,
+      "ci": [
+        0.014513,
+        0.045932
+      ],
+      "holm_adj_p": 0.031903
+    },
+    {
+      "key": [
+        "GRID",
+        "T-8",
+        "ETH",
+        "YES_FAVORITE",
+        "[0.70,0.80)"
+      ],
+      "n": 138,
+      "pnl": 10.7462,
+      "ci": [
+        0.008961,
+        0.139801
+      ],
+      "holm_adj_p": 1.0
+    },
+    {
+      "key": [
+        "GRID",
+        "T-8",
+        "SOL",
+        "YES_FAVORITE",
+        "[0.70,0.80)"
+      ],
+      "n": 142,
+      "pnl": 9.0426,
+      "ci": [
+        0.009717,
+        0.135707
+      ],
+      "holm_adj_p": 1.0
+    }
+  ],
+  "coverage_statuses": {
+    "MISSING_ENTRY_QUOTE": 15227,
+    "OK": 35753
+  }
+}

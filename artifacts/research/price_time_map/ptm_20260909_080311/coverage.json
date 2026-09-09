@@ -1,0 +1,39 @@
+{
+  "markets": 12745,
+  "with_snapshots": 12745,
+  "outcome_ok": 12745,
+  "outcome_conflict": 0,
+  "outcome_missing": 0,
+  "json_agreement": 12734,
+  "json_compared": 12734,
+  "entries_ok": 23465,
+  "entries_missing": 14770,
+  "no_quote_variants": 46930,
+  "per_asset": {
+    "SOL": {
+      "markets": 2560,
+      "min_tl": 0.0143972,
+      "max_tl": 222.63197936666666
+    },
+    "DOGE": {
+      "markets": 2558,
+      "min_tl": 0.004741383333333333,
+      "max_tl": 222.33478561666666
+    },
+    "BTC": {
+      "markets": 2578,
+      "min_tl": 0.0141539,
+      "max_tl": 222.64050041666667
+    },
+    "ETH": {
+      "markets": 2485,
+      "min_tl": 0.0162112,
+      "max_tl": 222.14793795
+    },
+    "XRP": {
+      "markets": 2564,
+      "min_tl": 0.01580961666666667,
+      "max_tl": 221.87565058333334
+    }
+  }
+}

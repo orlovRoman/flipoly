@@ -1,0 +1,26 @@
+[
+  {
+    "metric": "markets",
+    "old": 12745,
+    "new": 12745,
+    "reason": "v2 contracts (see report)"
+  },
+  {
+    "metric": "outcome_ok",
+    "old": 12745,
+    "new": 12744,
+    "reason": "v2 contracts (see report)"
+  },
+  {
+    "metric": "entries_ok",
+    "old": 35753,
+    "new": 35752,
+    "reason": "v2 contracts (see report)"
+  },
+  {
+    "metric": "entries_missing",
+    "old": 15227,
+    "new": 15224,
+    "reason": "v2 contracts (see report)"
+  }
+]

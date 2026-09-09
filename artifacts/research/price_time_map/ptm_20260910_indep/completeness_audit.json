@@ -1,0 +1,65 @@
+{
+  "stage1_items_1_8": {
+    "status": "DONE",
+    "items": [
+      "1. price_bin closed intervals: YES",
+      "2. out-of-range bin: YES (plan-14-fixed+v2-out-of-range)",
+      "3. SELECT ct_states with OF ... FOR UPDATE SKIP LOCKED: YES (atomically locked)",
+      "4. opportunity_id key in ct_states.csv: YES",
+      "5. fee separated (fee_rate column, net_pnl unknown): YES (fee_status=UNKNOWN, fee=None)",
+      "6. net_pnl=None for unknown fee: YES",
+      "7. timebase_mismatch=0 verified: YES",
+      "8. no duplicate opportunity_ids: YES (0 dup_oid)"
+    ]
+  },
+  "stage1_items_9_15": {
+    "status": "DONE",
+    "items": [
+      "9. CT totals restructured to comparison_with_ct.csv (per-policy column): YES",
+      "10. GRID CT n=2978 gross=-27.63 verified on 11v2 (gross, fee UNKNOWN): YES",
+      "11. FUNNEL CT v2 (frozen scope): n=563 gross=-20.7471 \u2014 matches v1 exactly (same OK set, fee never applied in v1 either)",
+      "12. GRID CT T-5 n=915 gross=100.10 verified on 11v2 (YES_OUTSIDER scope): YES",
+      "13. T-5 top5=195 ex-top5=-94.90 verified on 11v2: YES",
+      "14. positive-CI cells: v1 table=14, v2 table=15 (delta: one FUNNEL_OBSERVED cell)",
+      "15. empty price_bin OK rows: v1=233 (leak), v2=0 by design (closed bins + OUT_OF_RANGE)"
+    ]
+  },
+  "stage2_items_16_18": {
+    "status": "DONE",
+    "items": [
+      "16. Independent universe: 14,820 markets (12,745 funnel incl 1 PENDING + 2,075 non-funnel, 5 assets)",
+      "17. Bias: funnel 30 days vs non-funnel 22 days; observed_window_p50 both groups (NOT contract duration \u2014 creation time absent; 15m-membership NOT proven by this metric)",
+      "18. build2 universe path fixed (was FileNotFoundError): reads _freeze/universe_<freeze>.json"
+    ]
+  },
+  "stage2_items_19_25": {
+    "status": "DONE",
+    "items": [
+      "19. C0/CT table per asset\u00d7entry_rule: YES (ct_time_asset.csv, 15 cells)",
+      "20. Filter vs bet-reduction measured: CT-CI0 diffs in ct_paired.csv",
+      "21. Paired CIs: 15 asset\u00d7rule pairs, all OK status, CT exp CI and CT-CI0 CI computed",
+      "22. Time pairs REDONE on common-availability sample (no-signal -> 0, not excluded): T-12/T-8 diff=-0.0046 p=0.86; T-12/T-5 diff=+0.0106 p=0.11; T-8/T-5 diff=+0.0152 p=0.033 nominal (Holm-over-3 = 0.10, not significant). Earlier positive diffs were selection bias.",
+      "23. T-5 concentration (descriptive): top5=195 (n=915), ex-top5=-94.90, biggest_day=2026-08-28 (+92.49). Described as high-concentration positive gross, NOT as proof of absence of edge.",
+      "24. Winner/loser row completeness: 257+658=915 rows, all have best_ask and final_outcome: YES",
+      "25. Holm over day-block recentered bootstrap null (H0:E<=0, NO normal approx): 15 positive-CI cells, 0 survivors at 0.05 (best adj=0.1545). NO significance-based candidates."
+    ]
+  },
+  "stage2_items_26_28": {
+    "status": "DONE",
+    "items": [
+      "26. Rule set v2: 0 significance candidates; watchlist = top-3 nominal cells + CT T-5 policy (all PRE-REGISTERED FOR PAPER on new data only); 3 time pairs informational",
+      "27. Decision log: decision_log.md with corrected decisions/evidence/risks per rule",
+      "28. Holdout: PENDING_DATA \u2014 no out-of-sample period defined yet"
+    ]
+  },
+  "reviewCorrections_applied": [
+    "P1-1: normal-approx Holm pseudo-p REMOVED; day-block recentered bootstrap null test + Holm",
+    "P1-2(as numbered by reviewer: concentration): ex-top5/'artefact' language removed from conclusions; T-5 framed as high-concentration positive gross, robustness unestablished",
+    "P1-3: universe path fixed; independent map build in progress (run ptm_20260910_indep)",
+    "P1-4: pairs recomputed on availability sample with flat-for-no-signal + sign-flip perm p",
+    "P2: old test_entry_selection_causality failure isolated to superseded v1 lib (decision_at unused, unchecked time_left/recorded_at consistency); v2 lib has 11 passing tests incl. boundary/late/timebase; v1 net==gross (fee never applied). verify2 locks results-preservation, not full methodology.",
+    "P2: freeze chunks live on server disk (not git); meta.json with per-chunk sha256 IS committed; re-freeze from mutable DB does NOT reproduce the study \u2014 chunks must be archived.",
+    "P2: execution at ask; no spread re-subtraction; fees/commissions separate unknowns."
+  ],
+  "all_28_items_status": "COMPLETE_EXCEPT_HOLDOUT_AND_INDEP_MAP (see reviewCorrections_applied)"
+}

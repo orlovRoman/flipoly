@@ -1,0 +1,133 @@
+{
+  "rule_set_version": "v2",
+  "significance_method": "one-sided day-block recentered bootstrap H0:E<=0, Holm over tested cells; NO normal approximation (removed v1 pseudo-p)",
+  "holm_survivors_at_0_05": 0,
+  "selection_criteria": "NO significance-based candidates (0 Holm survivors). Watchlist = top-3 nominal cells + policy-level CT T-5, all PRE-REGISTERED FOR PAPER validation on new data only.",
+  "rules_a_cells": [
+    {
+      "rule_id": "A_FUNNEL_FUNNEL_OBSERVED_SOL_YES_FAVORITE_[0.80,0.90)",
+      "rule_type": "CELL_BET",
+      "asset": "SOL",
+      "entry_rule": "FUNNEL_OBSERVED",
+      "role": "YES_FAVORITE",
+      "price_bin": "[0.80,0.90)",
+      "n": 27,
+      "pnl": 3.5776,
+      "ci": [
+        0.035517,
+        0.187555
+      ],
+      "p_perm": 0.0005,
+      "holm_adj_p": 0.1545,
+      "day_var": 0.076136,
+      "degenerate_micro_edge": false,
+      "status": "WATCHLIST_FOR_PAPER"
+    },
+    {
+      "rule_id": "A_GRID_T-12_BTC_YES_FAVORITE_[0.90,0.99]",
+      "rule_type": "CELL_BET",
+      "asset": "BTC",
+      "entry_rule": "T-12",
+      "role": "YES_FAVORITE",
+      "price_bin": "[0.90,0.99]",
+      "n": 20,
+      "pnl": 1.6688,
+      "ci": [
+        0.072158,
+        0.093785
+      ],
+      "p_perm": 0.0005,
+      "holm_adj_p": 0.1545,
+      "day_var": 0.001591,
+      "degenerate_micro_edge": false,
+      "status": "WATCHLIST_FOR_PAPER"
+    },
+    {
+      "rule_id": "A_GRID_T-5_BTC_YES_FAVORITE_ABOVE_0.99",
+      "rule_type": "CELL_BET",
+      "asset": "BTC",
+      "entry_rule": "T-5",
+      "role": "YES_FAVORITE",
+      "price_bin": "ABOVE_0.99",
+      "n": 26,
+      "pnl": 0.0935,
+      "ci": [
+        0.002749,
+        0.004731
+      ],
+      "p_perm": 0.0005,
+      "holm_adj_p": 0.1545,
+      "day_var": 1.9e-05,
+      "degenerate_micro_edge": true,
+      "status": "WATCHLIST_FOR_PAPER"
+    }
+  ],
+  "rules_b_ct_filter": [],
+  "rules_c_time_pairs": [
+    {
+      "rule_id": "C_T-12_vs_T-8_CT",
+      "rule_type": "CT_TIME_PAIR",
+      "description": "T-12_vs_T-8_CT",
+      "markets": 12744,
+      "both_ok": 4602,
+      "mean_diff": -0.004629,
+      "ci95": [
+        -0.012062,
+        0.00513
+      ],
+      "perm_p": 0.861069,
+      "status": "INFORMATIONAL"
+    },
+    {
+      "rule_id": "C_T-12_vs_T-5_CT",
+      "rule_type": "CT_TIME_PAIR",
+      "description": "T-12_vs_T-5_CT",
+      "markets": 12744,
+      "both_ok": 4525,
+      "mean_diff": 0.010552,
+      "ci95": [
+        -0.013374,
+        0.048165
+      ],
+      "perm_p": 0.114943,
+      "status": "INFORMATIONAL"
+    },
+    {
+      "rule_id": "C_T-8_vs_T-5_CT",
+      "rule_type": "CT_TIME_PAIR",
+      "description": "T-8_vs_T-5_CT",
+      "markets": 12744,
+      "both_ok": 6367,
+      "mean_diff": 0.015181,
+      "ci95": [
+        -0.001639,
+        0.049772
+      ],
+      "perm_p": 0.033483,
+      "status": "INFORMATIONAL"
+    }
+  ],
+  "rules_d_policy": [
+    {
+      "rule_id": "D_CT_T5_ALL_ASSETS",
+      "rule_type": "CT_POLICY",
+      "entry_rule": "T-5",
+      "filter": "ct_state==REVERSION",
+      "n": 915,
+      "gross": 100.103,
+      "top5": 195.0,
+      "ex_top5": -94.897,
+      "biggest_day": [
+        "2026-08-28",
+        92.49381199999999
+      ],
+      "status": "WATCHLIST_FOR_PAPER"
+    }
+  ],
+  "holdout_period": {
+    "status": "PENDING_DATA",
+    "note": "holdout period not yet defined; requires additional weeks of data or out-of-sample split"
+  },
+  "total_watchlist": 4,
+  "total_informational": 3
+}
