@@ -670,11 +670,16 @@ def test_item_30_additional_simulation_and_strike_checks():
     res_unknown = simulate_orderbook_execution(asks, budget_usdc=10.0, book_age_sec=None)
     assert res_unknown.fill_status == "STALE_BOOK"
     assert res_unknown.data_status == "UNKNOWN_TIMESTAMP"
+
+    # 4. Negative book age (< 0.0) -> STALE_BOOK with INVALID_TIMESTAMP
+    res_neg = simulate_orderbook_execution(asks, budget_usdc=10.0, book_age_sec=-1.0)
+    assert res_neg.fill_status == "STALE_BOOK"
+    assert res_neg.data_status == "INVALID_TIMESTAMP"
     
-    # 4. Truncated book
+    # 5. Truncated book
     res_trunc = simulate_orderbook_execution(asks, budget_usdc=100.0, is_truncated=True)
     assert res_trunc.fill_status == "DEPTH_EXHAUSTED_UNKNOWN"
     
-    # 5. Canonical strike checks
+    # 6. Canonical strike checks
     ctx = compute_strike_context(spot=90.0, strike=105.0, sigma_min=0.5, time_left_min=10.0, local_mean=110.0, candidate_side="UP")
     assert ctx["reversion_helps_strike"] is True

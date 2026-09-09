@@ -52,7 +52,7 @@ def simulate_orderbook_execution(
     taker_fee_rate: float = 0.0,
     is_truncated: bool = False,
     arrival_delay_sec: float = 0.0,
-    book_age_sec: float = 0.0,
+    book_age_sec: float | None = 0.0,
     max_staleness_sec: float = 15.0,
     already_consumed_shares_by_level: Sequence[float] | None = None,
 ) -> OrderbookFillResult:
@@ -66,7 +66,7 @@ def simulate_orderbook_execution(
     - taker_fee_rate: taker fee fraction (e.g. 0.002 or 0.0)
     - is_truncated: whether the orderbook was capped at fixed depth (e.g. top 10/20)
     - arrival_delay_sec: simulated network/dispatch latency
-    - book_age_sec: age of snapshot at decision moment
+    - book_age_sec: age of snapshot at decision moment (None = unknown age -> rejected)
     - max_staleness_sec: maximum acceptable book age before declaring state uncertain
 
     Self-check Point 14:
@@ -87,7 +87,7 @@ def simulate_orderbook_execution(
         )
 
     # Point 16: Latency and staleness safeguards
-    if book_age_sec is None:
+    if book_age_sec is None or book_age_sec < 0.0:
         return OrderbookFillResult(
             filled_shares=0.0,
             spent_usdc=0.0,
@@ -95,7 +95,7 @@ def simulate_orderbook_execution(
             vwap=None,
             fee=0.0,
             fill_status="STALE_BOOK",
-            data_status="UNKNOWN_TIMESTAMP",
+            data_status="UNKNOWN_TIMESTAMP" if book_age_sec is None else "INVALID_TIMESTAMP",
             levels_consumed=0,
         )
 

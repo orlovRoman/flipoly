@@ -115,7 +115,7 @@ async def test_run_collector_cycle_records_and_flushes_strike(db_session: AsyncS
 
 @pytest.mark.asyncio
 async def test_run_collector_cycle_one_sided_orderbook(db_session: AsyncSession):
-    """One-sided orderbook correctly saves depth in database without MarketSnapshot and skips price update."""
+    """One-sided orderbook correctly saves MarketSnapshot with nullable mid_price/spread and links depth."""
     now = datetime.now(timezone.utc)
     mock_market = {
         "market_id": "test_m_oneside",
@@ -180,3 +180,50 @@ async def test_run_collector_cycle_one_sided_orderbook(db_session: AsyncSession)
     assert len(depths) == 2
     assert depths[0].snapshot_id == snapshot.id
     assert depths[1].snapshot_id == snapshot.id
+
+
+@pytest.mark.asyncio
+async def test_client_get_both_orderbooks_causal_pairing():
+    """Client get_both_orderbooks enforces directed causal rule:
+    1. 0 <= delta <= 5.0 -> VALID
+    2. delta > 5.0 -> CAUSAL_PAIR_TIMEOUT
+    3. delta < 0.0 -> NON_CAUSAL_PAIR
+    """
+    from polyflip.collector.client import PolymarketClient
+    from polyflip.collector.orderbook_depth import OrderbookContract
+
+    client = PolymarketClient()
+    t0 = datetime(2026, 8, 10, 12, 0, 0, tzinfo=timezone.utc)
+
+    # 1. Valid pairing within [0, 5]s
+    ob_yes = OrderbookContract(
+        market_id="m1", token_id="t1", outcome_side="YES",
+        event_at=t0, received_at=t0, bids=[], asks=[], quality_status="VALID"
+    )
+    ob_no = OrderbookContract(
+        market_id="m1", token_id="t2", outcome_side="NO",
+        event_at=t0, received_at=t0 + timedelta(seconds=2), bids=[], asks=[], quality_status="VALID"
+    )
+    with patch.object(client, "get_single_orderbook", side_effect=[ob_yes, ob_no]):
+        y, n = await client.get_both_orderbooks("m1", "t1", "t2")
+        assert n.quality_status == "VALID"
+
+    # 2. Timeout: NO received 6s after YES (> 5.0s) -> CAUSAL_PAIR_TIMEOUT
+    ob_no_late = OrderbookContract(
+        market_id="m1", token_id="t2", outcome_side="NO",
+        event_at=t0, received_at=t0 + timedelta(seconds=6), bids=[], asks=[], quality_status="VALID"
+    )
+    with patch.object(client, "get_single_orderbook", side_effect=[ob_yes, ob_no_late]):
+        y, n = await client.get_both_orderbooks("m1", "t1", "t2")
+        assert n.quality_status == "CAUSAL_PAIR_TIMEOUT"
+        assert "exceeded 5s" in n.quality_notes
+
+    # 3. Non-causal: NO received before YES (< 0.0s) -> NON_CAUSAL_PAIR
+    ob_no_past = OrderbookContract(
+        market_id="m1", token_id="t2", outcome_side="NO",
+        event_at=t0, received_at=t0 - timedelta(seconds=1), bids=[], asks=[], quality_status="VALID"
+    )
+    with patch.object(client, "get_single_orderbook", side_effect=[ob_yes, ob_no_past]):
+        y, n = await client.get_both_orderbooks("m1", "t1", "t2")
+        assert n.quality_status == "NON_CAUSAL_PAIR"
+        assert "violates directed causality" in n.quality_notes

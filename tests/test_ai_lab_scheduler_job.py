@@ -20,6 +20,12 @@ class _Session:
     async def execute(self, _statement):
         return _ScalarResult([7, 8])
 
+    async def commit(self):
+        pass
+
+    async def get(self, *args, **kwargs):
+        return None
+
 
 class _SessionContext:
     def __init__(self):
@@ -67,4 +73,4 @@ async def test_ai_lab_execution_job_drains_planned_runs(monkeypatch):
         }
         for _, kwargs in calls
     )
-    assert len(contexts) == 3
+    assert len(contexts) == 4

@@ -522,9 +522,13 @@ class PolymarketClient:
                 market_id=market_id,
                 latency_sec=delta,
             )
-            if delta > 5.0 and no_contract.quality_status in ("VALID", "UNORDERED_LEVELS_NORMALIZED"):
-                no_contract.quality_status = "CAUSAL_PAIR_TIMEOUT"
-                no_contract.quality_notes = f"Pairing latency {delta:.2f}s exceeded 5s causal threshold"
+            if no_contract.quality_status in ("VALID", "UNORDERED_LEVELS_NORMALIZED"):
+                if delta > 5.0:
+                    no_contract.quality_status = "CAUSAL_PAIR_TIMEOUT"
+                    no_contract.quality_notes = f"Pairing latency {delta:.2f}s exceeded 5s causal threshold"
+                else:
+                    no_contract.quality_status = "NON_CAUSAL_PAIR"
+                    no_contract.quality_notes = f"Pairing latency {delta:.2f}s violates directed causality (NO received before YES)"
         return yes_contract, no_contract
 
     async def get_market_prices(

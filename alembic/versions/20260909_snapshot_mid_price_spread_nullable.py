@@ -13,10 +13,12 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.alter_column("market_snapshots", "mid_price", existing_type=sa.Float(), nullable=True)
-    op.alter_column("market_snapshots", "spread", existing_type=sa.Float(), nullable=True)
+    with op.batch_alter_table("market_snapshots") as batch_op:
+        batch_op.alter_column("mid_price", existing_type=sa.Float(), nullable=True)
+        batch_op.alter_column("spread", existing_type=sa.Float(), nullable=True)
 
 
 def downgrade() -> None:
-    op.alter_column("market_snapshots", "spread", existing_type=sa.Float(), nullable=False)
-    op.alter_column("market_snapshots", "mid_price", existing_type=sa.Float(), nullable=False)
+    with op.batch_alter_table("market_snapshots") as batch_op:
+        batch_op.alter_column("spread", existing_type=sa.Float(), nullable=False)
+        batch_op.alter_column("mid_price", existing_type=sa.Float(), nullable=False)
