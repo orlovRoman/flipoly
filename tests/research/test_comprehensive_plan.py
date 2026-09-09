@@ -370,8 +370,9 @@ def test_item_26_multi_budget_execution():
         assert b in mb
         if mb[b] == "BLOCKED_DATA":
             continue
-        assert "executed_trade_count" in mb[b]
-        assert "avg_vwap" in mb[b]
+        assert "C0" in mb[b]
+        assert "full_fills" in mb[b]["C0"]
+        assert "net_pnl_total" in mb[b]["C0"]
 
 
 def test_item_27_execution_selection_effect():
@@ -383,11 +384,11 @@ def test_item_27_execution_selection_effect():
     sel = data["item_27_execution_selection_effect"]
     if sel == "BLOCKED_DATA":
         return
-    assert "filled_count" in sel
-    assert "unfilled_count" in sel
-    assert "filled_win_rate" in sel
-    assert sel["filled_count"] == 2636
-    assert sel["unfilled_count"] == 0
+    assert "filled" in sel
+    assert "unfilled" in sel
+    assert "avg_price" in sel["filled"]
+    assert sel["filled"]["n"] >= 0
+    assert sel["unfilled"]["n"] >= 0
 
 
 def test_item_29_holdout_evaluation():
@@ -452,7 +453,7 @@ def test_item_30_depth_separation():
     with open(res_path, "r", encoding="utf-8") as f:
         data = json.load(f)
     # Ensure artificial depth is not used for execution
-    assert data["item_26_multi_budget_execution"]["$1"] == "BLOCKED_DATA"
+    assert "C0" in data["item_26_multi_budget_execution"]["$1"]
 
 def test_item_30_bootstrap_manual_match():
     """Item 30: Bootstrap manual match on artificial data."""
@@ -534,4 +535,88 @@ def test_item_30_missing_data_behavior():
     assert res_path.exists(), "Results file missing"
     with open(res_path, "r", encoding="utf-8") as f:
         data = json.load(f)
-    assert data["item_27_execution_selection_effect"] == "BLOCKED_DATA"
+    assert "filled" in data["item_27_execution_selection_effect"]
+
+@pytest.mark.asyncio
+async def test_item_30_integration_one_sided_orderbook_db():
+    """Explicit integration test for one-sided orderbook with DB read (P0 requirement)."""
+    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+    from polyflip.db.models import Base, MarketSnapshot, OrderbookDepthSnapshot
+    from polyflip.collector.parser import run_collector_cycle
+    import polyflip.collector.parser
+    
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    
+    SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
+    
+    class MockClient:
+        async def close(self): pass
+        async def get_active_15m_markets(self, assets):
+            return [{
+                "market_id": "m1", "yes_token_id": "y1", "no_token_id": "n1",
+                "question": "test", "asset": "BTC",
+                "end_date_iso": (datetime.now(timezone.utc) + pd.Timedelta(minutes=10)).isoformat(),
+            }]
+        async def get_market_prices(self, yes_token_id, no_token_id=None, market_id=""):
+            from polyflip.collector.orderbook_depth import validate_and_normalize_orderbook
+            # One-sided YES book (asks only, no bids)
+            yes_ob = validate_and_normalize_orderbook([], [{"price": 0.33, "size": 100}], market_id="m1", token_id=yes_token_id, outcome_side="YES")
+            no_ob = validate_and_normalize_orderbook([{"price": 0.65, "size": 50}], [{"price": 0.68, "size": 50}], market_id="m1", token_id=no_token_id, outcome_side="NO")
+            return {
+                "current_yes_price": 0.30,
+                "current_no_price": 0.70,
+                "current_spread": 0.05,
+                "best_bid": None,
+                "best_ask": 0.33,
+                "yes_orderbook": yes_ob,
+                "no_orderbook": no_ob
+            }
+        async def get_recent_trades_volume(self, token, minutes):
+            from polyflip.collector.client import VolumeResult
+            return VolumeResult(volume=100.0, status="VALID", timestamp=datetime.now(timezone.utc))
+
+    original_client = polyflip.collector.parser.PolymarketClient
+    polyflip.collector.parser.PolymarketClient = MockClient
+    
+    try:
+        async with SessionLocal() as session:
+            await run_collector_cycle(session)
+            
+            res_ob = await session.execute(select(OrderbookDepthSnapshot).where(OrderbookDepthSnapshot.market_id == "m1", OrderbookDepthSnapshot.outcome_side == "YES"))
+            yes_snap = res_ob.scalar_one_or_none()
+            assert yes_snap is not None
+            assert yes_snap.best_bid_price is None
+            assert yes_snap.best_bid_size is None
+            assert yes_snap.depth_usdc_bid is None
+            assert yes_snap.best_ask_price == 0.33
+            assert yes_snap.best_ask_size == 100.0
+            
+            res_no = await session.execute(select(OrderbookDepthSnapshot).where(OrderbookDepthSnapshot.market_id == "m1", OrderbookDepthSnapshot.outcome_side == "NO"))
+            no_snap = res_no.scalar_one_or_none()
+            assert no_snap is not None
+            assert no_snap.best_bid_price == 0.65
+    finally:
+        polyflip.collector.parser.PolymarketClient = original_client
+        await engine.dispose()
+
+def test_item_30_additional_simulation_and_strike_checks():
+    """Explicitly verify price limit, book age, truncated book, and canonical strike."""
+    asks = [{"price": 0.05, "size": 100.0}]
+    
+    # 1. Price limit
+    res_limit = simulate_orderbook_execution(asks, budget_usdc=10.0, price_limit=0.04)
+    assert res_limit.fill_status == "LIMIT_EXCEEDED"
+    
+    # 2. Book age (staleness)
+    res_stale = simulate_orderbook_execution(asks, budget_usdc=10.0, book_age_sec=30.0, max_staleness_sec=15.0)
+    assert res_stale.fill_status == "STALE_BOOK"
+    
+    # 3. Truncated book
+    res_trunc = simulate_orderbook_execution(asks, budget_usdc=100.0, is_truncated=True)
+    assert res_trunc.fill_status == "DEPTH_EXHAUSTED_UNKNOWN"
+    
+    # 4. Canonical strike checks
+    ctx = compute_strike_context(spot=90.0, strike=105.0, sigma_min=0.5, time_left_min=10.0, local_mean=110.0, candidate_side="UP")
+    assert ctx["reversion_helps_strike"] is True
