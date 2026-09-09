@@ -85,11 +85,21 @@ def main():
     obs_doc = json.load(open("artifacts/weighted_policy/observations_30d.json", encoding="utf-8"))
     obs = [o for o in obs_doc["observations"] if o.get("asset") in ASSETS]
     exp = json.load(open("artifacts/research/market_expirations.json", encoding="utf-8"))
-    mids = sorted({str(o["market_id"]) for o in obs})
+    if UNIVERSE == "funnel":
+        mids = sorted({str(o["market_id"]) for o in obs})
+    else:
+        uni = json.load(open(os.path.join("artifacts", "research", "price_time_map",
+                                           "universe_freeze_independent.json"), encoding="utf-8"))
+        mids = sorted({r["market_id"] for r in uni["markets"] if r["outcome"] in ("YES", "NO")})
     period = sorted(o["timestamp"] for o in obs if o.get("timestamp"))
     asset_of = {}
     for o in obs:
         asset_of.setdefault(str(o["market_id"]), o.get("asset"))
+    if UNIVERSE != "funnel":
+        uni = json.load(open(os.path.join("artifacts", "research", "price_time_map",
+                                           "universe_freeze_independent.json"), encoding="utf-8"))
+        for r in uni["markets"]:
+            asset_of.setdefault(r["market_id"], r["asset"])
     job_of = {}
     for o in obs:
         job_of.setdefault(str(o["market_id"]), o)
@@ -114,7 +124,7 @@ def main():
     meta, snaps_by_m = load_freeze()
     manifest["freeze_meta"] = meta["name"]
     cov = {"markets": len(mids), "with_snapshots": 0, "outcome_ok": 0, "outcome_conflict": 0,
-           "outcome_missing": 0, "entries_ok": 0, "entries_missing": 0,
+           "outcome_missing": 0, "outcome_not_final": 0, "entries_ok": 0, "entries_missing": 0,
            "timebase_mismatch": 0, "per_asset": {}}
     os.makedirs(OUTDIR, exist_ok=True)
     f = open(os.path.join(OUTDIR, "opportunity_ledger.csv"), "w", newline="")
@@ -134,8 +144,11 @@ def main():
         if len(outs) > 1:
             cov["outcome_conflict"] += 1
             continue
-        cov["outcome_ok"] += 1
         final = outs.pop()
+        if final not in ("YES", "NO"):
+            cov["outcome_not_final"] += 1
+            continue
+        cov["outcome_ok"] += 1
         if mid not in exp:
             continue
         expiry = datetime.fromisoformat(exp[mid])

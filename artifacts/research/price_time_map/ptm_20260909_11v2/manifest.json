@@ -1,0 +1,45 @@
+{
+  "stake_usdc": 1.0,
+  "entry_time_grid": [
+    12,
+    8,
+    5
+  ],
+  "entry_delay_max_sec": 30.0,
+  "price_bins": "plan-14-fixed+v2-out-of-range",
+  "fee_model": "gross + scenario_fee",
+  "fee_status": "UNKNOWN",
+  "scenario_fee_rate": 0.02,
+  "side_definition": "unified role by mid (basis MID); ask-only fallback marked ASK_ONLY",
+  "outcome_definition": "frozen market_snapshots.final_outcome",
+  "bootstrap_seed": 20260911,
+  "assets": [
+    "BTC",
+    "ETH",
+    "SOL",
+    "XRP",
+    "DOGE"
+  ],
+  "period_utc": [
+    "2026-08-03 19:32:07.947098+00:00",
+    "2026-09-02 19:30:05.578248+00:00"
+  ],
+  "freeze": "freeze_funnel",
+  "universe": "funnel",
+  "config_hash": "3c6ca31bcdbdb500",
+  "run_id": "ptm_20260909_11v2",
+  "base_commit": "926fb57",
+  "research_commit": "a2e156f8648e1ce3fd41833732ccff371643f865",
+  "dirty_worktree": true,
+  "research_file_hashes": {
+    "ptm_lib2.py": "334c2be21ab393b733869fda153b2e1e0a1292777ae888635a190ba3e1a7c6c0",
+    "ptm_build2.py": "a3ad67b4f11fafc2e0db12303cc6d27696ef1bbd49e89665d94b46d3e6cd6eaa",
+    "ptm_analyze2.py": "22395fcdc920cca023cab3267e93503e669648e622721a323e9f139afe2f1a75",
+    "ptm_freeze.py": "fa3d3cdc13873e967a2f5fdd6fba2b47c65583269db413041357ccf324c8a10e"
+  },
+  "input_file_hashes": {
+    "observations_30d.json": "06920496fbe2a5bfac15393ae8a12fdb70ed1f589601bf5b3518172787806ccf",
+    "market_expirations.json": "8d36e383cc958e07dcec08d08763e26310bc25e4afdd477b72539b3c8ac82b28"
+  },
+  "freeze_meta": "freeze_funnel"
+}

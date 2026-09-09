@@ -1,0 +1,35 @@
+{
+  "funnel": {
+    "n": 12745,
+    "assets": {
+      "SOL": 2560,
+      "DOGE": 2558,
+      "BTC": 2578,
+      "ETH": 2485,
+      "XRP": 2564
+    },
+    "outcomes": {
+      "NO": 6370,
+      "YES": 6374,
+      "PENDING": 1
+    },
+    "days": 30,
+    "duration_p50": 174.6
+  },
+  "non_funnel": {
+    "n": 2075,
+    "assets": {
+      "BTC": 386,
+      "XRP": 400,
+      "SOL": 404,
+      "DOGE": 406,
+      "ETH": 479
+    },
+    "outcomes": {
+      "YES": 1014,
+      "NO": 1061
+    },
+    "days": 22,
+    "duration_p50": 174.6
+  }
+}

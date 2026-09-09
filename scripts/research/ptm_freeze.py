@@ -13,7 +13,7 @@ import os
 import sys
 
 QUERY = (
-    "SELECT market_id, recorded_at, time_left_min, mid_price, best_bid, best_ask, spread,"
+    "SELECT market_id, asset, recorded_at, time_left_min, mid_price, best_bid, best_ask, spread,"
     " final_outcome FROM market_snapshots WHERE market_id = ANY($1::text[])"
     " ORDER BY market_id, recorded_at"
 )
@@ -53,9 +53,9 @@ async def main():
             path = os.path.join(outdir, "chunks", "part_%04d.csv.gz" % (i // B))
             with gzip.open(path, "wt", newline="") as f:
                 w = csv.writer(f)
-                w.writerow(["market_id", "recorded_at", "time_left_min", "mid_price", "best_bid", "best_ask", "spread", "final_outcome"])
+                w.writerow(["market_id", "asset", "recorded_at", "time_left_min", "mid_price", "best_bid", "best_ask", "spread", "final_outcome"])
                 for r in rows:
-                    w.writerow([r["market_id"], r["recorded_at"].isoformat(), r["time_left_min"], r["mid_price"], r["best_bid"], r["best_ask"], r["spread"], r["final_outcome"]])
+                    w.writerow([r["market_id"], r["asset"], r["recorded_at"].isoformat(), r["time_left_min"], r["mid_price"], r["best_bid"], r["best_ask"], r["spread"], r["final_outcome"]])
             files.append({"path": os.path.relpath(path, outdir), "sha256": sha256_file(path), "rows": len(rows)})
             total += len(rows)
             print("freeze chunk %d/%d rows=%d" % (i // B + 1, (len(mids) + B - 1) // B, total), flush=True)
