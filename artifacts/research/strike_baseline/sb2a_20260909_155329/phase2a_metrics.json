@@ -1,0 +1,357 @@
+{
+  "input_ledger": "sb_20260909_155039",
+  "models": {
+    "C": {
+      "econ": {
+        "test": {
+          "concentration_top_decile_share": null,
+          "expectancy": null,
+          "gross": 0.0,
+          "n_entries": 0,
+          "per_asset": {},
+          "pnl_per_opportunity": 0.0,
+          "turnover": 0.0,
+          "weekly": {}
+        },
+        "train": {
+          "concentration_top_decile_share": null,
+          "expectancy": null,
+          "gross": 0.0,
+          "n_entries": 0,
+          "per_asset": {},
+          "pnl_per_opportunity": 0.0,
+          "turnover": 0.0,
+          "weekly": {}
+        },
+        "validation": {
+          "concentration_top_decile_share": null,
+          "expectancy": null,
+          "gross": 0.0,
+          "n_entries": 0,
+          "per_asset": {},
+          "pnl_per_opportunity": 0.0,
+          "turnover": 0.0,
+          "weekly": {}
+        }
+      },
+      "prob": {
+        "test": {
+          "brier": 0.24997,
+          "ece_10": 0.001178,
+          "log_loss": 0.693087,
+          "n": 12705,
+          "yes_rate": 0.494372
+        },
+        "train": {
+          "brier": 0.249954,
+          "ece_10": 0.0,
+          "log_loss": 0.693055,
+          "n": 37174,
+          "yes_rate": 0.493194
+        },
+        "validation": {
+          "brier": 0.250206,
+          "ece_10": 0.018537,
+          "log_loss": 0.693559,
+          "n": 12190,
+          "yes_rate": 0.511731
+        }
+      }
+    },
+    "M0": {
+      "econ": {
+        "test": {
+          "concentration_top_decile_share": 1.6443,
+          "expectancy": 0.914013,
+          "gross": 8169.4443,
+          "n_entries": 8938,
+          "per_asset": {
+            "BTC": {
+              "gross": 2052.344,
+              "n": 1792
+            },
+            "DOGE": {
+              "gross": 1786.3277,
+              "n": 1816
+            },
+            "ETH": {
+              "gross": 1705.4162,
+              "n": 1767
+            },
+            "SOL": {
+              "gross": 1541.564,
+              "n": 1779
+            },
+            "XRP": {
+              "gross": 1083.7925,
+              "n": 1784
+            }
+          },
+          "pnl_per_opportunity": 0.64301,
+          "turnover": 89380.0,
+          "weekly": {
+            "2026-W35": 4136.8404,
+            "2026-W36": 3736.1653,
+            "2026-W37": 296.4387
+          }
+        },
+        "train": {
+          "concentration_top_decile_share": 1.5786,
+          "expectancy": 1.021791,
+          "gross": 26609.4779,
+          "n_entries": 26042,
+          "per_asset": {
+            "BTC": {
+              "gross": 5295.3181,
+              "n": 5111
+            },
+            "DOGE": {
+              "gross": 2648.5062,
+              "n": 5208
+            },
+            "ETH": {
+              "gross": 8042.09,
+              "n": 5186
+            },
+            "SOL": {
+              "gross": 6695.0908,
+              "n": 5303
+            },
+            "XRP": {
+              "gross": 3928.4729,
+              "n": 5234
+            }
+          },
+          "pnl_per_opportunity": 0.715809,
+          "turnover": 260420.0,
+          "weekly": {
+            "2026-W27": 3313.6914,
+            "2026-W28": 4253.4566,
+            "2026-W29": 2997.2035,
+            "2026-W30": 4772.1196,
+            "2026-W31": 2381.1492,
+            "2026-W32": 7482.9606,
+            "2026-W33": 1408.8969
+          }
+        },
+        "validation": {
+          "concentration_top_decile_share": 1.5162,
+          "expectancy": 1.058428,
+          "gross": 8768.0177,
+          "n_entries": 8284,
+          "per_asset": {
+            "BTC": {
+              "gross": 2889.7329,
+              "n": 1623
+            },
+            "DOGE": {
+              "gross": 1581.0058,
+              "n": 1671
+            },
+            "ETH": {
+              "gross": 2339.9805,
+              "n": 1632
+            },
+            "SOL": {
+              "gross": 1122.7101,
+              "n": 1681
+            },
+            "XRP": {
+              "gross": 834.5884,
+              "n": 1677
+            }
+          },
+          "pnl_per_opportunity": 0.71928,
+          "turnover": 82840.0,
+          "weekly": {
+            "2026-W33": 4888.2023,
+            "2026-W34": 2673.533,
+            "2026-W35": 1206.2824
+          }
+        }
+      },
+      "prob": {
+        "test": {
+          "brier": 0.177673,
+          "ece_10": 0.025012,
+          "log_loss": 0.528595,
+          "n": 12705,
+          "yes_rate": 0.494372
+        },
+        "train": {
+          "brier": 0.176967,
+          "ece_10": 0.021635,
+          "log_loss": 0.525214,
+          "n": 37174,
+          "yes_rate": 0.493194
+        },
+        "validation": {
+          "brier": 0.182215,
+          "ece_10": 0.029411,
+          "log_loss": 0.543699,
+          "n": 12190,
+          "yes_rate": 0.511731
+        }
+      }
+    },
+    "M1": {
+      "econ": {
+        "test": {
+          "concentration_top_decile_share": 1.6096,
+          "expectancy": 0.965328,
+          "gross": 9081.8087,
+          "n_entries": 9408,
+          "per_asset": {
+            "BTC": {
+              "gross": 2304.2619,
+              "n": 1883
+            },
+            "DOGE": {
+              "gross": 1864.0478,
+              "n": 1901
+            },
+            "ETH": {
+              "gross": 1822.3022,
+              "n": 1864
+            },
+            "SOL": {
+              "gross": 1808.1546,
+              "n": 1868
+            },
+            "XRP": {
+              "gross": 1283.0421,
+              "n": 1892
+            }
+          },
+          "pnl_per_opportunity": 0.714822,
+          "turnover": 94080.0,
+          "weekly": {
+            "2026-W35": 4686.2096,
+            "2026-W36": 4019.4589,
+            "2026-W37": 376.1402
+          }
+        },
+        "train": {
+          "concentration_top_decile_share": 1.604,
+          "expectancy": 1.033764,
+          "gross": 28340.635,
+          "n_entries": 27415,
+          "per_asset": {
+            "BTC": {
+              "gross": 5487.1283,
+              "n": 5393
+            },
+            "DOGE": {
+              "gross": 2553.1043,
+              "n": 5483
+            },
+            "ETH": {
+              "gross": 8634.7667,
+              "n": 5454
+            },
+            "SOL": {
+              "gross": 7160.9787,
+              "n": 5581
+            },
+            "XRP": {
+              "gross": 4504.657,
+              "n": 5504
+            }
+          },
+          "pnl_per_opportunity": 0.762378,
+          "turnover": 274150.0,
+          "weekly": {
+            "2026-W27": 3388.212,
+            "2026-W28": 4491.1867,
+            "2026-W29": 3412.6111,
+            "2026-W30": 5315.5116,
+            "2026-W31": 2461.0197,
+            "2026-W32": 7716.8419,
+            "2026-W33": 1555.2519
+          }
+        },
+        "validation": {
+          "concentration_top_decile_share": 1.5368,
+          "expectancy": 1.068645,
+          "gross": 9331.4068,
+          "n_entries": 8732,
+          "per_asset": {
+            "BTC": {
+              "gross": 3086.8762,
+              "n": 1713
+            },
+            "DOGE": {
+              "gross": 1799.0272,
+              "n": 1756
+            },
+            "ETH": {
+              "gross": 2431.9996,
+              "n": 1727
+            },
+            "SOL": {
+              "gross": 1139.7602,
+              "n": 1765
+            },
+            "XRP": {
+              "gross": 873.7436,
+              "n": 1771
+            }
+          },
+          "pnl_per_opportunity": 0.765497,
+          "turnover": 87320.0,
+          "weekly": {
+            "2026-W33": 5177.6724,
+            "2026-W34": 2900.3191,
+            "2026-W35": 1253.4153
+          }
+        }
+      },
+      "prob": {
+        "test": {
+          "brier": 0.176899,
+          "ece_10": 0.012616,
+          "log_loss": 0.526293,
+          "n": 12705,
+          "yes_rate": 0.494372
+        },
+        "train": {
+          "brier": 0.17636,
+          "ece_10": 0.008365,
+          "log_loss": 0.523464,
+          "n": 37174,
+          "yes_rate": 0.493194
+        },
+        "validation": {
+          "brier": 0.181466,
+          "ece_10": 0.01996,
+          "log_loss": 0.540914,
+          "n": 12190,
+          "yes_rate": 0.511731
+        }
+      }
+    }
+  },
+  "n_ok": 62069,
+  "protocol_version": "1.4",
+  "splits": {
+    "test": {
+      "close_max": "2026-09-09 12:15:00+00:00",
+      "close_min": "2026-08-25 10:00:00+00:00",
+      "markets": 6241,
+      "rows": 12705
+    },
+    "train": {
+      "close_max": "2026-08-11 22:30:00+00:00",
+      "close_min": "2026-06-30 11:45:00+00:00",
+      "markets": 18721,
+      "rows": 37174
+    },
+    "validation": {
+      "close_max": "2026-08-25 10:00:00+00:00",
+      "close_min": "2026-08-11 22:30:00+00:00",
+      "markets": 6241,
+      "rows": 12190
+    }
+  },
+  "train_yes_rate": 0.493194
+}
