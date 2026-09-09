@@ -2,10 +2,10 @@
   "metadata": {
     "title": "Stage 2 Comprehensive Regime and Strike Research Study",
     "asset": "BTC",
-    "generated_at": "2026-09-09T10:07:49.029225+00:00",
-    "git_commit": "84c0bc3f1f2e5198cf44f197ee035119c518eb7d",
-    "code_dirty": true,
-    "full_tree_dirty": true,
+    "generated_at": "2026-09-09T10:13:11.386115+00:00",
+    "git_commit": "4535c45d5c112ebd168674bccd1fb052c1970b90",
+    "code_dirty": false,
+    "full_tree_dirty": false,
     "fee_assumption": "taker_fee=0.2%, scenario PnL only (no execution confirmation)",
     "input_hashes": {
       "snapshots": "31b18ee191d2fa82a0cc0fa85ecd8a612577d5b54108f7a19078e3a2f037b3b0",
