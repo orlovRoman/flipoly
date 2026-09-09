@@ -287,13 +287,13 @@ def test_symmetry_policy_mirroring():
     history = [{"recorded_at": dec_at - timedelta(minutes=10 - i), "mid_price": p} for i, p in enumerate(prices)]
 
     # Case A: UP is outsider
-    quote_a_up = SideQuote(side="UP", token_id="token_up", best_bid=0.19, best_ask=0.22, mid_price=0.20)
-    quote_a_down = SideQuote(side="DOWN", token_id="token_down", best_bid=0.78, best_ask=0.81, mid_price=0.80)
+    quote_a_up = SideQuote(side="UP", token_id="token_up", best_bid=0.19, best_ask=0.22, mid_price=0.20, event_at=dec_at - timedelta(seconds=1))
+    quote_a_down = SideQuote(side="DOWN", token_id="token_down", best_bid=0.78, best_ask=0.81, mid_price=0.80, event_at=dec_at - timedelta(seconds=1))
     dec_a = evaluate_ct_policy(spec, dec_at, mapping, quote_a_up, quote_a_down, history)
 
     # Case B: Mirror quotes and pass history for DOWN
-    quote_b_up = SideQuote(side="UP", token_id="token_up", best_bid=0.78, best_ask=0.81, mid_price=0.80)
-    quote_b_down = SideQuote(side="DOWN", token_id="token_down", best_bid=0.19, best_ask=0.22, mid_price=0.20)
+    quote_b_up = SideQuote(side="UP", token_id="token_up", best_bid=0.78, best_ask=0.81, mid_price=0.80, event_at=dec_at - timedelta(seconds=1))
+    quote_b_down = SideQuote(side="DOWN", token_id="token_down", best_bid=0.19, best_ask=0.22, mid_price=0.20, event_at=dec_at - timedelta(seconds=1))
     dec_b = evaluate_ct_policy(spec, dec_at, mapping, quote_b_up, quote_b_down, history)
 
     assert dec_a.action == "BUY" and dec_b.action == "BUY"
@@ -307,8 +307,8 @@ def test_parity_skip():
     spec = get_btc_ct_t5_v1_spec()
     dec_at = datetime(2026, 7, 1, 12, 0, 0, tzinfo=timezone.utc)
     mapping = MarketTokenMapping("mkt", "BTC", dec_at + timedelta(seconds=250), "u", "d")
-    q_up = SideQuote("UP", "u", 0.49, 0.51, 0.50)
-    q_down = SideQuote("DOWN", "d", 0.49, 0.51, 0.50)
+    q_up = SideQuote("UP", "u", 0.49, 0.51, 0.50, event_at=dec_at - timedelta(seconds=1))
+    q_down = SideQuote("DOWN", "d", 0.49, 0.51, 0.50, event_at=dec_at - timedelta(seconds=1))
 
     dec = evaluate_ct_policy(spec, dec_at, mapping, q_up, q_down, [])
     assert dec.action == "SKIP"
@@ -321,8 +321,8 @@ def test_outside_decision_window_skip():
     dec_at = datetime(2026, 7, 1, 12, 0, 0, tzinfo=timezone.utc)
     # 350 seconds left (> 300)
     mapping = MarketTokenMapping("mkt", "BTC", dec_at + timedelta(seconds=350), "u", "d")
-    q_up = SideQuote("UP", "u", 0.19, 0.21, 0.20)
-    q_down = SideQuote("DOWN", "d", 0.79, 0.81, 0.80)
+    q_up = SideQuote("UP", "u", 0.19, 0.21, 0.20, event_at=dec_at - timedelta(seconds=1))
+    q_down = SideQuote("DOWN", "d", 0.79, 0.81, 0.80, event_at=dec_at - timedelta(seconds=1))
 
     dec = evaluate_ct_policy(spec, dec_at, mapping, q_up, q_down, [])
     assert dec.action == "SKIP"
@@ -335,8 +335,8 @@ def test_price_filter_skip():
     dec_at = datetime(2026, 7, 1, 12, 0, 0, tzinfo=timezone.utc)
     mapping = MarketTokenMapping("mkt", "BTC", dec_at + timedelta(seconds=240), "u", "d")
     # Outsider ask is 0.45 (> 0.40)
-    q_up = SideQuote("UP", "u", 0.39, 0.45, 0.42)
-    q_down = SideQuote("DOWN", "d", 0.55, 0.61, 0.58)
+    q_up = SideQuote("UP", "u", 0.39, 0.45, 0.42, event_at=dec_at - timedelta(seconds=1))
+    q_down = SideQuote("DOWN", "d", 0.55, 0.61, 0.58, event_at=dec_at - timedelta(seconds=1))
 
     dec = evaluate_ct_policy(spec, dec_at, mapping, q_up, q_down, [])
     assert dec.action == "SKIP"
@@ -349,8 +349,8 @@ def test_missing_token_history_for_down_outsider():
     dec_at = datetime(2026, 7, 1, 12, 0, 0, tzinfo=timezone.utc)
     mapping = MarketTokenMapping("mkt", "BTC", dec_at + timedelta(seconds=240), "u", "d")
     # DOWN is outsider
-    q_up = SideQuote("UP", "u", 0.75, 0.80, 0.78)
-    q_down = SideQuote("DOWN", "d", 0.20, 0.25, 0.22)
+    q_up = SideQuote("UP", "u", 0.75, 0.80, 0.78, event_at=dec_at - timedelta(seconds=1))
+    q_down = SideQuote("DOWN", "d", 0.20, 0.25, 0.22, event_at=dec_at - timedelta(seconds=1))
 
     # Empty history passed
     dec = evaluate_ct_policy(spec, dec_at, mapping, q_up, q_down, chosen_token_history=None)
@@ -365,8 +365,8 @@ def test_ambiguous_token_mapping_rejected():
     dec_at = datetime(2026, 7, 1, 12, 0, 0, tzinfo=timezone.utc)
     # Ambiguous: up_token_id == down_token_id
     mapping = MarketTokenMapping("mkt", "BTC", dec_at + timedelta(seconds=240), "token_x", "token_x")
-    q_up = SideQuote("UP", "token_x", 0.19, 0.21, 0.20)
-    q_down = SideQuote("DOWN", "token_x", 0.79, 0.81, 0.80)
+    q_up = SideQuote("UP", "token_x", 0.19, 0.21, 0.20, event_at=dec_at - timedelta(seconds=1))
+    q_down = SideQuote("DOWN", "token_x", 0.79, 0.81, 0.80, event_at=dec_at - timedelta(seconds=1))
 
     dec = evaluate_ct_policy(spec, dec_at, mapping, q_up, q_down, [])
     assert dec.action == "SKIP"
@@ -412,3 +412,113 @@ def test_calculate_scenario_economics_loss():
     assert math.isclose(econ["gross_pnl"], -1.0, abs_tol=1e-6)
     assert math.isclose(econ["fee"], 0.002, abs_tol=1e-6)
     assert math.isclose(econ["net_pnl"], -1.002, abs_tol=1e-6)
+
+
+# ==============================================================================
+# 5. Quote Timing and Causality Tests (Stage 3, Requirements 5-9)
+# ==============================================================================
+
+def test_quote_timing_fresh():
+    """Requirement 9: Fresh quote within 15s is valid."""
+    dec_at = datetime(2026, 7, 1, 12, 0, 0, tzinfo=timezone.utc)
+    q = SideQuote("UP", "u", 0.20, 0.22, 0.21, event_at=dec_at - timedelta(seconds=5.0))
+    valid, err = q.is_valid_for_decision(dec_at, max_staleness_sec=15.0)
+    assert valid is True
+    assert err is None
+    assert math.isclose(q.compute_age_sec(dec_at), 5.0, abs_tol=1e-6)
+
+
+def test_quote_timing_stale_rejection():
+    """Requirement 6, 9: Quote older than 15s is rejected with STALE_QUOTE."""
+    spec = get_btc_ct_t5_v1_spec()
+    dec_at = datetime(2026, 7, 1, 12, 0, 0, tzinfo=timezone.utc)
+    mapping = MarketTokenMapping("mkt", "BTC", dec_at + timedelta(seconds=240), "u", "d")
+    q_stale = SideQuote("UP", "u", 0.20, 0.22, 0.21, event_at=dec_at - timedelta(seconds=16.0))
+    q_fresh = SideQuote("DOWN", "d", 0.78, 0.80, 0.79, event_at=dec_at - timedelta(seconds=2.0))
+
+    valid, err = q_stale.is_valid_for_decision(dec_at, max_staleness_sec=15.0)
+    assert valid is False
+    assert err == "STALE_QUOTE"
+
+    dec = evaluate_ct_policy(spec, dec_at, mapping, q_stale, q_fresh, [])
+    assert dec.action == "SKIP"
+    assert "STALE_QUOTE" in dec.reason
+
+
+def test_quote_timing_exact_boundary():
+    """Requirement 9: Exact boundary: 15.0s is valid, 15.001s is STALE_QUOTE."""
+    dec_at = datetime(2026, 7, 1, 12, 0, 0, tzinfo=timezone.utc)
+    q_15_0 = SideQuote("UP", "u", 0.20, 0.22, 0.21, event_at=dec_at - timedelta(seconds=15.0))
+    valid_boundary, err_boundary = q_15_0.is_valid_for_decision(dec_at, max_staleness_sec=15.0)
+    assert valid_boundary is True
+    assert err_boundary is None
+
+    q_15_001 = SideQuote("UP", "u", 0.20, 0.22, 0.21, event_at=dec_at - timedelta(seconds=15.001))
+    valid_stale, err_stale = q_15_001.is_valid_for_decision(dec_at, max_staleness_sec=15.0)
+    assert valid_stale is False
+    assert err_stale == "STALE_QUOTE"
+
+
+def test_quote_timing_missing_timestamp():
+    """Requirement 5, 9: Quote without timing marks is rejected with MISSING_QUOTE_TIMESTAMP."""
+    spec = get_btc_ct_t5_v1_spec()
+    dec_at = datetime(2026, 7, 1, 12, 0, 0, tzinfo=timezone.utc)
+    mapping = MarketTokenMapping("mkt", "BTC", dec_at + timedelta(seconds=240), "u", "d")
+    q_no_ts = SideQuote("UP", "u", 0.20, 0.22, 0.21, event_at=None, received_at=None)
+    q_valid = SideQuote("DOWN", "d", 0.78, 0.80, 0.79, event_at=dec_at - timedelta(seconds=2.0))
+
+    valid, err = q_no_ts.is_valid_for_decision(dec_at)
+    assert valid is False
+    assert err == "MISSING_QUOTE_TIMESTAMP"
+    assert q_no_ts.compute_age_sec(dec_at) is None
+
+    dec = evaluate_ct_policy(spec, dec_at, mapping, q_no_ts, q_valid, [])
+    assert dec.action == "SKIP"
+    assert "MISSING_QUOTE_TIMESTAMP" in dec.reason
+
+
+def test_quote_timing_negative_age_future():
+    """Requirement 7, 9: Negative age (future timestamp) triggers FUTURE_QUOTE_DETECTED."""
+    spec = get_btc_ct_t5_v1_spec()
+    dec_at = datetime(2026, 7, 1, 12, 0, 0, tzinfo=timezone.utc)
+    mapping = MarketTokenMapping("mkt", "BTC", dec_at + timedelta(seconds=240), "u", "d")
+
+    # Future event_at
+    q_future_evt = SideQuote("UP", "u", 0.20, 0.22, 0.21, event_at=dec_at + timedelta(seconds=2.0))
+    valid_evt, err_evt = q_future_evt.is_valid_for_decision(dec_at)
+    assert valid_evt is False
+    assert "FUTURE_QUOTE_DETECTED" in err_evt
+    assert "EVENT_IN_FUTURE" in err_evt
+
+    # Future received_at
+    q_future_rec = SideQuote("UP", "u", 0.20, 0.22, 0.21, received_at=dec_at + timedelta(seconds=3.0))
+    valid_rec, err_rec = q_future_rec.is_valid_for_decision(dec_at)
+    assert valid_rec is False
+    assert "FUTURE_QUOTE_DETECTED" in err_rec
+    assert "RECEIVED_IN_FUTURE" in err_rec
+
+    dec = evaluate_ct_policy(spec, dec_at, mapping, q_future_evt, q_future_rec, [])
+    assert dec.action == "SKIP"
+    assert "FUTURE_QUOTE_DETECTED" in dec.reason
+
+
+def test_quote_timing_received_vs_event_precedence():
+    """Requirement 5, 9: event_at is preferred over received_at for age computation."""
+    dec_at = datetime(2026, 7, 1, 12, 0, 0, tzinfo=timezone.utc)
+    # Both timestamps present: event_at (4s old) vs received_at (2s old)
+    q_both = SideQuote(
+        "UP", "u", 0.20, 0.22, 0.21,
+        event_at=dec_at - timedelta(seconds=4.0),
+        received_at=dec_at - timedelta(seconds=2.0),
+    )
+    # compute_age_sec must use event_at (4.0s)
+    assert math.isclose(q_both.compute_age_sec(dec_at), 4.0, abs_tol=1e-6)
+
+    # Only received_at present: fallback to received_at (2.0s)
+    q_rec_only = SideQuote(
+        "UP", "u", 0.20, 0.22, 0.21,
+        event_at=None,
+        received_at=dec_at - timedelta(seconds=2.0),
+    )
+    assert math.isclose(q_rec_only.compute_age_sec(dec_at), 2.0, abs_tol=1e-6)
+

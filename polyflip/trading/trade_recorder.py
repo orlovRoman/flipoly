@@ -405,6 +405,27 @@ async def execute_and_record(
         db_session.add(history)
         await db_session.flush()
 
+        if decision_obj.strategy_type == "CT_OUTSIDER":
+            from polyflip.trading.ct_reservation import reserve_ct_decision
+            spec_id = details.get("spec_id") or "BTC_CT_T5_V1"
+            res_key = details.get("decision_run_id") or f"CT:{spec_id}:{market.market_id}"
+            is_first, ct_res = await reserve_ct_decision(
+                db_session,
+                key=res_key,
+                market_id=str(market.market_id),
+                spec_id=spec_id,
+                action="BUY",
+                decision_at=start_time,
+                side=decision_obj.direction_value,
+                limit_price=buy_price,
+                budget_usdc=actual_bet_size,
+                reason=decision_obj.reason,
+                trade_history_id=history.id,
+                decision_details=details,
+            )
+            if not is_first:
+                raise EnqueueRejected(f"ActiveExecutionConflict: CT decision {res_key} is already reserved (action={ct_res.action}).")
+
         result = await enqueue_open_request(
             db_session,
             trade_id=history.id,
@@ -436,7 +457,29 @@ async def execute_and_record(
 
         invalidate_stats_cache()
         invalidate_dashboard_cache()
+    except EnqueueRejected as e:
+        await savepoint.rollback()
+        logger.warning(
+            "enqueue_rejected_rolling_back",
+            market_id=market.market_id,
+            reason=str(e),
+        )
+        if decision_obj.strategy_type == "CT_OUTSIDER":
+            from polyflip.db.models import CTDecisionReservation
+            from datetime import datetime, timezone
+            spec_id = details.get("spec_id") or "BTC_CT_T5_V1"
+            res_key = details.get("decision_run_id") or f"CT:{spec_id}:{market.market_id}"
+            existing = await db_session.get(CTDecisionReservation, str(res_key))
+            if existing is not None:
+                existing.repeat_count = (existing.repeat_count or 0) + 1
+                existing.last_repeat_at = datetime.now(timezone.utc)
+                await db_session.flush()
+        raise
     except Exception as e:
         await savepoint.rollback()
-        logger.warning("enqueue_rejected_rolling_back", reason=str(e), market_id=market.market_id)
+        logger.error(
+            "trade_execution_failed_rolling_back",
+            market_id=market.market_id,
+            error=str(e),
+        )
         raise

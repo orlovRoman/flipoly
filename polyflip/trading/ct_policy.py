@@ -160,6 +160,20 @@ def compute_token_ct_regime(
         p_val: float | None = None
 
         if isinstance(item, Mapping):
+            # Check received timestamp if available: must not be in the future relative to decision_at
+            raw_rec = item.get("received_at") or item.get("received_timestamp")
+            if raw_rec is not None:
+                dt_rec = None
+                if isinstance(raw_rec, datetime):
+                    dt_rec = raw_rec if raw_rec.tzinfo is not None else raw_rec.replace(tzinfo=timezone.utc)
+                else:
+                    try:
+                        dt_rec = datetime.fromisoformat(str(raw_rec).replace("Z", "+00:00"))
+                    except Exception:
+                        dt_rec = None
+                if dt_rec is not None and dt_rec.timestamp() > decision_ts:
+                    continue
+
             # Extract timestamp
             raw_t = item.get("recorded_at") or item.get("market_timestamp") or item.get("timestamp") or item.get("event_at")
             if raw_t is not None:
@@ -345,20 +359,58 @@ class SideQuote:
     event_at: datetime | None = None
     received_at: datetime | None = None
 
+    def compute_age_sec(self, decision_at: datetime) -> float | None:
+        """
+        Computes quote age in seconds relative to decision_at.
+        Uses event_at if available; falls back to received_at with explicit designation.
+        Does NOT clamp or zero negative ages.
+        """
+        ref = self.event_at if self.event_at is not None else self.received_at
+        if ref is None:
+            return None
+        dec = decision_at if decision_at.tzinfo is not None else decision_at.replace(tzinfo=timezone.utc)
+        ref_dt = ref if ref.tzinfo is not None else ref.replace(tzinfo=timezone.utc)
+        return (dec - ref_dt).total_seconds()
+
     def is_valid_for_decision(self, decision_at: datetime, max_staleness_sec: float = 15.0) -> tuple[bool, str | None]:
         if self.mid_price is None or not math.isfinite(self.mid_price) or self.mid_price <= 0.0 or self.mid_price >= 1.0:
             return False, "INVALID_MID_QUOTE"
         if self.best_ask is None or not math.isfinite(self.best_ask) or self.best_ask <= 0.0:
             return False, "INVALID_ASK_QUOTE"
+
+        # Explicit timestamp contract: at least one timing mark (event_at or received_at) is required.
+        if self.event_at is None and self.received_at is None:
+            return False, "MISSING_QUOTE_TIMESTAMP"
+
+        dec = decision_at if decision_at.tzinfo is not None else decision_at.replace(tzinfo=timezone.utc)
+
+        # 1. Received timestamp must not be later than decision_at
+        if self.received_at is not None:
+            rec = self.received_at if self.received_at.tzinfo is not None else self.received_at.replace(tzinfo=timezone.utc)
+            if rec > dec:
+                return False, "FUTURE_QUOTE_DETECTED: RECEIVED_IN_FUTURE"
+
+        # 2. Event timestamp must not be later than decision_at
         if self.event_at is not None:
             evt = self.event_at if self.event_at.tzinfo is not None else self.event_at.replace(tzinfo=timezone.utc)
-            dec = decision_at if decision_at.tzinfo is not None else decision_at.replace(tzinfo=timezone.utc)
             if evt > dec:
-                return False, "FUTURE_QUOTE_DETECTED"
-            age_sec = (dec - evt).total_seconds()
-            if age_sec > max_staleness_sec:
-                return False, "STALE_QUOTE"
+                return False, "FUTURE_QUOTE_DETECTED: EVENT_IN_FUTURE"
+
+        # 3. Assess quote age
+        age_sec = self.compute_age_sec(dec)
+        if age_sec is None:
+            return False, "MISSING_QUOTE_TIMESTAMP"
+
+        # Negative age must NOT be zeroed; negative age violates causality.
+        if age_sec < 0.0:
+            return False, "FUTURE_QUOTE_DETECTED: NEGATIVE_AGE"
+
+        # Staleness boundary: age_sec <= max_staleness_sec is accepted, > max_staleness_sec is stale.
+        if age_sec > max_staleness_sec:
+            return False, "STALE_QUOTE"
+
         return True, None
+
 
 
 @dataclass(frozen=True)
@@ -437,6 +489,19 @@ def evaluate_ct_policy(
         exp = exp.replace(tzinfo=timezone.utc)
     time_left_sec = (exp - decision_at).total_seconds()
 
+    up_age = up_quote.compute_age_sec(decision_at)
+    down_age = down_quote.compute_age_sec(decision_at)
+    timing_diag: dict[str, Any] = {
+        "decision_at": decision_at.isoformat(),
+        "time_left_sec": round(time_left_sec, 3),
+        "up_quote_event_at": up_quote.event_at.isoformat() if up_quote.event_at else None,
+        "up_quote_received_at": up_quote.received_at.isoformat() if up_quote.received_at else None,
+        "up_quote_age_sec": up_age,
+        "down_quote_event_at": down_quote.event_at.isoformat() if down_quote.event_at else None,
+        "down_quote_received_at": down_quote.received_at.isoformat() if down_quote.received_at else None,
+        "down_quote_age_sec": down_age,
+    }
+
     # 3. Decision window check: [210, 300] seconds
     if not (spec.decision_window_min_sec <= time_left_sec <= spec.decision_window_max_sec):
         return _make_skip(
@@ -445,6 +510,7 @@ def evaluate_ct_policy(
             market_mapping=market_mapping,
             reason="OUTSIDE_WINDOW",
             time_left_sec=time_left_sec,
+            data_ids={"timing_diagnostics": {**timing_diag, "skip_reason": "OUTSIDE_WINDOW"}},
         )
 
     # 4. Validate quotes from both sides
@@ -458,6 +524,7 @@ def evaluate_ct_policy(
             market_mapping=market_mapping,
             reason=f"QUOTE_ERROR: {err}",
             time_left_sec=time_left_sec,
+            data_ids={"timing_diagnostics": {**timing_diag, "skip_reason": f"QUOTE_ERROR: {err}"}},
         )
 
     up_mid = float(up_quote.mid_price)  # type: ignore[arg-type]
@@ -615,6 +682,7 @@ def evaluate_ct_policy(
         "history_count": ct_res.observations_count,
         "first_obs_at": ct_res.first_obs_at.isoformat() if ct_res.first_obs_at else None,
         "last_obs_at": ct_res.last_obs_at.isoformat() if ct_res.last_obs_at else None,
+        "timing_diagnostics": {**timing_diag, "skip_reason": None},
     }
 
     return CTDecision(
@@ -879,6 +947,7 @@ def _make_skip(
     outsider_margin: float | None = None,
     ct_regime: str = "NOT_EVALUATED",
     ct_features: dict[str, Any] | None = None,
+    data_ids: dict[str, Any] | None = None,
 ) -> CTDecision:
     return CTDecision(
         action="SKIP",
@@ -900,7 +969,7 @@ def _make_skip(
         outsider_margin=outsider_margin,
         ct_regime=ct_regime,
         ct_features=ct_features or {},
-        data_ids={},
+        data_ids=data_ids or {},
         is_executable=False,
     )
 
