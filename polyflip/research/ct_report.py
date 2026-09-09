@@ -62,6 +62,7 @@ class CTProfileReport:
     down_report: SideReport
     total_report: SideReport
     invariant_passed: bool
+    unassigned_report: SideReport = field(default_factory=lambda: SideReport(side="UNASSIGNED"))
     mode_comparison: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -71,6 +72,7 @@ class CTProfileReport:
             "generated_at": self.generated_at,
             "up_side": asdict(self.up_report),
             "down_side": asdict(self.down_report),
+            "unassigned_side": asdict(self.unassigned_report),
             "total": asdict(self.total_report),
             "invariant_passed": self.invariant_passed,
             "mode_comparison": self.mode_comparison,
@@ -116,15 +118,22 @@ def build_profile_report(
 ) -> CTProfileReport:
     """
     Builds compact summary report from decision and execution records (Item 28).
-    Strictly verifies invariant: total = up + down.
+    Strictly verifies invariant: total = up + down + unassigned.
     """
     spec = spec or get_btc_ct_t5_v1_spec()
     up = SideReport(side="UP")
     down = SideReport(side="DOWN")
+    unassigned = SideReport(side="UNASSIGNED")
 
     for rec in decisions_and_executions:
-        side = str(rec.get("side") or "").upper()
-        target_rep = up if side == "UP" else down
+        raw_side = rec.get("side")
+        side = str(raw_side).upper() if raw_side is not None else ""
+        if side == "UP":
+            target_rep = up
+        elif side == "DOWN":
+            target_rep = down
+        else:
+            target_rep = unassigned
 
         target_rep.opportunities += 1
         regime = str(rec.get("ct_regime") or "").upper()
@@ -179,37 +188,39 @@ def build_profile_report(
     # Combine totals
     tot = SideReport(
         side="TOTAL",
-        opportunities=up.opportunities + down.opportunities,
-        signals_reversion=up.signals_reversion + down.signals_reversion,
-        signals_trend=up.signals_trend + down.signals_trend,
-        signals_quiet=up.signals_quiet + down.signals_quiet,
-        signals_uncertain=up.signals_uncertain + down.signals_uncertain,
-        orders_placed=up.orders_placed + down.orders_placed,
-        orders_full_fill=up.orders_full_fill + down.orders_full_fill,
-        orders_partial_fill=up.orders_partial_fill + down.orders_partial_fill,
-        orders_unfilled=up.orders_unfilled + down.orders_unfilled,
-        total_spent_usdc=round(up.total_spent_usdc + down.total_spent_usdc, 4),
-        total_fee_usdc=round(up.total_fee_usdc + down.total_fee_usdc, 6),
-        total_shares_filled=round(up.total_shares_filled + down.total_shares_filled, 4),
-        settled_trades=up.settled_trades + down.settled_trades,
-        wins=up.wins + down.wins,
-        losses=up.losses + down.losses,
-        gross_pnl_usdc=round(up.gross_pnl_usdc + down.gross_pnl_usdc, 4),
-        net_pnl_usdc=round(up.net_pnl_usdc + down.net_pnl_usdc, 4),
-        scenario_net_pnl_usdc=round(up.scenario_net_pnl_usdc + down.scenario_net_pnl_usdc, 4),
+        opportunities=up.opportunities + down.opportunities + unassigned.opportunities,
+        signals_reversion=up.signals_reversion + down.signals_reversion + unassigned.signals_reversion,
+        signals_trend=up.signals_trend + down.signals_trend + unassigned.signals_trend,
+        signals_quiet=up.signals_quiet + down.signals_quiet + unassigned.signals_quiet,
+        signals_uncertain=up.signals_uncertain + down.signals_uncertain + unassigned.signals_uncertain,
+        orders_placed=up.orders_placed + down.orders_placed + unassigned.orders_placed,
+        orders_full_fill=up.orders_full_fill + down.orders_full_fill + unassigned.orders_full_fill,
+        orders_partial_fill=up.orders_partial_fill + down.orders_partial_fill + unassigned.orders_partial_fill,
+        orders_unfilled=up.orders_unfilled + down.orders_unfilled + unassigned.orders_unfilled,
+        total_spent_usdc=round(up.total_spent_usdc + down.total_spent_usdc + unassigned.total_spent_usdc, 4),
+        total_fee_usdc=round(up.total_fee_usdc + down.total_fee_usdc + unassigned.total_fee_usdc, 6),
+        total_shares_filled=round(up.total_shares_filled + down.total_shares_filled + unassigned.total_shares_filled, 4),
+        settled_trades=up.settled_trades + down.settled_trades + unassigned.settled_trades,
+        wins=up.wins + down.wins + unassigned.wins,
+        losses=up.losses + down.losses + unassigned.losses,
+        gross_pnl_usdc=round(up.gross_pnl_usdc + down.gross_pnl_usdc + unassigned.gross_pnl_usdc, 4),
+        net_pnl_usdc=round(up.net_pnl_usdc + down.net_pnl_usdc + unassigned.net_pnl_usdc, 4),
+        scenario_net_pnl_usdc=round(up.scenario_net_pnl_usdc + down.scenario_net_pnl_usdc + unassigned.scenario_net_pnl_usdc, 4),
     )
     # Merge skip reasons
     for r, c in up.skip_reasons.items():
         tot.skip_reasons[r] = tot.skip_reasons.get(r, 0) + c
     for r, c in down.skip_reasons.items():
         tot.skip_reasons[r] = tot.skip_reasons.get(r, 0) + c
+    for r, c in unassigned.skip_reasons.items():
+        tot.skip_reasons[r] = tot.skip_reasons.get(r, 0) + c
 
-    # Assert invariant Total == UP + DOWN
+    # Assert invariant Total == UP + DOWN + UNASSIGNED
     inv_pass = (
-        tot.opportunities == (up.opportunities + down.opportunities)
-        and tot.orders_placed == (up.orders_placed + down.orders_placed)
-        and tot.settled_trades == (up.settled_trades + down.settled_trades)
-        and math.isclose(tot.net_pnl_usdc, up.net_pnl_usdc + down.net_pnl_usdc, abs_tol=1e-3)
+        tot.opportunities == (up.opportunities + down.opportunities + unassigned.opportunities)
+        and tot.orders_placed == (up.orders_placed + down.orders_placed + unassigned.orders_placed)
+        and tot.settled_trades == (up.settled_trades + down.settled_trades + unassigned.settled_trades)
+        and math.isclose(tot.net_pnl_usdc, up.net_pnl_usdc + down.net_pnl_usdc + unassigned.net_pnl_usdc, abs_tol=1e-3)
     )
 
     # Item 27: Structural mode comparison explanation
@@ -242,5 +253,6 @@ def build_profile_report(
         down_report=down,
         total_report=tot,
         invariant_passed=inv_pass,
+        unassigned_report=unassigned,
         mode_comparison=mode_comp,
     )

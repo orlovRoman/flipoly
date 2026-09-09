@@ -181,6 +181,11 @@ async def save_or_update_skipped_trade(
             if details.get("decision_run_id"):
                 existing_skipped.decision_run_id = details.get("decision_run_id")
             existing_skipped.ai_lab_overlay_ids = overlay_ids or None
+            if details and details.get("strategy_type") == "CT_OUTSIDER":
+                existing_skipped.strategy_name = details.get("spec_id") or "BTC_CT_T5_V1"
+                existing_skipped.strategy_type = "CT_OUTSIDER"
+            elif details and details.get("strategy_type"):
+                existing_skipped.strategy_type = details.get("strategy_type")
             
             existing_skipped.updated_at = start_time
     else:

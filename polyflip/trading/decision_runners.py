@@ -1485,30 +1485,92 @@ async def decide_ct_outsider_mode(
     down_bid: float | None = None
     down_ask: float | None = None
     down_mid: float | None = None
+    up_event_at: datetime = start_time
+    down_event_at: datetime = start_time
+    up_received_at: datetime = start_time
+    down_received_at: datetime = start_time
 
+    both_fetched = False
     try:
-        prices_yes = await api_client.get_market_prices(market.yes_token_id)
-        if prices_yes and prices_yes.get("best_ask") is not None:
-            up_ask = float(prices_yes["best_ask"])
-            up_bid = float(prices_yes["best_bid"]) if prices_yes.get("best_bid") is not None else None
-            up_mid = (up_bid + up_ask) / 2.0 if up_bid is not None else up_ask
-    except Exception as q_err:
-        logger.debug("api_client_yes_prices_fetch_error", error=str(q_err))
+        prices = await api_client.get_market_prices(
+            market.yes_token_id,
+            no_token_id=market.no_token_id,
+            market_id=str(market.market_id),
+        )
+        if prices and ("yes_orderbook" in prices or "best_ask" in prices):
+            if prices.get("best_ask") is not None:
+                up_ask = float(prices["best_ask"])
+            if prices.get("best_bid") is not None:
+                up_bid = float(prices["best_bid"])
+            if prices.get("current_yes_price") is not None:
+                up_mid = float(prices["current_yes_price"])
+            elif up_bid is not None and up_ask is not None:
+                up_mid = (up_bid + up_ask) / 2.0
 
-    try:
-        prices_no = await api_client.get_market_prices(market.no_token_id)
-        if prices_no and prices_no.get("best_ask") is not None:
-            down_ask = float(prices_no["best_ask"])
-            down_bid = float(prices_no["best_bid"]) if prices_no.get("best_bid") is not None else None
-            down_mid = (down_bid + down_ask) / 2.0 if down_bid is not None else down_ask
+            if prices.get("best_ask_no") is not None:
+                down_ask = float(prices["best_ask_no"])
+            if prices.get("best_bid_no") is not None:
+                down_bid = float(prices["best_bid_no"])
+            if prices.get("current_no_price") is not None:
+                down_mid = float(prices["current_no_price"])
+            elif down_bid is not None and down_ask is not None:
+                down_mid = (down_bid + down_ask) / 2.0
+
+            yes_bk = prices.get("yes_orderbook")
+            if yes_bk:
+                up_event_at = getattr(yes_bk, "event_at", start_time) or start_time
+                up_received_at = getattr(yes_bk, "received_at", start_time) or start_time
+            no_bk = prices.get("no_orderbook")
+            if no_bk:
+                down_event_at = getattr(no_bk, "event_at", start_time) or start_time
+                down_received_at = getattr(no_bk, "received_at", start_time) or start_time
+
+            both_fetched = True
+    except TypeError:
+        both_fetched = False
     except Exception as q_err:
-        logger.debug("api_client_no_prices_fetch_error", error=str(q_err))
+        logger.debug("api_client_both_prices_fetch_error", error=str(q_err))
+
+    if not both_fetched:
+        try:
+            prices_yes = await api_client.get_market_prices(market.yes_token_id)
+            if prices_yes and prices_yes.get("best_ask") is not None:
+                up_ask = float(prices_yes["best_ask"])
+                up_bid = float(prices_yes["best_bid"]) if prices_yes.get("best_bid") is not None else None
+                # Item 9: Do NOT substitute ask for mid! Only compute mid if both bid & ask exist
+                up_mid = (up_bid + up_ask) / 2.0 if up_bid is not None else None
+                yes_bk = prices_yes.get("yes_orderbook")
+                if yes_bk:
+                    up_event_at = getattr(yes_bk, "event_at", start_time) or start_time
+                    up_received_at = getattr(yes_bk, "received_at", start_time) or start_time
+        except Exception as q_err:
+            logger.debug("api_client_yes_prices_fetch_error", error=str(q_err))
+
+        try:
+            prices_no = await api_client.get_market_prices(market.no_token_id)
+            if prices_no and prices_no.get("best_ask") is not None:
+                down_ask = float(prices_no["best_ask"])
+                down_bid = float(prices_no["best_bid"]) if prices_no.get("best_bid") is not None else None
+                # Item 9: Do NOT substitute ask for mid!
+                down_mid = (down_bid + down_ask) / 2.0 if down_bid is not None else None
+                no_bk = prices_no.get("yes_orderbook") or prices_no.get("no_orderbook")
+                if no_bk:
+                    down_event_at = getattr(no_bk, "event_at", start_time) or start_time
+                    down_received_at = getattr(no_bk, "received_at", start_time) or start_time
+        except Exception as q_err:
+            logger.debug("api_client_no_prices_fetch_error", error=str(q_err))
 
     # Fallback to market snapshot attributes if API client is offline/mock
     if up_ask is None and hasattr(market, "best_ask") and market.best_ask is not None:
         up_ask = float(market.best_ask)
         up_bid = float(market.best_bid) if getattr(market, "best_bid", None) is not None else None
-        up_mid = float(market.mid_price) if getattr(market, "mid_price", None) is not None else up_ask
+        # Item 9: Do NOT substitute ask for mid!
+        if getattr(market, "mid_price", None) is not None:
+            up_mid = float(market.mid_price)
+        elif up_bid is not None and up_ask is not None:
+            up_mid = (up_bid + up_ask) / 2.0
+        else:
+            up_mid = None
 
     up_quote = SideQuote(
         side="UP",
@@ -1516,7 +1578,8 @@ async def decide_ct_outsider_mode(
         best_bid=up_bid,
         best_ask=up_ask,
         mid_price=up_mid,
-        event_at=start_time,
+        event_at=up_event_at,
+        received_at=up_received_at,
     )
     down_quote = SideQuote(
         side="DOWN",
@@ -1524,7 +1587,8 @@ async def decide_ct_outsider_mode(
         best_bid=down_bid,
         best_ask=down_ask,
         mid_price=down_mid,
-        event_at=start_time,
+        event_at=down_event_at,
+        received_at=down_received_at,
     )
 
     # 4. Fetch causal token histories (15-minute lookback)
@@ -1584,9 +1648,14 @@ async def decide_ct_outsider_mode(
         bet_size = 0.0
         reason = symm_ct.reason
 
+    opportunity_id = f"{market.market_id}_{start_time.isoformat()}"
+    decision_id = f"CT:{spec.spec_id}:{market.market_id}"
     details = {
+        "opportunity_id": opportunity_id,
+        "decision_id": decision_id,
         "spec_id": spec.spec_id,
         "spec_hash": spec.spec_hash,
+        "effective_specification": spec.canonical_dict(),
         "chosen_side": symm_ct.side,
         "token_id": symm_ct.token_id,
         "market_role": "OUTSIDER",
@@ -1600,7 +1669,8 @@ async def decide_ct_outsider_mode(
         },
         "non_blocking_models": non_blocking_models,
         "data_ids": symm_ct.data_ids,
-        "decision_run_id": f"CT:{spec.spec_id}:{market.market_id}",
+        "decision_run_id": decision_id,
+        "max_acceptable_price": symm_ct.limit_price,
     }
 
     trade_decision = TradeDecision(
