@@ -2,7 +2,14 @@
 # Frozen research protocol. Any parameter change requires a new protocol version + new run_id.
 # Self-check: this file is hashed at run start; no parameter is chosen using validation/test outcomes.
 
-protocol_version: "1.0"
+protocol_version: "1.1"
+changelog_v1_1: >
+  Midnight-crossover rule: a question window whose end wall-clock is earlier
+  than (or equal to) the start wall-clock (e.g. "11:45PM-12:00AM ET") ends on
+  the next calendar day. Previously such markets were wrongly rules_fail
+  (364 markets recovered). Text artifacts are LF-only on every platform so
+  manifest hashes verify after git normalization; manifest_file_sha256 is the
+  sha256 of the canonical JSON bytes WITHOUT the self-hash key.
 run_purpose: >
   Check whether underlying position relative to strike, time remaining and past volatility
   are sufficient for a useful forecast of 15m up/down market outcomes; then measure the

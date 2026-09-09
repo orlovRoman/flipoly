@@ -60,6 +60,10 @@ def infer_et_offset(question: str, end_time_est: datetime) -> int | None:
 
     Tries EDT (-4) then EST (-5). Returns offset, or None on mismatch.
     end_time_est is passed UTC-naive or tz-aware (converted to UTC).
+
+    Midnight rule (protocol v1.1): if the end wall-clock is earlier than (or
+    equal to) the start wall-clock (e.g. "11:45PM-12:00AM"), the end belongs
+    to the next calendar day. Date arithmetic handles month/year rollover.
     """
     if end_time_est.tzinfo is not None:
         end_time_est = end_time_est.astimezone(timezone.utc).replace(tzinfo=None)
@@ -67,12 +71,16 @@ def infer_et_offset(question: str, end_time_est: datetime) -> int | None:
     if parsed is None:
         return None
     mon, day, sh, sm, eh, em = parsed
+    try:
+        base_date = datetime(end_time_est.year, mon, day)
+    except ValueError:  # e.g. Feb 29 in non-leap year (year comes from end_time_est)
+        return None
+    if (eh, em) <= (sh, sm):
+        # Window crosses midnight: end wall-clock is on the next calendar day.
+        base_date = base_date + timedelta(days=1)
     for off in (-4, -5):
         # Window end in UTC = wall(ET) - offset
-        try:
-            wend_utc = datetime(end_time_est.year, mon, day, eh, em) + timedelta(hours=-off)
-        except ValueError:  # e.g. Feb 29 in non-leap year (year comes from end_time_est)
-            continue
+        wend_utc = datetime(base_date.year, base_date.month, base_date.day, eh, em) + timedelta(hours=-off)
         if wend_utc == end_time_est:
             return off
     return None

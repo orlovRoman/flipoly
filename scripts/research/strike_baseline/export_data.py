@@ -6,7 +6,7 @@ artifacts/research/strike_baseline/data_export/<timestamp>/raw/*.csv.gz
 plus export_manifest.json with SHA-256 of every file, export time, and row counts.
 
 The export is the single immutable input for all compared models in this run.
-Raw files are gzipped copies of a \copy snapshot; the manifest is written last
+Raw files are gzipped copies of a \\copy snapshot; the manifest is written last
 and contains the hash of every artifact including gz files.
 """
 from __future__ import annotations
@@ -82,7 +82,7 @@ def sha256_file(path: Path) -> str:
 
 
 def run_copy(db_container: str, sql: str, out_csv_gz: Path, params: dict | None = None):
-    """Stream a \copy ... TO STDOUT from inside the container to a gzipped host file.
+    """Stream a \\copy ... TO STDOUT from inside the container to a gzipped host file.
 
     Avoids the container filesystem and OOM pressure: psql prints the CSV to
     stdout, docker exec -i passes quietly to the host. The query string is fed
@@ -172,9 +172,10 @@ def main() -> None:
         print(f"  rows[{name}] = {n}", flush=True)
 
     manifest_path = out_dir / "export_manifest.json"
-    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
-    manifest["manifest_file_sha256"] = sha256_file(manifest_path)
-    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+    canonical = json.dumps(manifest, indent=2, sort_keys=True).replace("\r\n", "\n")
+    manifest["manifest_file_sha256"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    final = json.dumps(manifest, indent=2, sort_keys=True).replace("\r\n", "\n")
+    manifest_path.write_bytes((final + "\n").encode("utf-8"))
 
     print()
     print(f"EXPORT_COMPLETE dir={out_dir}")

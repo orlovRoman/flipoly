@@ -38,6 +38,30 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def write_text_lf(path: Path, text: str) -> None:
+    """Write text with LF newlines on every platform (CRLF breaks sha pinning).
+
+    Windows text-mode translation (\\n -> \\r\\n) would make manifest hashes
+    platform-dependent; git also normalizes to LF. Bytes on disk are LF always.
+    """
+    path.write_bytes(text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8"))
+
+
+def write_manifest(path: Path, payload: dict) -> dict:
+    """Write a manifest with a verifiable self-hash.
+
+    manifest_file_sha256 = sha256 of the canonical JSON bytes of the payload
+    WITHOUT the self-hash key. Verification: load JSON, pop the key, re-dump
+    with (indent=2, sort_keys=True) + LF, compare sha.
+    """
+    canonical = json.dumps(payload, indent=2, sort_keys=True).replace("\r\n", "\n")
+    payload = dict(payload)
+    payload["manifest_file_sha256"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    final = json.dumps(payload, indent=2, sort_keys=True).replace("\r\n", "\n")
+    write_text_lf(path, final + "\n")
+    return payload
+
+
 def _git_commit(root: Path) -> str:
     try:
         out = subprocess.run(
@@ -132,7 +156,8 @@ def main() -> None:
         .reset_index()
     )
     coverage_path = out_dir / "coverage.csv"
-    coverage.to_csv(coverage_path, index=False)
+    coverage_csv = coverage.to_csv(index=False, lineterminator="\n")
+    write_text_lf(coverage_path, coverage_csv)
 
     run_manifest = {
         "run_id": run_id,
@@ -150,9 +175,7 @@ def main() -> None:
             run_manifest["artifacts"][p.name] = {"sha256": sha256_file(p), "bytes": p.stat().st_size}
 
     man_path = out_dir / "run_manifest.json"
-    man_path.write_text(json.dumps(run_manifest, indent=2, sort_keys=True), encoding="utf-8")
-    run_manifest["manifest_file_sha256"] = sha256_file(man_path)
-    man_path.write_text(json.dumps(run_manifest, indent=2, sort_keys=True), encoding="utf-8")
+    write_manifest(man_path, run_manifest)
 
     print()
     print(f"RUN_COMPLETE dir={out_dir}")

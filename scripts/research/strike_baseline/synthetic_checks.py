@@ -38,6 +38,22 @@ def test_question_mismatch():
     print("P1-03 mismatch rejected OK")
 
 
+def test_question_midnight_crossover():
+    # "June 25, 11:45PM-12:00AM ET" ends June 26 00:00 ET == June 26 04:00 UTC.
+    # The end wall-clock belongs to the next calendar day (protocol v1.1).
+    w = build_window("M0", "BTC", "Bitcoin Up or Down - June 25, 11:45PM-12:00AM ET",
+                     pd.Timestamp("2026-06-26 04:00:00+00:00"))
+    assert w.rules_ok, w.rules_note
+    assert w.et_offset_hours == -4
+    assert w.window_end_utc == pd.Timestamp("2026-06-26 04:00:00")
+    assert w.window_start_utc == pd.Timestamp("2026-06-26 03:45:00")
+    # ...and a wrong-day end_time_est must still be rejected
+    w2 = build_window("M0b", "BTC", "Bitcoin Up or Down - June 25, 11:45PM-12:00AM ET",
+                      pd.Timestamp("2026-06-25 04:00:00+00:00"))
+    assert not w2.rules_ok
+    print("P1-03 midnight crossover OK")
+
+
 def test_features_manual():
     # 60 closed 1m returns; small sigma ~ per minute
     rng = pd.Series([0.001, -0.001] * 30)
@@ -155,6 +171,7 @@ def test_proxy_vs_canonical():
 def main() -> None:
     test_question_parse()
     test_question_mismatch()
+    test_question_midnight_crossover()
     test_features_manual()
     test_time_scaling_invariant()
     test_ledger_synthetic()

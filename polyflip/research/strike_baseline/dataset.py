@@ -127,6 +127,20 @@ def _to_ts(value) -> pd.Timestamp | None:
     return pd.Timestamp(value)
 
 
+def _aware_utc(value) -> pd.Timestamp | None:
+    """Store timestamps tz-aware (UTC) so parquet columns are tz-consistent.
+
+    CandleStore works internally with naive UTC (numpy speed); outputs are
+    localized back to UTC here. Values are unchanged, only tz metadata.
+    """
+    ts = _to_ts(value)
+    if ts is None:
+        return None
+    if ts.tzinfo is None:
+        return ts.tz_localize("UTC")
+    return ts.tz_convert("UTC")
+
+
 def build_ledger(
     markets: pd.DataFrame,
     windows: dict[str, MarketWindow],
@@ -163,7 +177,7 @@ def build_ledger(
         sym = ASSET_TO_SYMBOL.get(m["asset"], m["asset"])
         strike_cand = candles.first_close_in_window(sym, wstart, wend)
         strike = float(strike_cand["close"]) if strike_cand is not None else None
-        strike_ts = _to_ts(strike_cand["close_time"]) if strike_cand is not None else None
+        strike_ts = _aware_utc(strike_cand["close_time"]) if strike_cand is not None else None
 
         g = snaps_by_market.get(mid)
 
@@ -221,7 +235,7 @@ def build_ledger(
             rec_naive = rec.tz_convert("UTC").tz_localize(None) if rec.tzinfo is not None else rec
             price_age = (rec_naive - ucand["close_time"]).total_seconds()
             row["underlying_at_decision"] = underlying
-            row["underlying_close_time"] = ucand["close_time"]
+            row["underlying_close_time"] = _aware_utc(ucand["close_time"])
             row["underlying_price_age_sec"] = float(price_age)
             if price_age > max_price_age_sec:
                 row["status"] = STATUS_STALE_PRICE

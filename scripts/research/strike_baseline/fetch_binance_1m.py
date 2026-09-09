@@ -38,6 +38,21 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def write_text_lf(path: Path, text: str) -> None:
+    """LF-only write so manifest hashes are platform-independent (see run_phase1)."""
+    path.write_bytes(text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8"))
+
+
+def write_manifest(path: Path, payload: dict) -> dict:
+    """manifest_file_sha256 = sha256 of canonical JSON without the self key."""
+    canonical = json.dumps(payload, indent=2, sort_keys=True).replace("\r\n", "\n")
+    payload = dict(payload)
+    payload["manifest_file_sha256"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    final = json.dumps(payload, indent=2, sort_keys=True).replace("\r\n", "\n")
+    write_text_lf(path, final + "\n")
+    return payload
+
+
 def fetch_symbol(symbol: str) -> list[list]:
     rows: list[list] = []
     start_ms = START
@@ -109,9 +124,7 @@ def main() -> None:
         print(f"[fetch] {symbol}: {len(rows)} candles -> {csv_path.name}", flush=True)
 
     manifest_path = out_dir / "binance_1m_manifest.json"
-    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
-    manifest["manifest_file_sha256"] = sha256_file(manifest_path)
-    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+    manifest = write_manifest(manifest_path, manifest)
     print(f"BINANCE_1M_DONE manifest_sha256={manifest['manifest_file_sha256']}")
 
 

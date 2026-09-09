@@ -1,4 +1,5 @@
-* text=auto eol=lf
-*.py text eol=lf
-*.js text eol=lf
-*.html text eol=lf
+# Strike-baseline: LF everywhere so manifest sha256 verifies on all platforms.
+artifacts/research/strike_baseline/** text eol=lf
+research/strike_baseline/*.yaml text eol=lf
+scripts/research/strike_baseline/*.py text eol=lf
+polyflip/research/strike_baseline/*.py text eol=lf
