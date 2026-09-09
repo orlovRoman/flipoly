@@ -117,13 +117,23 @@ def test_item_02_exact_hypothesis() -> tuple[bool, str]:
 
 
 def test_item_03_three_variants() -> tuple[bool, str]:
-    """3. Three core variants (C0, C1, C2) locked."""
+    """3. Three core variants (C0, C1, C2) and disentangled sub-variants (CT, CS, CTS) locked."""
     proto_path = REPO_ROOT / "artifacts" / "research" / "regime_strike_protocol.json"
     with open(proto_path, "r", encoding="utf-8") as f:
         data = json.load(f)
     v = data.get("variants", {})
     assert "C0" in v and "C1" in v and "C2" in v
-    return True, "Three variants C0, C1, C2 strictly locked with identical execution and fee models"
+    assert "CT" in v and "CS" in v and "CTS" in v
+
+    # Verify reproducible data manifest
+    manifest_path = REPO_ROOT / "artifacts" / "research" / "reproducible_data_manifest.json"
+    assert manifest_path.exists()
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        manifest = json.load(f)
+    assert "git_commit" in manifest and manifest["git_commit"] != ""
+    assert "manifest_files" in manifest and len(manifest["manifest_files"]) >= 5
+
+    return True, "Core variants (C0, CT, CS, CTS, C1, C2) and reproducible manifest strictly locked"
 
 
 def test_item_04_primary_metric() -> tuple[bool, str]:

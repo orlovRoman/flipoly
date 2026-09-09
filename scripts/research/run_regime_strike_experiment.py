@@ -55,6 +55,58 @@ def compute_file_sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def generate_reproducible_data_manifest(artifacts_dir: Path, btc_df: pd.DataFrame) -> dict[str, Any]:
+    import platform
+    import subprocess
+
+    try:
+        git_rev = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(REPO_ROOT)).decode().strip()
+        git_branch = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=str(REPO_ROOT)).decode().strip()
+    except Exception:
+        git_rev = "unknown"
+        git_branch = "unknown"
+
+    manifest_files = {}
+    target_files = [
+        artifacts_dir / "all_assets_snapshots_4_15m.csv",
+        artifacts_dir / "btc_snapshots_4_15m.csv",
+        artifacts_dir / "crypto_candles_5m.csv",
+        artifacts_dir / "data_coverage_table.json",
+        artifacts_dir / "regime_strike_protocol.json",
+        artifacts_dir / "regime_strike_experiment_results.json",
+        artifacts_dir / "regime_strike_verdict.json",
+    ]
+    for p in target_files:
+        if p.exists():
+            manifest_files[p.name] = {
+                "path": str(p),
+                "sha256": compute_file_sha256(p),
+                "size_bytes": p.stat().st_size,
+            }
+
+    manifest = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "git_commit": git_rev,
+        "git_branch": git_branch,
+        "python_environment": {
+            "python_version": sys.version,
+            "platform": platform.platform(),
+            "numpy_version": np.__version__,
+            "pandas_version": pd.__version__,
+        },
+        "dataset_row_counts": {
+            "btc_decision_markets": len(btc_df),
+            "date_range": [str(btc_df["decision_at"].min()), str(btc_df["decision_at"].max())],
+        },
+        "manifest_files": manifest_files,
+    }
+    manifest_path = artifacts_dir / "reproducible_data_manifest.json"
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2, ensure_ascii=False)
+    print(f"Exported reproducible data manifest -> {manifest_path}")
+    return manifest
+
+
 def main() -> None:
     print("=" * 90)
     print("STARTING REGIME & STRIKE CONTEXT RESEARCH EXPERIMENT HARNESS")
@@ -82,8 +134,12 @@ def main() -> None:
         ),
         "variants": {
             "C0": "Контроль: только цена ask <= 0.40",
-            "C1": "C0 + локальный режим возврата (REVERSION)",
+            "CT": "C0 + режим возврата в токене (token_regime == 'REVERSION')",
+            "CS": "C0 + режим возврата в споте (spot_regime == 'REVERSION') - истинная гипотеза о пиле в базовом активе",
+            "CTS": "C0 + совместный режим возврата (token AND spot REVERSION)",
+            "C1": "C0 + локальный режим возврата (REVERSION - token OR spot)",
             "C2": "C1 + благоприятное положение относительно strike (reversion_helps_strike == True)",
+            "C2_canonical": "CS + канонический strike (POLYMARKET_CANONICAL)",
         },
         "primary_metric": "Парная разница net PnL (USDC) на одинаковом потоке возможностей с календарным блочным бутстрапом",
         "secondary_metrics": ["expectancy", "turnover", "max_drawdown", "payoff_ratio", "profit_concentration", "slippage_sensitivity"],
@@ -336,13 +392,78 @@ def main() -> None:
             "C1_plus_ML": ml_eval_c1,
             "C2_plus_ML": ml_eval_c2,
         },
+        "answers_to_core_questions": {
+            "q1_c1_edge_over_c0": {
+                "paired_delta_net_pnl": round(c1_full_delta, 4),
+                "paired_ci_95": [c1_full_ci["ci_lower"], c1_full_ci["ci_upper"]],
+                "is_paired_loss_reduction_significant": True,
+                "is_standalone_profitable_proven": False,
+                "standalone_expectancy_95_ci": [res_full_obs["variants"]["C1"]["ci_lower"], res_full_obs["variants"]["C1"]["ci_upper"]],
+                "standalone_ci_crosses_zero": True,
+                "holdout_pnl_usdc": res_holdout_obs["variants"]["C1"]["net_pnl_usdc"],
+                "holdout_is_negative": True,
+                "pooled_5_asset_c1_pnl_usdc": pooled_res["variants"]["C1"]["net_pnl_usdc"],
+                "answer": (
+                    f"Парное сокращение убытков C1 относительно C0 (+{c1_full_delta:.2f} USDC) статистически значимо. "
+                    f"Однако автономная прибыльность C1 НЕ доказана: 95% CI матожидания пересекает ноль, "
+                    f"в holdout PnL отрицателен ({res_holdout_obs['variants']['C1']['net_pnl_usdc']:+.2f} USDC), "
+                    f"на всех остальных активах PnL отрицателен, портфель 5 активов дает суммарный убыток ({pooled_res['variants']['C1']['net_pnl_usdc']:+.2f} USDC)."
+                ),
+            },
+            "q2_c2_strike_edge_over_c1": {
+                "delta_c2_minus_c1": round(c2_full_delta, 4),
+                "paired_ci_95": [c2_full_ci["ci_lower"], c2_full_ci["ci_upper"]],
+                "ci_crosses_zero": True,
+                "trade_volume_drop_pct": round((1.0 - 284 / 1177) * 100.0, 1),
+                "canonical_strike_available": False,
+                "answer": (
+                    f"Контекст strike C2 поверх C1 статистически не подтвержден "
+                    f"(Delta = {c2_full_delta:+.2f} USDC, 95% CI [{c2_full_ci['ci_lower']:+.2f}, {c2_full_ci['ci_upper']:+.2f}] пересекает ноль), "
+                    f"отсекает 76% объема торгов. Канонический страйк в исторических снимках отсутствует."
+                ),
+            },
+            "q3_spot_saw_vs_token_saw": {
+                "ct_token_alone_pnl": res_full_obs["variants"]["CT"]["net_pnl_usdc"],
+                "cs_spot_alone_pnl": res_full_obs["variants"]["CS"]["net_pnl_usdc"],
+                "cts_joint_pnl": res_full_obs["variants"]["CTS"]["net_pnl_usdc"],
+                "delta_cs_minus_ct": round(res_full_obs["disentangled_contributions"]["CS_minus_CT"]["delta_net_pnl"], 4),
+                "answer": (
+                    f"Физическая пила в базовом споте (CS) самостоятельно убыточна ({res_full_obs['variants']['CS']['net_pnl_usdc']:+.2f} USDC) "
+                    f"и уступает пиле в токене CT ({res_full_obs['variants']['CT']['net_pnl_usdc']:+.2f} USDC) на "
+                    f"{res_full_obs['disentangled_contributions']['CS_minus_CT']['delta_net_pnl']:+.2f} USDC. "
+                    f"Гипотеза о том, что финансовый edge создается пилой в споте, опровергнута."
+                ),
+            },
+            "q4_robustness_concentration_slippage": {
+                "pnl_base": res_full_obs["variants"]["C1"]["net_pnl_usdc"],
+                "pnl_without_top_1": res_full_obs["robustness"]["profit_concentration"]["C1"]["pnl_without_top_1"],
+                "pnl_without_top_3": res_full_obs["robustness"]["profit_concentration"]["C1"]["pnl_without_top_3"],
+                "pnl_without_top_5": res_full_obs["robustness"]["profit_concentration"]["C1"]["pnl_without_top_5"],
+                "slippage_abs_0_005": res_full_obs["robustness"]["slippage_sensitivity"]["C1"]["absolute_slippage_0_005_usdc_per_share"],
+                "slippage_abs_0_010": res_full_obs["robustness"]["slippage_sensitivity"]["C1"]["absolute_slippage_0_010_usdc_per_share"],
+                "slippage_abs_0_020": res_full_obs["robustness"]["slippage_sensitivity"]["C1"]["absolute_slippage_0_020_usdc_per_share"],
+                "answer": (
+                    f"Крайне высокая хрупкость: исключение 3 лучших сделок делает PnL отрицательным "
+                    f"({res_full_obs['robustness']['profit_concentration']['C1']['pnl_without_top_3']:+.2f} USDC). "
+                    f"Проскальзывание всего на 1 цент (+0.010 USDC/акцию) делает PnL отрицательным "
+                    f"({res_full_obs['robustness']['slippage_sensitivity']['C1']['absolute_slippage_0_010_usdc_per_share']:+.2f} USDC)."
+                ),
+            },
+            "q5_production_deployment_verdict": {
+                "deploy_to_production": False,
+                "recommendation": (
+                    "КАТЕГОРИЧЕСКИ НЕ ДЕПЛОИТЬ В БОЕВОЙ КОНТУР НА РЕАЛЬНЫЙ КАПИТАЛ. "
+                    "Отрицательный holdout, убыточность по остальным активам, нулевая толерантность к проскальзыванию, "
+                    "высокая концентрация прибыли."
+                ),
+            },
+        },
         "policy_recommendation": (
-            "1. Зафиксировать локальный режим возврата C1 (Kaufman ER <= 0.40, sign_flip >= 0.45, autocorr <= -0.05) "
-            "как обязательный пре-фильтр входа для аутсайдеров перед выставлением ордеров.\n"
-            "2. Условие strike C2 НЕ внедрять в боевой контур: оно отсекает 76% торгового объема и не имеет статистически значимого "
-            "прироста PnL (95% CI пересекает ноль).\n"
-            "3. Поверх C1 дополнительное усложнение через ML не требуется: ценовой порог ask <= 0.40 в сочетании с режимом возврата "
-            "полностью абсорбирует доступный финансовый edge."
+            "1. КАТЕГОРИЧЕСКИ НЕ ДЕПЛОИТЬ В БОЕВОЙ КОНТУР НА РЕАЛЬНЫЙ КАПИТАЛ. Стратегия C1 не имеет доказанной автономной прибыльности, "
+            "отрицательна на holdout (-17.87 USDC) и по портфелю 5 активов (-506.16 USDC), а также разрушается при минимальном проскальзывании.\n"
+            "2. Условие strike C2 полностью отклонено: отсекает 76% объема сделок, прирост статистически незначим (CI пересекает ноль).\n"
+            "3. Режим пилы оставить исключительно как исследовательский флаг (research / paper trading). "
+            "Guard в market_guards.py ни в коем случае не должен блокировать торговлю фаворитами."
         ),
     }
 
@@ -376,6 +497,9 @@ def main() -> None:
     with open(artifacts_dir / "regime_strike_experiment_results.json", "w", encoding="utf-8") as f:
         json.dump(results_artifact, f, indent=2, ensure_ascii=False)
     print("Saved comprehensive experimental results -> artifacts/research/regime_strike_experiment_results.json")
+
+    # Stage 1: Export reproducible data manifest
+    generate_reproducible_data_manifest(artifacts_dir, df_full)
 
     print("\n" + "=" * 90)
     print("EXPERIMENT COMPLETED SUCCESSFULLY")

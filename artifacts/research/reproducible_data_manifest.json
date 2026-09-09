@@ -1,0 +1,55 @@
+{
+  "timestamp": "2026-09-09T02:39:41.507130+00:00",
+  "git_commit": "42e5f99dee5bd44ebbc04fe2240f617dd2bb6d0d",
+  "git_branch": "main",
+  "python_environment": {
+    "python_version": "3.14.4 (tags/v3.14.4:23116f9, Apr  7 2026, 14:10:54) [MSC v.1944 64 bit (AMD64)]",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "numpy_version": "2.4.6",
+    "pandas_version": "3.0.3"
+  },
+  "dataset_row_counts": {
+    "btc_decision_markets": 6501,
+    "date_range": [
+      "2026-06-25 17:40:04.795295+00:00",
+      "2026-09-09 00:25:21.058095+00:00"
+    ]
+  },
+  "manifest_files": {
+    "all_assets_snapshots_4_15m.csv": {
+      "path": "C:\\Users\\orlov\\.gemini\\antigravity\\scratch\\flipoly\\artifacts\\research\\all_assets_snapshots_4_15m.csv",
+      "sha256": "2f025f2bd3eaa4397e7616ed8c6711fa243d0853ddc2b26a8df25ea5cdae2e19",
+      "size_bytes": 94221358
+    },
+    "btc_snapshots_4_15m.csv": {
+      "path": "C:\\Users\\orlov\\.gemini\\antigravity\\scratch\\flipoly\\artifacts\\research\\btc_snapshots_4_15m.csv",
+      "sha256": "31b18ee191d2fa82a0cc0fa85ecd8a612577d5b54108f7a19078e3a2f037b3b0",
+      "size_bytes": 19239074
+    },
+    "crypto_candles_5m.csv": {
+      "path": "C:\\Users\\orlov\\.gemini\\antigravity\\scratch\\flipoly\\artifacts\\research\\crypto_candles_5m.csv",
+      "sha256": "b5d96f1e68dc6989823ed2fb508ad2b12a59f24d891e72c09aa0a6559ff5eb4e",
+      "size_bytes": 17399196
+    },
+    "data_coverage_table.json": {
+      "path": "C:\\Users\\orlov\\.gemini\\antigravity\\scratch\\flipoly\\artifacts\\research\\data_coverage_table.json",
+      "sha256": "e2496ddf2933449a1a87d1ba31d945be2fddd02cac76937b3f612f985bee427b",
+      "size_bytes": 198011
+    },
+    "regime_strike_protocol.json": {
+      "path": "C:\\Users\\orlov\\.gemini\\antigravity\\scratch\\flipoly\\artifacts\\research\\regime_strike_protocol.json",
+      "sha256": "588e75a8e60a46e05f6c1c45de910b2b26ab57d1b2ee88bf20f00b209ba55ec4",
+      "size_bytes": 2163
+    },
+    "regime_strike_experiment_results.json": {
+      "path": "C:\\Users\\orlov\\.gemini\\antigravity\\scratch\\flipoly\\artifacts\\research\\regime_strike_experiment_results.json",
+      "sha256": "20214aaf5779ac60d08954adafe7ed3e8d4d4d5679fbf114166765b83549ff98",
+      "size_bytes": 364987
+    },
+    "regime_strike_verdict.json": {
+      "path": "C:\\Users\\orlov\\.gemini\\antigravity\\scratch\\flipoly\\artifacts\\research\\regime_strike_verdict.json",
+      "sha256": "695a4024d5aaa35e94c1e21b2edff0f1106b58303c527bc0d40611852a6c3538",
+      "size_bytes": 7332
+    }
+  }
+}
