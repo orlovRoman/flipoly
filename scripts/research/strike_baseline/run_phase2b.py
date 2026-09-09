@@ -30,7 +30,8 @@ from polyflip.research.strike_baseline.regime import (
 
 LEDGER_RUN = "sb_20260909_131059"
 SPLITS_RUN = "sb2a_20260909_131711"
-BASE_FEATS = ["z", "entry_min_before_close", "sigma_min"]
+# v1.4: realized horizon (wend - snapshot_at), not the entry-grid label.
+BASE_FEATS = ["z", "time_left_min", "sigma_min"]
 CT_D = ["ct_reversion", "ct_trend", "ct_quiet"]
 CS_D = ["cs_reversion", "cs_trend", "cs_quiet"]
 GBM_EXTRA = ["ct_er", "cs_er"]
@@ -112,19 +113,21 @@ def build_features(ok: pd.DataFrame, snaps_by_market: dict, store) -> pd.DataFra
 
 
 def main() -> None:
-    if len(sys.argv) != 2:
-        print("usage: run_phase2b.py <worktree_root>", file=sys.stderr)
+    if len(sys.argv) < 2 or len(sys.argv) > 4:
+        print("usage: run_phase2b.py <worktree_root> [ledger_run] [splits_run]", file=sys.stderr)
         sys.exit(2)
     root = Path(sys.argv[1]).resolve()
+    ledger_run = sys.argv[2] if len(sys.argv) >= 3 else LEDGER_RUN
+    splits_run = sys.argv[3] if len(sys.argv) == 4 else SPLITS_RUN
     sb = root / "artifacts" / "research" / "strike_baseline"
     p1 = _load("run_phase1")
     p2a = _load("run_phase2a")
 
-    ledger = pd.read_parquet(sb / LEDGER_RUN / "ledger.parquet")
+    ledger = pd.read_parquet(sb / ledger_run / "ledger.parquet")
     ok = ledger[ledger["status"] == "ok"].copy()
     ok["y"] = (ok["outcome"] == "YES").astype(int)
 
-    splits = pd.read_csv(sb / SPLITS_RUN / "splits.csv")
+    splits = pd.read_csv(sb / splits_run / "splits.csv")
     ok = ok.merge(splits[["market_id", "split"]], on="market_id", how="left")
     assert ok["split"].notna().all(), "2b markets differ from 2a splits"
     assert ok.groupby("market_id")["split"].nunique().max() == 1
@@ -171,8 +174,8 @@ def main() -> None:
     probs["M5"] = booster.predict(feat[m5cols])
     print(f"[2b] M5 best_iteration={booster.best_iteration}", flush=True)
 
-    metrics: dict = {"protocol_version": "1.3", "input_ledger": LEDGER_RUN,
-                     "input_splits": SPLITS_RUN, "n_ok": int(len(feat)),
+    metrics: dict = {"protocol_version": "1.4", "input_ledger": ledger_run,
+                     "input_splits": splits_run, "n_ok": int(len(feat)),
                      "gbm_best_iteration": int(booster.best_iteration), "models": {}}
     rel_frames = []
     for mname, p in probs.items():
@@ -213,10 +216,10 @@ def main() -> None:
                "created_at": datetime.now(timezone.utc).isoformat(),
                "commit": p2a._git_commit(root),
                "protocol_sha256": p2a.sha256_file(root / "research" / "strike_baseline" / "protocol.yaml"),
-               "input_ledger": LEDGER_RUN,
-               "ledger_sha256": p2a.sha256_file(sb / LEDGER_RUN / "ledger.parquet"),
-               "input_splits": SPLITS_RUN,
-               "splits_sha256": p2a.sha256_file(sb / SPLITS_RUN / "splits.csv"),
+               "input_ledger": ledger_run,
+               "ledger_sha256": p2a.sha256_file(sb / ledger_run / "ledger.parquet"),
+               "input_splits": splits_run,
+               "splits_sha256": p2a.sha256_file(sb / splits_run / "splits.csv"),
                "artifacts": {}}
     for pth in sorted(out.iterdir()):
         if pth.is_file():

@@ -173,7 +173,8 @@ def build_ledger(
         if wstart.tzinfo is None:
             wstart = wstart.tz_localize("UTC")
 
-        # Strike proxy once per market (provenance: PROXY_BINANCE_1M_OPEN)
+        # Strike proxy once per market (provenance: PROXY_BINANCE_1M_FIRST_CLOSE =
+        # close of the first 1m candle inside the window; NOT the candle open)
         sym = ASSET_TO_SYMBOL.get(m["asset"], m["asset"])
         strike_cand = candles.first_close_in_window(sym, wstart, wend)
         strike = float(strike_cand["close"]) if strike_cand is not None else None
@@ -185,7 +186,7 @@ def build_ledger(
             row = _row_base(m, win, em, STATUS_OK)
             row["strike"] = strike
             row["strike_ts"] = strike_ts
-            row["strike_provenance"] = "PROXY_BINANCE_1M_OPEN" if strike is not None else None
+            row["strike_provenance"] = "PROXY_BINANCE_1M_FIRST_CLOSE" if strike is not None else None
             if strike is None:
                 row["status"] = STATUS_NO_STRIKE
                 rows.append(row)
@@ -242,9 +243,15 @@ def build_ledger(
                 rows.append(row)
                 continue
 
-            # Vol features (closed candles strictly before decision)
+            # Vol features (closed candles strictly before decision).
+            # Forecast horizon = ACTUAL remaining time to window end from the
+            # decision snapshot (protocol v1.4): a snapshot 30 s after T-5 min
+            # forecasts over 4.5 min, not 5. entry_min_before_close stays the
+            # variant label; time_left_min is the realized horizon.
             rets = candles.closed_returns_before(sym, rec, vol_window_min)
-            feat = compute_features(underlying, strike, float(em), rets)
+            time_left_min = (wend - rec).total_seconds() / 60.0
+            row["time_left_min"] = float(time_left_min)
+            feat = compute_features(underlying, strike, float(time_left_min), rets)
             row["features_status"] = feat.status
             row["sigma_min"] = feat.sigma_min
             row["z"] = feat.z

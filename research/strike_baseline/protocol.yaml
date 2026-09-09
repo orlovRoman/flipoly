@@ -2,7 +2,16 @@
 # Frozen research protocol. Any parameter change requires a new protocol version + new run_id.
 # Self-check: this file is hashed at run start; no parameter is chosen using validation/test outcomes.
 
-protocol_version: "1.3"
+protocol_version: "1.4"
+changelog_v1_4: >
+  Horizon fix: z/p0 use ACTUAL remaining time (wend - snapshot_at), stored as
+  time_left_min; entry_min_before_close stays the variant label. M1/M2-M5 time
+  feature switches from entry grid to time_left_min. Provenance renamed to
+  PROXY_BINANCE_1M_FIRST_CLOSE (strike = first 1m CLOSE in window). ADDITIVE
+  Phase 2c (diagnostics, no selection): market control (yes_mid prob metrics vs
+  the same proxy outcome), paired daily-block bootstrap CIs (B=5000, seed=0)
+  for test Brier differences vs M1, econ breakdown by entry x side with
+  synthetic-NO flag, outcome-flip rate for first-OPEN strike variant.
 changelog_v1_2: >
   ADDITIVE Phase 2a (baselines + eval harness). Phase 1 params untouched.
   Frozen: sequential 60/20/20 market splits by end_time_est; models M0 (p0, no
@@ -174,6 +183,22 @@ phase2b:
     M5_gbm: "LightGBM on M4 feats + [ct_er, cs_er] (NaN native). Frozen: num_leaves=31, lr=0.05, n_estimators<=1000 with early_stopping(100) on VALIDATION only, min_child_samples=200, subsample=0.8, colsample_bytree=0.8, random_state=0, deterministic=true, verbose=-1. Train=train, stop=validation, report=test."
   metrics: "same frozen probability + economic rule as Phase 2a (p>=0.60 YES at ask / p<=0.40 NO at 1-bid, stake 10, gross only)"
   outputs: "artifacts/research/strike_baseline/sb2b_<ts>/{phase2b_metrics.json, reliability.csv, feature_coverage.json, run_manifest.json}"
+
+# ---------- Phase 2c: review diagnostics (frozen v1.4; no selection) ----------
+phase2c:
+  version: "1.4-additive"
+  note: "Addresses review: market control, paired uncertainty, econ split, label sensitivity. Nothing here selects models."
+  input_ledger: "new Phase-1 rerun ledger (v1.4 horizon), status == ok"
+  input_splits: "new Phase-2a rerun splits.csv (same frozen rule)"
+  input_probs: "rerun M0/M1/C + M2/M3/M4/M5 probabilities on the new ledger"
+  market_control: "yes_mid as probability on the same ok rows; brier/logloss/ECE vs the SAME proxy outcome. Diagnostic only: market price refers to the real contract, proxy outcome to Binance."
+  paired_ci:
+    target: "test Brier difference (model minus M1); negative = better than M1"
+    blocks: "UTC calendar day of decision_at; paired by day (same rows both models)"
+    method: "bootstrap over days with replacement, B=5000, seed=0; 95% percentile CI of mean daily diff"
+  econ_split: "same frozen rule as 2a, grouped by entry_min_before_close x side; NO leg flagged synthetic (ask_no = 1 - yes_bid, never observed)"
+  outcome_flip: "alt strike = OPEN of first 1m candle in window; alt outcome = settlement vs alt strike; report label-flip rate vs main outcome. Sensitivity of the task definition, not a strategy."
+  outputs: "artifacts/research/strike_baseline/sb2c_<ts>/{phase2c_metrics.json, run_manifest.json}"
 
 phase1_exit_condition: >
   Contract rules and data provenance traceable; causality verified; coverage limitations published.

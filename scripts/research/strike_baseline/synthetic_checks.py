@@ -135,6 +135,44 @@ def test_ledger_synthetic():
     print("P1-07/P1-09/P1-10/P1-17 synthetic ledger OK")
 
 
+def test_actual_horizon_30s_delay():
+    # Protocol v1.4: a snapshot 30 s after T-5 forecasts over 4.5 min, not 5.
+    wend = pd.Timestamp("2026-09-08 00:15:00+00:00")
+    wstart = wend - pd.Timedelta(minutes=15)
+    n_pre, n_win = 90, 15
+    total = n_pre + n_win + 5
+    closes = [100.0 + (0.001 if i % 2 else -0.001) for i in range(total)]
+    candles_df = pd.DataFrame({
+        "symbol": ["BTCUSDT"] * total,
+        "open_time": [wstart - pd.Timedelta(minutes=n_pre - i) for i in range(total)],
+        "close_time": [wstart - pd.Timedelta(minutes=n_pre - i) + pd.Timedelta(minutes=1) for i in range(total)],
+        "open": [100.0] * total, "high": [100.0] * total,
+        "low": [100.0] * total, "close": closes,
+    })
+    store = CandleStore(candles_df)
+    markets = pd.DataFrame([{
+        "market_id": "M9", "asset": "BTC",
+        "question": "Bitcoin Up or Down - September 7, 8:00PM-8:15PM ET",
+        "end_time_est": wend, "final_outcome": None,
+    }])
+    windows = {"M9": build_window("M9", "BTC", markets.iloc[0]["question"], wend)}
+    assert windows["M9"].rules_ok
+    D5 = wend - pd.Timedelta(minutes=5)
+    snaps = pd.DataFrame([
+        {"market_id": "M9", "recorded_at": D5 + pd.Timedelta(seconds=30),
+         "best_bid": 0.40, "best_ask": 0.45},
+    ])
+    ledger = build_ledger(markets, windows, snaps, store, entry_grid=(5,))
+    row = ledger.iloc[0]
+    assert row["status"] == "ok", row["status"]
+    assert math.isclose(row["time_left_min"], 4.5, abs_tol=1e-9), row["time_left_min"]
+    # z must match manual computation with tau = 4.5
+    sigma = row["sigma_min"]
+    z_manual = math.log(row["underlying_at_decision"] / row["strike"]) / (sigma * math.sqrt(4.5))
+    assert math.isclose(row["z"], z_manual, rel_tol=1e-9), (row["z"], z_manual)
+    print("P1 actual-horizon 30s-delay OK")
+
+
 def test_opportunity_id_unique():
     df = pd.DataFrame({"opportunity_id": [f"m::{e}" for e in ENTRY_GRID]})
     assert df["opportunity_id"].nunique() == 3
@@ -166,6 +204,33 @@ def test_proxy_vs_canonical():
     # canonical strike absent -> provenance must be PROXY, never canonical
     assert True
     print("P1-05 proxy provenance design OK")
+
+
+def _load_phase2c():
+    import importlib.util
+    path = Path(__file__).resolve().parent / "run_phase2c.py"
+    spec = importlib.util.spec_from_file_location("sb_phase2c", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_phase2c_paired_ci_unit():
+    import numpy as np
+    m = _load_phase2c()
+    y = np.array([1.0, 0.0, 1.0, 0.0, 1.0, 0.0])
+    days = np.array(["d1", "d1", "d2", "d2", "d3", "d3"])
+    # identical models -> diff 0, CI contains 0
+    r = m.paired_brier_ci(y, np.array([0.9, 0.1, 0.9, 0.1, 0.9, 0.1]),
+                          np.array([0.9, 0.1, 0.9, 0.1, 0.9, 0.1]), days,
+                          n_boot=200, seed=0)
+    assert r["mean_diff"] == 0.0 and r["ci_lo"] <= 0.0 <= r["ci_hi"]
+    assert r["n_days"] == 3
+    # strictly worse model -> positive diff
+    r2 = m.paired_brier_ci(y, np.array([0.9, 0.1, 0.9, 0.1, 0.9, 0.1]),
+                           np.full(6, 0.5), days, n_boot=200, seed=0)
+    assert r2["mean_diff"] > 0 and r2["ci_lo"] > 0
+    print("P2c paired-CI unit OK")
 
 
 def _load_phase2a():
@@ -257,12 +322,14 @@ def main() -> None:
     test_features_manual()
     test_time_scaling_invariant()
     test_ledger_synthetic()
+    test_actual_horizon_30s_delay()
     test_opportunity_id_unique()
     test_no_future_leak()
     test_proxy_vs_canonical()
     test_phase2a_metrics_unit()
     test_phase2a_split_rule()
     test_phase2b_ct_cs_causal()
+    test_phase2c_paired_ci_unit()
     print("\nALL SYNTHETIC CHECKS PASSED")
 
 

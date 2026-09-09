@@ -34,7 +34,8 @@ EPS = 1e-6
 P_YES, P_NO = 0.60, 0.40
 STAKE = 10.0
 N_BINS = 10
-FEATS = ["z", "entry_min_before_close", "sigma_min"]
+# v1.4: realized horizon (wend - snapshot_at), not the entry-grid label.
+FEATS = ["z", "time_left_min", "sigma_min"]
 
 
 def sha256_file(path: Path) -> str:
@@ -135,12 +136,13 @@ def economic(df: pd.DataFrame, p: np.ndarray) -> dict:
 
 
 def main() -> None:
-    if len(sys.argv) != 2:
-        print("usage: run_phase2a.py <worktree_root>", file=sys.stderr)
+    if len(sys.argv) < 2 or len(sys.argv) > 3:
+        print("usage: run_phase2a.py <worktree_root> [ledger_run]", file=sys.stderr)
         sys.exit(2)
     root = Path(sys.argv[1]).resolve()
+    ledger_run = sys.argv[2] if len(sys.argv) == 3 else LEDGER_RUN
     sb = root / "artifacts" / "research" / "strike_baseline"
-    ledger = pd.read_parquet(sb / LEDGER_RUN / "ledger.parquet")
+    ledger = pd.read_parquet(sb / ledger_run / "ledger.parquet")
     ok = ledger[ledger["status"] == "ok"].copy()
     ok["y"] = (ok["outcome"] == "YES").astype(int)
     ok["close"] = pd.to_datetime(ok["end_time_est"], utc=True)
@@ -168,8 +170,8 @@ def main() -> None:
     }
 
     metrics: dict = {
-        "protocol_version": "1.2",
-        "input_ledger": LEDGER_RUN,
+        "protocol_version": "1.4",
+        "input_ledger": ledger_run,
         "n_ok": int(len(ok)),
         "splits": {s: {"markets": int((mk['split'] == s).sum()),
                        "rows": int((ok['split'] == s).sum()),
@@ -213,8 +215,8 @@ def main() -> None:
         "run_id": run_id, "phase": "2a",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "commit": _git_commit(root), "protocol_sha256": sha256_file(proto),
-        "input_ledger": LEDGER_RUN,
-        "ledger_sha256": sha256_file(sb / LEDGER_RUN / "ledger.parquet"),
+        "input_ledger": ledger_run,
+        "ledger_sha256": sha256_file(sb / ledger_run / "ledger.parquet"),
         "artifacts": {},
     }
     for pth in sorted(out.iterdir()):
