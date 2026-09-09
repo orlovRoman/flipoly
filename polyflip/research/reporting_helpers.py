@@ -52,7 +52,7 @@ def compute_clustered_uncertainty(
     Computes cluster-robust standard error and block-bootstrap 95% CI for trade PnLs.
     Clusters are defined by market_id or session blocks to account for within-session correlation.
     """
-    if not trade_pnls or len(trade_pnls) == 0:
+    if trade_pnls is None or len(trade_pnls) == 0:
         return {
             "mean": 0.0,
             "se": 0.0,

@@ -124,6 +124,7 @@ class TradingConfig:
     weighted_standard_error: float = 0.0
     weighted_kelly_fraction: float = 0.025
     weighted_size_cap_usdc: float = 3.0
+    require_reversion_regime: bool = False
     # ── Market Regime Filter (MRF-T09) ──────────────────────
     mrf_mode: str = "OFF"                 # OFF|SHADOW|ACTIVE
     mrf_version: int = 1
@@ -440,6 +441,7 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         weighted_standard_error=weighted_standard_error,
         weighted_kelly_fraction=weighted_kelly_fraction,
         weighted_size_cap_usdc=weighted_size_cap_usdc,
+        require_reversion_regime=_parse_bool(raw.get("REQUIRE_REVERSION_REGIME"), False),
         # ── Market Regime Filter (MRF-T09) ──────────────────────
         mrf_mode=(
             raw.get("MARKET_REGIME_FILTER_MODE", "OFF").strip().upper()

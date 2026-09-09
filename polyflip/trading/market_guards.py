@@ -69,4 +69,26 @@ async def check_market_guards(
         logger.error("cannot_find_token_id_in_db", market_id=market.market_id)
         return GuardResult(passed=False, skip_reason="guard: Token IDs missing in DB", existing_skipped=existing_skipped)
 
+    if getattr(cfg, "require_reversion_regime", False):
+        from polyflip.db.models import MarketSnapshot
+        from polyflip.research.regime_features import classify_local_regime
+        try:
+            snaps_stmt = (
+                select(MarketSnapshot.mid_price)
+                .where(MarketSnapshot.market_id == market.market_id)
+                .order_by(MarketSnapshot.recorded_at.asc())
+            )
+            snaps_res = await db_session.execute(snaps_stmt)
+            prices = [float(p) for p in snaps_res.scalars().all() if p is not None]
+            if len(prices) >= 3:
+                regime = classify_local_regime(prices, min_observations=3)
+                if regime["state"] != "REVERSION":
+                    return GuardResult(
+                        passed=False,
+                        skip_reason=f"guard: Non-reversion regime ({regime['state']} != REVERSION)",
+                        existing_skipped=existing_skipped,
+                    )
+        except Exception as exc:
+            logger.warning("regime_guard_check_failed", market_id=market.market_id, error=str(exc))
+
     return GuardResult(passed=True, skip_reason=None, existing_skipped=existing_skipped)

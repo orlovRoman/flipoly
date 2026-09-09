@@ -36,6 +36,8 @@ db.sqlite
 data/*.json
 !data/example.json
 data/*.parquet
+artifacts/research/*.csv
+!artifacts/research/checklist.csv
 backups/
 scratch/
 graphify-out/

@@ -1,0 +1,41 @@
+{
+  "timestamp": "2026-09-09T00:51:44.263221+00:00",
+  "hypothesis": "При наблюдаемой локальной склонности к возврату покупка аутсайдера имеет лучший net EV, особенно когда возврат помогает завершить контракт на выигрышной стороне strike.",
+  "variants": {
+    "C0": "Контроль: только цена ask <= 0.40",
+    "C1": "C0 + локальный режим возврата (REVERSION)",
+    "C2": "C1 + благоприятное положение относительно strike (reversion_helps_strike == True)"
+  },
+  "primary_metric": "Парная разница net PnL (USDC) на одинаковом потоке возможностей с календарным блочным бутстрапом",
+  "secondary_metrics": [
+    "expectancy",
+    "turnover",
+    "max_drawdown",
+    "payoff_ratio",
+    "profit_concentration",
+    "slippage_sensitivity"
+  ],
+  "splits": {
+    "exploratory_dev": "<= 2026-08-26",
+    "exploratory_test": "2026-08-26 to 2026-09-02",
+    "unviewed_holdout": ">= 2026-09-02"
+  },
+  "policy_parameters": {
+    "stake_usdc": 1.0,
+    "taker_fee_rate": 0.002,
+    "max_price": 0.4,
+    "min_price": 0.01,
+    "decision_time_target_min": 5.0,
+    "decision_time_tolerance_min": [
+      3.5,
+      5.5
+    ]
+  },
+  "self_checks": {
+    "fixed_stake_equal_across_variants": true,
+    "no_double_spread_deduction": true,
+    "causal_first_observation_chosen": true,
+    "observed_quotes_isolated_from_reconstructed": true,
+    "resplitting_old_data_not_called_independent": true
+  }
+}
