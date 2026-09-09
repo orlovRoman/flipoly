@@ -1,7 +1,7 @@
 """
 Accounting registry and PnL logic.
 """
-from typing import Dict, Any, List, Optional
+from typing import Optional
 
 def calculate_net_pnl(
     sale_proceeds: float,
@@ -29,8 +29,7 @@ def calculate_net_pnl(
 
 def apply_fee_to_budget(
     total_budget: float,
-    commission_amount: float,
-    shares: float,
+    commission_rate: float,
     price: float,
     mode: str = 'exclusive'
 ):
@@ -39,8 +38,13 @@ def apply_fee_to_budget(
     mode = 'inclusive' means "$1 INCLUDING commission" (cost = total_budget, shares adjusted)
     """
     if mode == 'exclusive':
-        actual_cost = (shares * price) + commission_amount
-        return actual_cost, shares
+        shares = total_budget / price
+        commission = shares * price * commission_rate
+        actual_cost = total_budget + commission
+        return actual_cost, shares, commission
     elif mode == 'inclusive':
-        return total_budget, shares
-    return 0.0, 0.0
+        shares = total_budget / (price * (1 + commission_rate))
+        commission = shares * price * commission_rate
+        actual_cost = total_budget
+        return actual_cost, shares, commission
+    return 0.0, 0.0, 0.0
