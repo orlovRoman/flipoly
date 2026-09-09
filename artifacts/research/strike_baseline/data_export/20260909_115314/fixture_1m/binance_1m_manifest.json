@@ -1,0 +1,39 @@
+{
+  "fetched_at": "2026-09-09T12:17:58.719956+00:00",
+  "files": {
+    "fixture_1m/BTCUSDT.csv.gz": {
+      "bytes": 3030273,
+      "sha256": "a76dbb18f5ba917582fb785c978149b13e49f1b15b96f931c42a12512d853459"
+    },
+    "fixture_1m/DOGEUSDT.csv.gz": {
+      "bytes": 2279685,
+      "sha256": "dc4b24170f0c1b86c12b2898d7dd1cba1e52e75cffc2418023acda3383cf95e2"
+    },
+    "fixture_1m/ETHUSDT.csv.gz": {
+      "bytes": 2912122,
+      "sha256": "c3ed2625a515bc7e9bfa849526a0619a929a18c9df63e92eae59af3bd919aee8"
+    },
+    "fixture_1m/SOLUSDT.csv.gz": {
+      "bytes": 2461791,
+      "sha256": "1a586e7913d7e6bf701355b53dacac52aecfd83ce446948cc95b8faee41ade1d"
+    },
+    "fixture_1m/XRPUSDT.csv.gz": {
+      "bytes": 2373319,
+      "sha256": "3ec4a42945bcf03e0d78c25d0a0e2d8f6a6096c5120fab8a710640fa9362b0ee"
+    }
+  },
+  "interval": "1m",
+  "manifest_file_sha256": "71efe8c8e5cc9a63b3f43cecda91736b27ffa949f9f325bd888da4a84aa27560",
+  "note": "1m BINANCE klines; only used as closed candles; open_time UTC",
+  "period_ms": {
+    "end": 1788998400000,
+    "start": 1780617600000
+  },
+  "row_counts": {
+    "BTCUSDT": 138980,
+    "DOGEUSDT": 138985,
+    "ETHUSDT": 138982,
+    "SOLUSDT": 138983,
+    "XRPUSDT": 138986
+  }
+}

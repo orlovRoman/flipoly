@@ -1,0 +1,117 @@
+# Strike Baseline Research — Protocol (Phase 1)
+# Frozen research protocol. Any parameter change requires a new protocol version + new run_id.
+# Self-check: this file is hashed at run start; no parameter is chosen using validation/test outcomes.
+
+protocol_version: "1.0"
+run_purpose: >
+  Check whether underlying position relative to strike, time remaining and past volatility
+  are sufficient for a useful forecast of 15m up/down market outcomes; then measure the
+  incremental contribution of CT, CS and LightGBM over simple baselines.
+  z = log_moneyness / (sigma * sqrt(time_left)) is a FEATURE, not a proven win probability.
+
+branch: "research/strike-baseline"
+worktree: "flipoly-worktrees/strike-baseline"
+
+# ---------- Universe ----------
+assets:
+  - BTC
+  - ETH
+  - SOL
+  - DOGE
+  - XRP
+binance_symbols:
+  BTC:  BTCUSDT
+  ETH:  ETHUSDT
+  SOL:  SOLUSDT
+  DOGE: DOGEUSDT
+  XRP:  XRPUSDT
+
+# Market universe: ALL available 15m Up/Down markets of the 5 assets,
+# independent of whether a funnel/decision entry exists.
+market_class: "poly_up_down_15m"
+
+# ---------- Period ----------
+# Initial export window. Anything outside is not used in this run.
+export_start_utc: "2026-06-25T00:00:00Z"
+export_end_utc:   "2026-09-09T23:59:59Z"
+source_period_note: "VM + Binance data present from 2026-06-25 onward"
+
+# ---------- Entry variants (grid) ----------
+# Each entry time is its own variant, evaluated separately.
+entry_grid_mins_before_close: [12, 8, 5]
+
+# Decision moment = first observation at or after (market_close - entry_minutes),
+# with observed delay <= allowed_max_delay_sec.
+allowed_max_delay_sec: 30
+
+# ---------- Underlying & vol ----------
+underlying_source: "BINANCE_1M"   # fetched candle snapshots; source of truth for reconstruction
+candle_interval: "1m"
+vol_est_window_min: 60            # rolling window of PAST CLOSED bars
+vol_est_min_bars: 30              # min closed bars required for a usable vol estimate
+vol_missing_rule: "EXCLUDE_WITH_REASON"  # do NOT invent small numbers silently
+time_unit: "minute"               # time_left in minutes; sigma in per-minute units
+
+strike_source: "PROXY_BINANCE_1M_OPEN"   # strike reconstructed from Binance 1m first close of window
+canonical_strike_available: false        # NOT stored in DB -> proxy only, never canonical
+note_missing_strike_reason: "strike_value/strike_source are NULL/UNKNOWN for all historical markets"
+
+# ---------- Contract settlement rules ----------
+settlement_rule: >
+  YES pays 1 if underlying price at window close > strike (proxy = first observed Binance 1m close
+  within the window). Approximation only: exact Polymarket final-averaging rule set is not fully
+  retrievable from available data. TWAP in documentation is NOT auto-applied to history.
+
+market_start_field: "question_text_window_start_utc"   # parsed from question "X:XXAM-X:XXPM ET"
+market_close_field: "end_time_est"                     # already stored in live_markets
+
+# ---------- Time split (Phase 2+; frozen now to prevent leakage) ----------
+time_split:
+  method: "sequential"
+  train_frac: 0.60
+  validation_frac: 0.20
+  test_frac: 0.20
+  split_key: "market_close"
+  rule: "entry variants of one market stay in one split; outcomes for train known before next block"
+
+# ---------- Metrics (Phase 2+) ----------
+metrics:
+  probability: [brier, log_loss, ece, reliability_bins]
+  economic:    [n_entries, gross, net, expectancy, pnl_per_opportunity, turnover, weekly, per_asset, concentration]
+  calibration_bins: 10
+
+# ---------- Budget / constraints ----------
+budget:
+  max_bet_usdc: 10.0
+  fee_rate_taker: "TO_BE_CONFIRMED_FROM_FEE_EVIDENCE"
+  exchange: "POLYMARKET_CTF"
+  quote_side_buy: "real_ask"
+  note: "unknown fees -> net = null, not estimated"
+
+# ---------- Materials for reproducibility ----------
+artifacts_root: "artifacts/research/strike_baseline"
+run_id_format: "sb_{YYYYMMDD}_{HHMMSS}"
+
+# ---------- Phase 1 self-checks (must pass) ----------
+phase1_self_checks:
+  - {id: "P1-01", text: "protocol has a hash; no parameter chosen from validation/test outcomes"}
+  - {id: "P1-02", text: "re-running on the same inputs reproduces ledger and metrics"}
+  - {id: "P1-03", text: "settlement rule confirmed for a concrete contract; TWAP not auto-applied to history"}
+  - {id: "P1-04", text: "a market without funnel entry can enter the study; skipped markets stay in coverage table"}
+  - {id: "P1-05", text: "proxy never becomes canonical; unknown source is never restored by assumption"}
+  - {id: "P1-06", text: "tables separately show available_at_decision / retrospective_only / unknown"}
+  - {id: "P1-07", text: "join does not mix BTC/USD with YES price; different underlying sources not glued without rule"}
+  - {id: "P1-08", text: "future ticks do not change features; stale price gives a missing-data status"}
+  - {id: "P1-09", text: "no best-price pick inside window; all actual entries within allowed interval"}
+  - {id: "P1-10", text: "opportunity_id unique; row shuffle does not change feature joins"}
+  - {id: "P1-11", text: "minute-versus-second example preserves z when vol rescaled consistently"}
+  - {id: "P1-12", text: "a candle that closed after decision is excluded; changing future prices does not change the estimate"}
+  - {id: "P1-13", text: "constant series, short history, long gap do not create infinite z or 100%% confidence"}
+  - {id: "P1-14", text: "underlying==strike -> z=0; price above strike -> positive z; higher vol -> smaller |z|"}
+  - {id: "P1-15", text: "approximate model not labeled as exact settlement; future part of average unavailable to features"}
+  - {id: "P1-16", text: "p0(0)=0.5, monotone, finite; computation does not use outcomes"}
+  - {id: "P1-17", text: "synthetic examples match manual calculation for ledger, sigma, z, statuses, p0"}
+
+phase1_exit_condition: >
+  Contract rules and data provenance traceable; causality verified; coverage limitations published.
+  Absence of canonical data permits a separate proxy study but never a mixed conclusion.

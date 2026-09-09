@@ -1,0 +1,33 @@
+{
+  "db_container": "polyflip_db",
+  "export_timestamp": "2026-09-09T11:53:14.975336+00:00",
+  "files": {
+    "raw/candles_15m.csv.gz": {
+      "bytes": 1001661,
+      "sha256": "055a88581fae5a3cc6210c8db94e7e08f94fb5343c9b0db50a2c7a99a3a85660"
+    },
+    "raw/markets.csv.gz": {
+      "bytes": 3427532,
+      "sha256": "92a63a13742415008c4760fbbabeeb146f36aebb7d5e688ea7acf98c15b059f5"
+    },
+    "raw/snapshots.csv.gz": {
+      "bytes": 68909610,
+      "sha256": "16e6394e4060ff21c789b6f3236f1e6b8311286904f028488a484b1f88d892f1"
+    },
+    "raw/underlying_observations.csv.gz": {
+      "bytes": 5801687,
+      "sha256": "9c9dcf567925a3e7c699ae3fa7da3ed99e09694ff582774274cc89cdc7378019"
+    }
+  },
+  "manifest_file_sha256": "f2d2fba46d1593b0e760d9f1d03fae3d87968361adc32d3676b17aea087a06c3",
+  "period": {
+    "end_utc": "2026-09-09T23:59:59",
+    "start_utc": "2026-06-25T00:00:00"
+  },
+  "row_counts": {
+    "candles_15m": 37677,
+    "markets": 35248,
+    "snapshots": 8327582,
+    "underlying_observations": 639595
+  }
+}
