@@ -8,22 +8,33 @@ import numpy as np
 
 BASE_DIR = "/home/orlovrp/flipoly-worktrees/trade-economics"
 LEDGER_PATH = os.path.join(BASE_DIR, "artifacts/research/common_opportunity_ledger.json")
-RUN_ID = f"run_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+RUN_ID = "latest"
 ARTIFACTS_DIR = os.path.join(BASE_DIR, "artifacts/research/trade_economics", RUN_ID)
 
 from polyflip.research.trade_economics.commissions import calculate_commission
 from polyflip.research.trade_economics.pnl import apply_fee_to_budget, calculate_net_pnl
 
-def get_git_commit():
+def get_git_commit(rev="HEAD"):
     try:
-        return subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=BASE_DIR).decode('utf-8').strip()
+        return subprocess.check_output(['git', 'rev-parse', rev], cwd=BASE_DIR).decode('utf-8').strip()
     except Exception:
         return "UNKNOWN"
+        
+def is_dirty():
+    try:
+        return bool(subprocess.check_output(['git', 'status', '--porcelain'], cwd=BASE_DIR).strip())
+    except Exception:
+        return True
 
 def main():
     os.makedirs(ARTIFACTS_DIR, exist_ok=True)
     
-    commit_sha = get_git_commit()
+    commit_sha = get_git_commit("HEAD")
+    try:
+        # Assuming origin/main is the base for research
+        base_commit_sha = subprocess.check_output(['git', 'merge-base', 'origin/main', 'HEAD'], cwd=BASE_DIR).decode('utf-8').strip()
+    except Exception:
+        base_commit_sha = get_git_commit("HEAD^")
     
     if os.path.exists(LEDGER_PATH):
         with open(LEDGER_PATH, 'rb') as f:
@@ -43,17 +54,26 @@ def main():
         ledger_hash = ""
         
     assets = df['asset'].unique().tolist() if not df.empty and 'asset' in df.columns else ["all"]
+    
+    if not df.empty and 'calendar_date' in df.columns:
+        valid_dates = df['calendar_date'].dropna()
+        if len(valid_dates) > 0:
+            period_utc = f"{valid_dates.min()} to {valid_dates.max()}"
+        else:
+            period_utc = "UNKNOWN"
+    else:
+        period_utc = "UNKNOWN"
         
     # 4. Create manifest
     manifest = {
         "run_id": RUN_ID,
-        "base_commit": commit_sha,
+        "base_commit": base_commit_sha,
         "research_commit": commit_sha,
-        "dirty_worktree": True,
+        "dirty_worktree": is_dirty(),
         "input_files": {
             "common_opportunity_ledger.json": ledger_hash
         },
-        "period_utc": datetime.utcnow().strftime('%Y-%m'),
+        "period_utc": period_utc,
         "assets": assets,
         "policy_version": "1.0",
         "accounting_convention": "exclusive",
@@ -107,6 +127,7 @@ def main():
         datasets = [("C0", df_c0), ("CT", df_ct)]
         
         for name, df_trades in datasets:
+            total_trades = len(df_trades)
             # 13. Reproduce old calculation (baseline is 0.002 taker fee)
             df_trades['reproduced_fee'] = df_trades['shares'] * df_trades['executable_ask'] * 0.002
             df_trades['reproduced_net_pnl'] = df_trades['gross_pnl'] - df_trades['reproduced_fee']
@@ -115,7 +136,7 @@ def main():
             if 'net_pnl' in df_trades.columns:
                 mismatch = ~np.isclose(df_trades['net_pnl'], df_trades['reproduced_net_pnl'], atol=1e-4) & df_trades['net_pnl'].notna()
                 if mismatch.sum() > 0:
-                    print(f"Warning: {mismatch.sum()} rows failed PnL reproduction check in {name}.")
+                    raise ValueError(f"Mandatory PnL reproduction check failed for {mismatch.sum()} rows in {name}.")
             
             # 14. Apply demonstration schema (index 0)
             scheme = fee_evidence[0]
@@ -155,7 +176,8 @@ def main():
                 ), axis=1
             )
             # Coverage is % of trades where fee is not None
-            # Here, unknown_fee is always None
+            valid_fees = df_trades['unknown_fee'].notna().sum()
+            coverage_pct = (valid_fees / total_trades * 100) if total_trades > 0 else 0.0
             
             # 21. Sign change assessment (Demonstration)
             df_trades['gross_positive'] = df_trades['gross_pnl'] > 0
@@ -170,18 +192,16 @@ def main():
             accounting_diffs = df_trades[['opportunity_id', 'net_pnl', 'reproduced_net_pnl', 'new_net_pnl', 'sign_changed']]
             accounting_diffs.to_csv(os.path.join(ARTIFACTS_DIR, f"accounting_differences_{name}.csv"), index=False)
             
-            total_trades = len(df_trades)
             sign_flips = int(df_trades['sign_changed'].sum())
             old_net_sum = float(df_trades['reproduced_net_pnl'].sum())
             new_net_sum = float(df_trades['new_net_pnl'].sum())
             
-            reports_parts.append(f"""### {name} Выборка
-Всего сделок: {total_trades}
-Смена знака PnL: {sign_flips}
-Сумма старого Net PnL (fee=0.2%): {old_net_sum:.2f}
-Сумма нового Net PnL (демонстрация fee=0.1%): {new_net_sum:.2f}
-Покрытие подтверждённой комиссией: 0.0% (исторические комиссии неизвестны)
-""")
+            reports_parts.append(f"### {name} Выборка\n"
+                                 f"Всего сделок: {total_trades}\n"
+                                 f"Смена знака PnL: {sign_flips}\n"
+                                 f"Сумма старого Net PnL (fee=0.2%): {old_net_sum:.2f}\n"
+                                 f"Сумма нового Net PnL (демонстрация fee=0.1%): {new_net_sum:.2f}\n"
+                                 f"Покрытие подтверждённой комиссией: {coverage_pct:.1f}%\n")
 
     summary = {
         "total_opportunities": len(df),
