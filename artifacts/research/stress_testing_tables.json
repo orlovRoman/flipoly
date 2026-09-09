@@ -101,37 +101,37 @@
       }
     }
   },
-  "CS_short": {
-    "n_trades": 748,
-    "base_net_pnl": -53.69,
-    "base_expectancy": -0.0718,
+  "CT_plus_proxy_strike": {
+    "n_trades": 204,
+    "base_net_pnl": 85.83,
+    "base_expectancy": 0.4207,
     "absolute_shifts": {
       "+0.005_usdc_per_share": {
-        "net_pnl_usdc": -83.18,
-        "expectancy": -0.1112,
-        "pnl_drop_usdc": 29.49
+        "net_pnl_usdc": 73.4,
+        "expectancy": 0.3598,
+        "pnl_drop_usdc": 12.43
       },
       "+0.010_usdc_per_share": {
-        "net_pnl_usdc": -108.9,
-        "expectancy": -0.1456,
-        "pnl_drop_usdc": 55.22
+        "net_pnl_usdc": 62.75,
+        "expectancy": 0.3076,
+        "pnl_drop_usdc": 23.08
       },
       "+0.020_usdc_per_share": {
-        "net_pnl_usdc": -152.29,
-        "expectancy": -0.2036,
-        "pnl_drop_usdc": 98.6
+        "net_pnl_usdc": 45.08,
+        "expectancy": 0.221,
+        "pnl_drop_usdc": 40.75
       }
     },
     "relative_shifts": {
       "+2%": {
-        "net_pnl_usdc": -67.33,
-        "expectancy": -0.09,
-        "pnl_drop_usdc": 13.64
+        "net_pnl_usdc": 80.14,
+        "expectancy": 0.3928,
+        "pnl_drop_usdc": 5.69
       },
       "+5%": {
-        "net_pnl_usdc": -86.82,
-        "expectancy": -0.1161,
-        "pnl_drop_usdc": 33.13
+        "net_pnl_usdc": 72.01,
+        "expectancy": 0.353,
+        "pnl_drop_usdc": 13.82
       }
     }
   },
