@@ -181,6 +181,11 @@ async def save_or_update_skipped_trade(
             if details.get("decision_run_id"):
                 existing_skipped.decision_run_id = details.get("decision_run_id")
             existing_skipped.ai_lab_overlay_ids = overlay_ids or None
+            if details and details.get("strategy_type") == "CT_OUTSIDER":
+                existing_skipped.strategy_name = details.get("spec_id") or "BTC_CT_T5_V1"
+                existing_skipped.strategy_type = "CT_OUTSIDER"
+            elif details and details.get("strategy_type"):
+                existing_skipped.strategy_type = details.get("strategy_type")
             
             existing_skipped.updated_at = start_time
     else:
@@ -221,6 +226,8 @@ async def save_or_update_skipped_trade(
             entry_model_ece=details.get("entry_model_ece"),
             decision_run_id=details.get("decision_run_id"),
             ai_lab_overlay_ids=overlay_ids,
+            strategy_name=details.get("spec_id") if details.get("strategy_type") == "CT_OUTSIDER" else None,
+            strategy_type=details.get("strategy_type"),
             created_at=start_time
         )
         for key, value in weighted_details.items():
@@ -248,6 +255,7 @@ async def execute_and_record(
     model_key: Optional[str] = None,
     confirm_model_key: Optional[str] = None,
     confirm_model_version: Optional[int] = None,
+    decision_at: Optional[datetime] = None,
 ) -> None:
     if not validation.valid:
         raise ValueError("execute_and_record called with failed validation")
@@ -288,7 +296,7 @@ async def execute_and_record(
             "recorded_at_utc": start_time.isoformat(),
             "decision_details": getattr(decision_obj, "decision_details", None)
         }
-        config_snapshot_json = json.dumps(config_snap, ensure_ascii=False)
+        config_snapshot_json = json.dumps(config_snap, ensure_ascii=False, default=str)
     except Exception as exc_snap:
         logger.warning("trade_config_snapshot_failed", error=str(exc_snap))
         config_snapshot_json = None
@@ -370,31 +378,70 @@ async def execute_and_record(
     for key, value in weighted_details.items():
         setattr(history, key, value)
     
-    if cfg.stop_loss_enabled:
-        is_outsider = (
-            hasattr(decision_obj, 'strategy_type')
-            and isinstance(decision_obj.strategy_type, str)
-            and decision_obj.strategy_type.upper() == "OUTSIDER"
-        )
-        stop_pct = cfg.stop_loss_pct_outsider if is_outsider else cfg.stop_loss_pct_favorite
-        
-        history.market_end_time = getattr(market, "end_time_est", None)
-        history.stop_loss_pct = stop_pct
-        # Price is unknown, will be set on fill
-        history.stop_loss_status = "PENDING_FILL"
-
-    if cfg.take_profit_enabled:
-        history.take_profit_enabled    = True
-        history.take_profit_multiplier = cfg.take_profit_multiplier
-        history.take_profit_status     = "PENDING_FILL"
-    else:
+    if decision_obj.strategy_type == "CT_OUTSIDER":
+        history.strategy_name = details.get("spec_id") or "BTC_CT_T5_V1"
+        history.strategy_type = "CT_OUTSIDER"
+        history.stop_loss_status = "DISABLED"
+        history.take_profit_status = "DISABLED"
         history.take_profit_enabled = False
-        history.take_profit_status  = "SKIPPED"
+    else:
+        if cfg.stop_loss_enabled:
+            is_outsider = (
+                hasattr(decision_obj, 'strategy_type')
+                and isinstance(decision_obj.strategy_type, str)
+                and decision_obj.strategy_type.upper() == "OUTSIDER"
+            )
+            stop_pct = cfg.stop_loss_pct_outsider if is_outsider else cfg.stop_loss_pct_favorite
+            
+            history.market_end_time = getattr(market, "end_time_est", None)
+            history.stop_loss_pct = stop_pct
+            # Price is unknown, will be set on fill
+            history.stop_loss_status = "PENDING_FILL"
+
+        if cfg.take_profit_enabled:
+            history.take_profit_enabled    = True
+            history.take_profit_multiplier = cfg.take_profit_multiplier
+            history.take_profit_status     = "PENDING_FILL"
+        else:
+            history.take_profit_enabled = False
+            history.take_profit_status  = "SKIPPED"
 
     savepoint = await db_session.begin_nested()
     try:
         db_session.add(history)
         await db_session.flush()
+
+        if decision_obj.strategy_type == "CT_OUTSIDER":
+            from polyflip.trading.ct_reservation import reserve_ct_decision
+            spec_id = details.get("spec_id") or "BTC_CT_T5_V1"
+            res_key = details.get("decision_run_id") or f"CT:{spec_id}:{market.market_id}"
+            eff_decision_at = decision_at
+            if eff_decision_at is None and details.get("decision_at"):
+                try:
+                    val = details["decision_at"]
+                    eff_decision_at = datetime.fromisoformat(val) if isinstance(val, str) else val
+                except Exception:
+                    eff_decision_at = None
+            if eff_decision_at is None:
+                eff_decision_at = start_time
+
+            is_first, ct_res = await reserve_ct_decision(
+                db_session,
+                key=res_key,
+                market_id=str(market.market_id),
+                spec_id=spec_id,
+                action="BUY",
+                decision_at=eff_decision_at,
+                side=decision_obj.direction_value,
+                limit_price=buy_price,
+                budget_usdc=actual_bet_size,
+                reason=decision_obj.reason,
+                trade_history_id=history.id,
+                decision_details=details,
+                increment_on_conflict=False,
+            )
+            if not is_first:
+                raise EnqueueRejected(f"ActiveExecutionConflict: CT decision {res_key} is already reserved (action={ct_res.action}).")
 
         result = await enqueue_open_request(
             db_session,
@@ -427,7 +474,39 @@ async def execute_and_record(
 
         invalidate_stats_cache()
         invalidate_dashboard_cache()
+    except EnqueueRejected as e:
+        await savepoint.rollback()
+        logger.warning(
+            "enqueue_rejected_rolling_back",
+            market_id=market.market_id,
+            reason=str(e),
+        )
+        if decision_obj.strategy_type == "CT_OUTSIDER":
+            from polyflip.db.models import CTDecisionReservation
+            from sqlalchemy import update
+            from datetime import datetime, timezone
+            spec_id = details.get("spec_id") or "BTC_CT_T5_V1"
+            res_key = details.get("decision_run_id") or f"CT:{spec_id}:{market.market_id}"
+            now_utc = datetime.now(timezone.utc)
+            update_stmt = (
+                update(CTDecisionReservation)
+                .where(CTDecisionReservation.key == str(res_key))
+                .values(
+                    repeat_count=CTDecisionReservation.repeat_count + 1,
+                    last_repeat_at=now_utc,
+                )
+            )
+            await db_session.execute(update_stmt)
+            await db_session.flush()
+            existing = await db_session.get(CTDecisionReservation, str(res_key))
+            if existing is not None:
+                await db_session.refresh(existing)
+        raise
     except Exception as e:
         await savepoint.rollback()
-        logger.warning("enqueue_rejected_rolling_back", reason=str(e), market_id=market.market_id)
+        logger.error(
+            "trade_execution_failed_rolling_back",
+            market_id=market.market_id,
+            error=str(e),
+        )
         raise

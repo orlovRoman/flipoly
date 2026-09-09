@@ -7,7 +7,7 @@ import socket
 import ssl
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy import select, or_, and_, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -124,9 +124,11 @@ def _finite_decimal(value: object) -> Decimal | None:
         return None
     try:
         parsed = Decimal(str(value))
+        if parsed.is_finite():
+            return round(parsed, 8)
+        return None
     except (ArithmeticError, TypeError, ValueError):
         return None
-    return parsed if parsed.is_finite() else None
 
 
 async def _load_execution_runtime_settings(
@@ -523,7 +525,11 @@ async def _load_paper_execution_config(session, settings: ExecutionSettings) -> 
     }
 
 
-async def process_ready_requests():
+async def process_ready_requests(
+    *,
+    gateway: Any = None,
+    quote_provider: Any = None,
+):
     settings = ExecutionSettings()
     worker_mode = settings.execution_mode.value
 
@@ -539,12 +545,11 @@ async def process_ready_requests():
             requested_mode=req.requested_mode,
         )
 
-        # Bug #1 fix: дублирующий kill-switch блок удалён.
-        # Kill-switch для LIVE OPEN полностью обрабатывается внутри
-        # check_risk_limits() — единая точка проверки без двойного SELECT.
-
         paper_config = await _load_paper_execution_config(session, settings) if req.requested_mode == "PAPER" else None
-        gateway = build_execution_gateway(settings, paper_config=paper_config)
+        if gateway is None:
+            gateway = build_execution_gateway(
+                settings, paper_config=paper_config, quote_provider=quote_provider
+            )
 
         if req.requested_mode == "LIVE" and gateway.name == "FAKE":
             await finalize_request(
@@ -881,10 +886,10 @@ async def process_ready_requests():
                 outcome_to_buy=req.outcome_to_buy,
                 token_id=token_id,
                 side=side,
-                limit_price=limit_price,
+                limit_price=_finite_decimal(limit_price) or limit_price,
                 requested_shares=resolved_requested_shares,
                 max_spend_usdc=max_spend_usdc,
-                max_acceptable_price=execution_max_acceptable_price,
+                max_acceptable_price=_finite_decimal(execution_max_acceptable_price),
                 expiration=(
                     int(request_expiration.timestamp())
                     if req.trigger_reason == "TAKE_PROFIT" and request_expiration

@@ -131,6 +131,7 @@ class DecisionResult:
     confirm_model_version: Optional[int] = None
     applied_lower: Optional[float] = None
     applied_upper: Optional[float] = None
+    decision_at: Optional[datetime] = None
 
 async def infer_flip_for_market(
     db_session: AsyncSession,
@@ -1396,3 +1397,441 @@ async def decide_combined_mode(
         confirm_model_key=confirm_model_key,
         confirm_model_version=confirm_model_version,
     )
+
+
+async def decide_ct_outsider_mode(
+    db_session: AsyncSession,
+    api_client: Any,
+    market: LiveMarket,
+    cfg: TradingConfig,
+    raw_settings: dict,
+    models_cache: Any,
+    crypto_predictor: Any,
+    start_time: datetime,
+    time_left_sec: float,
+    existing_skipped: Any = None,
+    execution_mode: str = "PAPER",
+    decision_at: Optional[datetime] = None,
+) -> DecisionResult:
+    """
+    CT_OUTSIDER trading mode dispatcher (Stage 3, Items 14-20):
+    - Uses immutable specification BTC_CT_T5_V1.
+    - Symmetric outsider selection (UP vs DOWN) by causal mid prices.
+    - Evaluates all 3 diagnostic variants with unified decision_at.
+    - Causal quote timing: cycle_started_at vs decision_at.
+    - Real quote timestamps preserved without fake substitution.
+    - Non-blocking model availability confirmed without claiming predictions.
+    - Atomic DB-level decision reservation and idempotency.
+    """
+    import math
+    from datetime import timedelta
+    from dataclasses import asdict
+    from polyflip.trading.ct_policy import (
+        get_btc_ct_t5_v1_spec,
+        MarketTokenMapping,
+        SideQuote,
+        evaluate_all_ct_diagnostics,
+    )
+    from polyflip.trading.decision_logic import TradeDecision, ActionType
+
+    spec = get_btc_ct_t5_v1_spec()
+    cycle_started_at = start_time if start_time.tzinfo is not None else start_time.replace(tzinfo=timezone.utc)
+
+    # Check atomic reservation first if DB session is active
+    res_key = f"CT:{spec.spec_id}:{market.market_id}"
+    if db_session is not None:
+        try:
+            from polyflip.trading.ct_reservation import get_ct_decision_reservation
+            existing_res = await get_ct_decision_reservation(db_session, res_key)
+            if existing_res is not None:
+                logger.info(
+                    "ct_decision_already_reserved",
+                    key=res_key,
+                    original_action=existing_res.action,
+                    repeat_count=existing_res.repeat_count,
+                )
+                return DecisionResult(
+                    decision_obj=TradeDecision(
+                        action="SKIP",
+                        buy_price=0.0,
+                        bet_size_usdc=0.0,
+                        reason=f"ALREADY_DECIDED: {existing_res.action}",
+                        strategy_type="CT_OUTSIDER",
+                        direction_value=existing_res.side,
+                        decision_details={
+                            "spec_id": spec.spec_id,
+                            "spec_hash": spec.spec_hash,
+                            "decision_run_id": res_key,
+                            "repeat": True,
+                            "original_action": existing_res.action,
+                            "original_reason": existing_res.reason,
+                            "original_decision_at": existing_res.decision_at.isoformat() if existing_res.decision_at else None,
+                            "repeat_count": existing_res.repeat_count,
+                            "last_repeat_at": existing_res.last_repeat_at.isoformat() if existing_res.last_repeat_at else None,
+                        },
+                    ),
+                    p_flip=0.0,
+                    model_ver=None,
+                    edge=None,
+                    skip_reason=f"ALREADY_DECIDED: {existing_res.action}",
+                    decision_at=existing_res.decision_at,
+                )
+        except Exception as res_err:
+            logger.debug("ct_check_reservation_warning", error=str(res_err))
+
+    # 1. Fetch causal quotes for both sides
+    up_bid: float | None = None
+    up_ask: float | None = None
+    up_mid: float | None = None
+    up_event_at: datetime | None = None
+    up_received_at: datetime | None = None
+
+    down_bid: float | None = None
+    down_ask: float | None = None
+    down_mid: float | None = None
+    down_event_at: datetime | None = None
+    down_received_at: datetime | None = None
+
+    both_fetched = False
+    try:
+        prices = await api_client.get_market_prices(
+            market.yes_token_id,
+            no_token_id=market.no_token_id,
+            market_id=str(market.market_id),
+        )
+        if prices and ("yes_orderbook" in prices or "best_ask" in prices or "current_yes_price" in prices):
+            if prices.get("best_ask") is not None:
+                up_ask = float(prices["best_ask"])
+            if prices.get("best_bid") is not None:
+                up_bid = float(prices["best_bid"])
+            if prices.get("current_yes_price") is not None:
+                up_mid = float(prices["current_yes_price"])
+            elif up_bid is not None and up_ask is not None:
+                up_mid = (up_bid + up_ask) / 2.0
+            else:
+                up_mid = None
+
+            if prices.get("best_ask_no") is not None:
+                down_ask = float(prices["best_ask_no"])
+            elif prices.get("best_ask") is not None and "current_no_price" in prices:
+                pass
+            if prices.get("best_bid_no") is not None:
+                down_bid = float(prices["best_bid_no"])
+            if prices.get("current_no_price") is not None:
+                down_mid = float(prices["current_no_price"])
+            elif down_bid is not None and down_ask is not None:
+                down_mid = (down_bid + down_ask) / 2.0
+            else:
+                down_mid = None
+
+            yes_bk = prices.get("yes_orderbook")
+            if yes_bk is not None:
+                up_event_at = getattr(yes_bk, "event_at", None)
+                up_received_at = getattr(yes_bk, "received_at", None)
+            if up_event_at is None:
+                up_event_at = prices.get("event_at")
+            if up_received_at is None:
+                up_received_at = prices.get("received_at")
+
+            no_bk = prices.get("no_orderbook")
+            if no_bk is not None:
+                down_event_at = getattr(no_bk, "event_at", None)
+                down_received_at = getattr(no_bk, "received_at", None)
+            if down_event_at is None:
+                down_event_at = prices.get("event_at_no") or prices.get("event_at")
+            if down_received_at is None:
+                down_received_at = prices.get("received_at_no") or prices.get("received_at")
+
+            both_fetched = (up_ask is not None and down_ask is not None)
+    except TypeError:
+        both_fetched = False
+    except Exception as q_err:
+        logger.debug("api_client_both_prices_fetch_error", error=str(q_err))
+
+    if not both_fetched:
+        try:
+            prices_yes = await api_client.get_market_prices(market.yes_token_id)
+            if prices_yes:
+                if prices_yes.get("best_ask") is not None:
+                    up_ask = float(prices_yes["best_ask"])
+                if prices_yes.get("best_bid") is not None:
+                    up_bid = float(prices_yes["best_bid"])
+                if prices_yes.get("current_yes_price") is not None:
+                    up_mid = float(prices_yes["current_yes_price"])
+                elif up_bid is not None and up_ask is not None:
+                    up_mid = (up_bid + up_ask) / 2.0
+                else:
+                    up_mid = None
+                book_yes = prices_yes.get("yes_orderbook")
+                if book_yes is not None:
+                    up_event_at = getattr(book_yes, "event_at", None)
+                    up_received_at = getattr(book_yes, "received_at", None)
+                if up_event_at is None:
+                    up_event_at = prices_yes.get("event_at")
+                if up_received_at is None:
+                    up_received_at = prices_yes.get("received_at")
+        except Exception as q_err:
+            logger.debug("api_client_yes_prices_fetch_error", error=str(q_err))
+
+        try:
+            prices_no = await api_client.get_market_prices(market.no_token_id)
+            if prices_no:
+                if prices_no.get("best_ask") is not None:
+                    down_ask = float(prices_no["best_ask"])
+                if prices_no.get("best_bid") is not None:
+                    down_bid = float(prices_no["best_bid"])
+                if prices_no.get("current_no_price") is not None:
+                    down_mid = float(prices_no["current_no_price"])
+                elif down_bid is not None and down_ask is not None:
+                    down_mid = (down_bid + down_ask) / 2.0
+                else:
+                    down_mid = None
+                book_no = prices_no.get("no_orderbook") or prices_no.get("yes_orderbook")
+                if book_no is not None:
+                    down_event_at = getattr(book_no, "event_at", None)
+                    down_received_at = getattr(book_no, "received_at", None)
+                if down_event_at is None:
+                    down_event_at = prices_no.get("event_at")
+                if down_received_at is None:
+                    down_received_at = prices_no.get("received_at")
+        except Exception as q_err:
+            logger.debug("api_client_no_prices_fetch_error", error=str(q_err))
+
+    # Fallback to market snapshot attributes only if API client is offline/mock
+    # DO NOT fabricate start_time if timestamps are missing!
+    if up_ask is None and hasattr(market, "best_ask") and market.best_ask is not None:
+        up_ask = float(market.best_ask)
+        up_bid = float(market.best_bid) if getattr(market, "best_bid", None) is not None else None
+        if getattr(market, "mid_price", None) is not None:
+            up_mid = float(market.mid_price)
+        elif up_bid is not None and up_ask is not None:
+            up_mid = (up_bid + up_ask) / 2.0
+        else:
+            up_mid = None
+        up_event_at = getattr(market, "market_timestamp", None) or getattr(market, "updated_at", None)
+        up_received_at = getattr(market, "recorded_at", None)
+
+    # 2. Fix decision_at ONCE after quote reception and before decision calculation
+    if decision_at is not None:
+        eff_decision_at = decision_at if decision_at.tzinfo is not None else decision_at.replace(tzinfo=timezone.utc)
+    else:
+        eff_decision_at = datetime.now(timezone.utc)
+
+    # 3. Market Token Mapping
+    exp_dt = getattr(market, "end_time_est", None)
+    if exp_dt is None:
+        exp_dt = cycle_started_at + timedelta(seconds=time_left_sec)
+    if exp_dt.tzinfo is None:
+        exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+
+    mapping = MarketTokenMapping(
+        market_id=str(market.market_id),
+        asset=market.asset,
+        expiration=exp_dt,
+        up_token_id=str(market.yes_token_id or ""),
+        down_token_id=str(market.no_token_id or ""),
+    )
+
+    up_quote = SideQuote(
+        side="UP",
+        token_id=str(market.yes_token_id or ""),
+        best_bid=up_bid,
+        best_ask=up_ask,
+        mid_price=up_mid,
+        event_at=up_event_at,
+        received_at=up_received_at,
+    )
+    down_quote = SideQuote(
+        side="DOWN",
+        token_id=str(market.no_token_id or ""),
+        best_bid=down_bid,
+        best_ask=down_ask,
+        mid_price=down_mid,
+        event_at=down_event_at,
+        received_at=down_received_at,
+    )
+
+    # 4. Non-blocking model component availability (Item 21)
+    # Honestly report component availability without claiming prediction was made
+    model_availability: dict[str, Any] = {
+        "lgbm": {
+            "available": False,
+            "model_key": None,
+            "model_version": None,
+            "component_only": True,
+            "prediction_made": False,
+            "timestamp": eff_decision_at.isoformat(),
+        },
+        "logreg": {
+            "available": False,
+            "model_key": None,
+            "model_version": None,
+            "component_only": True,
+            "prediction_made": False,
+            "timestamp": eff_decision_at.isoformat(),
+        },
+        "spot_mrf": {
+            "available": False,
+            "component_only": True,
+            "prediction_made": False,
+            "timestamp": eff_decision_at.isoformat(),
+        },
+    }
+    try:
+        if models_cache is not None:
+            lgbm_key = getattr(models_cache, "lgbm_model_key", None)
+            lgbm_ver = getattr(models_cache, "lgbm_model_version", None)
+            if lgbm_key:
+                model_availability["lgbm"]["available"] = True
+                model_availability["lgbm"]["model_key"] = lgbm_key
+                model_availability["lgbm"]["model_version"] = lgbm_ver
+            lr_key = getattr(models_cache, "logreg_model_key", None)
+            lr_ver = getattr(models_cache, "logreg_model_version", None)
+            if lr_key:
+                model_availability["logreg"]["available"] = True
+                model_availability["logreg"]["model_key"] = lr_key
+                model_availability["logreg"]["model_version"] = lr_ver
+        if crypto_predictor is not None:
+            model_availability["spot_mrf"]["available"] = True
+    except Exception as diag_err:
+        logger.debug("ct_model_availability_warning", error=str(diag_err))
+
+    # 5. Fetch causal token histories relative to eff_decision_at (15-minute lookback)
+    up_history: list[dict[str, Any]] = []
+    down_history: list[dict[str, Any]] | None = []
+
+    try:
+        snaps_stmt = (
+            select(MarketSnapshot)
+            .where(
+                MarketSnapshot.market_id == str(market.market_id),
+                MarketSnapshot.recorded_at <= eff_decision_at,
+                MarketSnapshot.recorded_at >= eff_decision_at - timedelta(minutes=15),
+            )
+            .order_by(MarketSnapshot.recorded_at.asc())
+        )
+        snaps_res = await db_session.execute(snaps_stmt)
+        snaps = snaps_res.scalars().all()
+
+        for s in snaps:
+            # Respect received_timestamp causality if available
+            rec_ts = getattr(s, "received_timestamp", None)
+            if rec_ts is not None:
+                rec_dt = rec_ts if rec_ts.tzinfo is not None else rec_ts.replace(tzinfo=timezone.utc)
+                if rec_dt > eff_decision_at:
+                    continue
+
+            t = s.recorded_at if s.recorded_at.tzinfo is not None else s.recorded_at.replace(tzinfo=timezone.utc)
+            # UP mid
+            p_up = s.mid_price if s.mid_price is not None else s.poly_up_mid
+            if p_up is not None and math.isfinite(float(p_up)):
+                up_history.append({"recorded_at": t, "mid_price": float(p_up)})
+            # DOWN mid
+            p_down = getattr(s, "poly_down_mid", None)
+            if p_down is not None and math.isfinite(float(p_down)):
+                if down_history is not None:
+                    down_history.append({"recorded_at": t, "mid_price": float(p_down)})
+        if down_history is not None and len(down_history) == 0:
+            down_history = None
+    except Exception as h_err:
+        logger.debug("token_history_query_warning", error=str(h_err))
+
+    # 6. Evaluate all 3 diagnostic options using fixed decision_at
+    diag = evaluate_all_ct_diagnostics(
+        spec=spec,
+        decision_at=eff_decision_at,
+        market_mapping=mapping,
+        up_quote=up_quote,
+        down_quote=down_quote,
+        up_history=up_history,
+        down_history=down_history,
+    )
+
+    symm_ct = diag.symmetric_ct_policy
+
+    if symm_ct.action == "BUY":
+        action: ActionType = "BUY_YES" if symm_ct.side == "UP" else "BUY_NO"
+        buy_price = symm_ct.limit_price or 0.0
+        bet_size = symm_ct.budget_usdc
+        reason = symm_ct.reason
+    else:
+        action = "SKIP"
+        buy_price = 0.0
+        bet_size = 0.0
+        reason = symm_ct.reason
+
+    opportunity_id = f"{market.market_id}_{start_time.isoformat()}"
+    decision_id = f"CT:{spec.spec_id}:{market.market_id}"
+    timing_diag = dict(symm_ct.data_ids.get("timing_diagnostics", {}))
+    timing_diag.setdefault("cycle_started_at", cycle_started_at.isoformat())
+    timing_diag.setdefault("decision_at", eff_decision_at.isoformat())
+    timing_diag.setdefault("time_left_sec", round((exp_dt - eff_decision_at).total_seconds(), 3))
+    if action == "SKIP" and "skip_reason" not in timing_diag:
+        timing_diag["skip_reason"] = reason
+
+    details = {
+        "opportunity_id": opportunity_id,
+        "decision_id": decision_id,
+        "spec_id": spec.spec_id,
+        "spec_hash": spec.spec_hash,
+        "effective_specification": spec.canonical_dict(),
+        "chosen_side": symm_ct.side,
+        "token_id": symm_ct.token_id,
+        "market_role": "OUTSIDER",
+        "strategy_type": "CT_OUTSIDER",
+        "ct_regime": symm_ct.ct_regime,
+        "ct_features": symm_ct.ct_features,
+        "diagnostics": {
+            "historical_yes_only": asdict(diag.historical_yes_only),
+            "symmetric_price_control": asdict(diag.symmetric_price_control),
+            "symmetric_ct_policy": asdict(diag.symmetric_ct_policy),
+        },
+        "model_availability": model_availability,
+        "non_blocking_models": model_availability,
+        "data_ids": symm_ct.data_ids,
+        "timing_diagnostics": timing_diag,
+        "decision_run_id": res_key,
+        "max_acceptable_price": symm_ct.limit_price,
+        "cycle_started_at": cycle_started_at.isoformat(),
+        "decision_at": eff_decision_at.isoformat(),
+    }
+
+    # 7. If SKIP, atomically record reservation to prevent duplicate evaluation
+    if action == "SKIP" and db_session is not None:
+        try:
+            from polyflip.trading.ct_reservation import reserve_ct_decision
+            await reserve_ct_decision(
+                db_session,
+                key=res_key,
+                market_id=str(market.market_id),
+                spec_id=spec.spec_id,
+                action="SKIP",
+                decision_at=eff_decision_at,
+                side=symm_ct.side,
+                limit_price=None,
+                budget_usdc=None,
+                reason=reason,
+                decision_details=details,
+            )
+        except Exception as res_err:
+            logger.debug("reserve_ct_skip_warning", error=str(res_err))
+
+    trade_decision = TradeDecision(
+        action=action,
+        buy_price=buy_price,
+        bet_size_usdc=bet_size,
+        reason=reason,
+        strategy_type="CT_OUTSIDER",
+        direction_value=symm_ct.side,
+        decision_details=details,
+    )
+
+    return DecisionResult(
+        decision_obj=trade_decision,
+        p_flip=0.0,
+        model_ver=None,
+        edge=None,
+        skip_reason=reason if action == "SKIP" else None,
+        decision_at=eff_decision_at,
+    )
+

@@ -154,6 +154,8 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                     if guard_res.skip_reason and guard_res.skip_reason not in (
                         "guard: Time left <= 0",
                         "guard: Trade already exists",
+                        "guard: Decision already recorded in window (SKIP)",
+                        "guard: Decision already recorded in window",
                     ):
                         await save_or_update_skipped_trade(
                             db_session,
@@ -174,19 +176,36 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                     from polyflip.trading.ml_inference import get_models_cache
 
                     models_cache = get_models_cache()
-                    decision_res = await decide_combined_mode(
-                        db_session,
-                        api_client,
-                        market,
-                        cfg,
-                        raw_settings,
-                        models_cache,
-                        _get_crypto_predictor(),
-                        start_time,
-                        time_left_sec,
-                        existing_skipped,
-                        execution_mode=execution_mode,
-                    )
+                    if cfg.trading_mode.lower() in ("ct_outsider", "ct"):
+                        from polyflip.trading.decision_runners import decide_ct_outsider_mode
+
+                        decision_res = await decide_ct_outsider_mode(
+                            db_session,
+                            api_client,
+                            market,
+                            cfg,
+                            raw_settings,
+                            models_cache,
+                            _get_crypto_predictor(),
+                            start_time,
+                            time_left_sec,
+                            existing_skipped,
+                            execution_mode=execution_mode,
+                        )
+                    else:
+                        decision_res = await decide_combined_mode(
+                            db_session,
+                            api_client,
+                            market,
+                            cfg,
+                            raw_settings,
+                            models_cache,
+                            _get_crypto_predictor(),
+                            start_time,
+                            time_left_sec,
+                            existing_skipped,
+                            execution_mode=execution_mode,
+                        )
                     if (
                         overlay_ids
                         and decision_res is not None
@@ -283,6 +302,7 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                         confirm_model_version=decision_res.confirm_model_version
                         if decision_res
                         else None,
+                        decision_at=getattr(decision_res, "decision_at", None),
                     )
                 except EnqueueRejected as exc:
                     await _record_skip(

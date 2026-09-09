@@ -378,6 +378,31 @@ class TradeHistory(Base):
     weighted_benchmark_json = Column(Text, nullable=True)
 
 
+class CTDecisionReservation(Base):
+    """
+    Atomic reservation for CT outsider strategy decisions.
+    Keyed by 'CT:{spec_id}:{market_id}'.
+    Enforces that only one decision is made per market and specification version,
+    and prevents duplicate order creation under concurrent execution or replay after settlement.
+    """
+    __tablename__ = "ct_decision_reservations"
+
+    key = Column(String(128), primary_key=True)
+    market_id = Column(String(128), nullable=False, index=True)
+    spec_id = Column(String(64), nullable=False)
+    action = Column(String(16), nullable=False)  # BUY or SKIP
+    decision_at = Column(DateTime(timezone=True), nullable=False)
+    side = Column(String(16), nullable=True)  # UP or DOWN
+    limit_price = Column(Float, nullable=True)
+    budget_usdc = Column(Float, nullable=True)
+    reason = Column(String(128), nullable=False)
+    trade_history_id = Column(Integer, nullable=True)
+    decision_details = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    repeat_count = Column(Integer, nullable=False, default=0)
+    last_repeat_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
 class CollectorStatus(Base):
     """
     Таблица для мониторинга здоровья и задержек компонентов сбора данных.
