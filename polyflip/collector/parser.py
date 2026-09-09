@@ -42,10 +42,8 @@ async def run_collector_cycle(db_session: AsyncSession):
             if not prices or "error" in prices:
                 continue
 
-            mid_price = prices["current_yes_price"]
-            spread = prices["current_spread"]
-            if mid_price is None or spread is None:
-                continue
+            mid_price = prices.get("current_yes_price")
+            spread = prices.get("current_spread")
 
             # Вычисляем time_left_min
             current_time = datetime.now(timezone.utc)
@@ -115,7 +113,8 @@ async def run_collector_cycle(db_session: AsyncSession):
 
             if live_m:
                 # Считаем дельту скорости цены
-                price_velocity = mid_price - live_m.current_yes_price
+                if mid_price is not None and live_m.current_yes_price is not None:
+                    price_velocity = mid_price - live_m.current_yes_price
                 
                 # Обновляем LiveMarket
                 live_m.current_yes_price = mid_price

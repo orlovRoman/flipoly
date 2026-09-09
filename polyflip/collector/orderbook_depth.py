@@ -283,6 +283,7 @@ def compute_orderbook_completeness_report(
         }
 
     now = datetime.now(timezone.utc)
+    market_time_sides: dict[tuple[str, datetime], set[str]] = {}
     market_sides: dict[str, set[str]] = {}
     timestamps: list[datetime] = []
     n_truncated = 0
@@ -290,6 +291,7 @@ def compute_orderbook_completeness_report(
     status_counts: dict[str, int] = {}
 
     for c in contracts:
+        market_time_sides.setdefault((c.market_id, c.received_at), set()).add(c.outcome_side)
         market_sides.setdefault(c.market_id, set()).add(c.outcome_side)
         timestamps.append(c.received_at)
         if c.is_truncated:
@@ -305,11 +307,12 @@ def compute_orderbook_completeness_report(
     ]
 
     target_markets = set(decision_market_ids) if decision_market_ids else set(market_sides.keys())
+    target_snapshots = [(m, t) for (m, t) in market_time_sides.keys() if m in target_markets]
     both_count = sum(
-        1 for m in target_markets
-        if len(market_sides.get(m, set()).intersection({"YES", "NO"})) == 2
+        1 for (m, t) in target_snapshots
+        if len(market_time_sides.get((m, t), set()).intersection({"YES", "NO"})) == 2
     )
-    both_pct = (both_count / len(target_markets) * 100.0) if target_markets else 0.0
+    both_pct = (both_count / len(target_snapshots) * 100.0) if target_snapshots else 0.0
 
     latest_age = (now - timestamps[-1]).total_seconds() if timestamps else None
     mean_int = float(sum(intervals) / len(intervals)) if intervals else None

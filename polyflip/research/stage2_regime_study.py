@@ -47,6 +47,7 @@ def run_stage2_study(
     snapshots_csv_path: Path,
     candles_csv_path: Path,
     expirations_json_path: Path,
+    candles_1m_csv_path: Path | None = None,
     target_asset: str = "BTC",
     stake_usdc: float = 1.0,
     taker_fee_rate: float = 0.002,
@@ -66,6 +67,8 @@ def run_stage2_study(
         git_dirty = False
 
     def hash_file(filepath):
+        if filepath is None:
+            return "UNKNOWN"
         try:
             with open(filepath, 'rb') as f_in:
                 return hashlib.sha256(f_in.read()).hexdigest()
@@ -87,6 +90,13 @@ def run_stage2_study(
     except Exception:
         raw_candles = pd.read_csv(candles_csv_path, encoding="utf-8")
 
+    raw_candles_1m = None
+    if candles_1m_csv_path and candles_1m_csv_path.exists():
+        try:
+            raw_candles_1m = pd.read_csv(candles_1m_csv_path, encoding="utf-16")
+        except Exception:
+            raw_candles_1m = pd.read_csv(candles_1m_csv_path, encoding="utf-8")
+
     with open(expirations_json_path, "r", encoding="utf-8") as f:
         exp_map = json.load(f)
 
@@ -99,6 +109,12 @@ def run_stage2_study(
     candles = raw_candles[raw_candles["symbol"] == symbol].copy()
     candles["open_time"] = pd.to_datetime(candles["open_time"], utc=True)
     candles = candles.sort_values("open_time").reset_index(drop=True)
+
+    candles_1m = None
+    if raw_candles_1m is not None:
+        candles_1m = raw_candles_1m[raw_candles_1m["symbol"] == symbol].copy()
+        candles_1m["open_time"] = pd.to_datetime(candles_1m["open_time"], utc=True)
+        candles_1m = candles_1m.sort_values("open_time").reset_index(drop=True)
 
     # Pre-index candles for fast causal lookup
     c_times = candles["open_time"].values
@@ -177,13 +193,6 @@ def run_stage2_study(
                     else:
                         former_favorite_group = "OTHER_TRAJECTORY"
 
-            if max_lb >= 0.55 and ask <= 0.40:
-                former_favorite_group = "FORMER_FAVORITE"
-            elif max_lb <= 0.40:
-                former_favorite_group = "PERSISTENT_CHEAP"
-            else:
-                former_favorite_group = "OTHER_TRAJECTORY"
-
         # Token regime CT (historical control)
         prior_token_prices = prior_snaps["mid_price"].dropna().to_numpy()
         ct_res = classify_local_regime(prior_token_prices, min_observations=3)
@@ -207,7 +216,22 @@ def run_stage2_study(
                 spot_price_at_decision = float(spot_closes[-1])
                 cs_res = classify_local_regime(spot_closes, min_observations=4)
                 spot_regime = cs_res["state"]
-                cs_short_res = classify_spot_regime_short(spot_closes, timestamps=spot_times, as_of=decision_at, window_min=10.0, require_valid_autocorr=True)
+                
+                if candles_1m is not None:
+                    c1m = candles_1m[candles_1m["open_time"] + pd.Timedelta(minutes=1) <= decision_at]
+                    if len(c1m) >= 10:
+                        c1m_last_close = c1m["open_time"].iloc[-1] + pd.Timedelta(minutes=1)
+                        if (decision_at - c1m_last_close) <= pd.Timedelta(minutes=5):
+                            c1m_closes = c1m["close"].tail(10).to_numpy()
+                            c1m_times = c1m["open_time"].tail(10).to_numpy()
+                            cs_short_res = classify_spot_regime_short(c1m_closes, timestamps=c1m_times, as_of=decision_at, window_min=10.0, require_valid_autocorr=True)
+                        else:
+                            cs_short_res = {"state": "UNCERTAIN", "classification_reason": "STALE_1M_CANDLE"}
+                    else:
+                        cs_short_res = {"state": "UNCERTAIN", "classification_reason": "INSUFFICIENT_1M_CANDLES"}
+                else:
+                    cs_short_res = classify_spot_regime_short(spot_closes, timestamps=spot_times, as_of=decision_at, window_min=10.0, require_valid_autocorr=True)
+
                 spot_regime_short = cs_short_res["state"]
                 cs_short_reason = cs_short_res.get("classification_reason")
             else:
@@ -221,7 +245,7 @@ def run_stage2_study(
         market_start_at = (market_end_at - pd.Timedelta(minutes=15)) if market_end_at else None
 
         # Strike info: canonical strike is historically unrecorded; proxy is candle open at market start
-        canonical_strike = None
+        canonical_strike = float(dec_row["strike_value"]) if "strike_value" in dec_row and pd.notna(dec_row["strike_value"]) else None
         proxy_strike = None
         if market_start_at is not None:
             start_mask = candles["open_time"] <= market_start_at
@@ -256,14 +280,39 @@ def run_stage2_study(
         net_pnl = gross_pnl - fee
 
         # Synthesize orderbook depth for this snapshot (Point 14 & 26)
-        # Historical depth is missing in CSV, use BLOCKED_DATA
         sim_asks = None
+        if "asks" in dec_row and pd.notna(dec_row["asks"]):
+            try:
+                if isinstance(dec_row["asks"], str):
+                    sim_asks = json.loads(dec_row["asks"])
+                else:
+                    sim_asks = dec_row["asks"]
+            except Exception:
+                pass
 
         # Multi-budget simulations ($1, $5, $10) (Item 26)
-        # Marked as BLOCKED_DATA since true depth is unavailable
-        exec_1 = "BLOCKED_DATA"
-        exec_5 = "BLOCKED_DATA"
-        exec_10 = "BLOCKED_DATA"
+        if sim_asks is not None:
+            res_1 = simulate_orderbook_execution(sim_asks, budget_usdc=1.0, taker_fee_rate=taker_fee_rate)
+            res_5 = simulate_orderbook_execution(sim_asks, budget_usdc=5.0, taker_fee_rate=taker_fee_rate)
+            res_10 = simulate_orderbook_execution(sim_asks, budget_usdc=10.0, taker_fee_rate=taker_fee_rate)
+            exec_1 = res_1.fill_status
+            exec_5 = res_5.fill_status
+            exec_10 = res_10.fill_status
+        else:
+            exec_1 = "BLOCKED_DATA"
+            exec_5 = "BLOCKED_DATA"
+            exec_10 = "BLOCKED_DATA"
+
+        # Context evaluation for canonical strike
+        ctx_canon = compute_strike_context(
+            spot=spot_price_at_decision,
+            strike=canonical_strike if canonical_strike else np.nan,
+            sigma_min=sigma_min,
+            time_left_min=time_left_min,
+            local_mean=cs_res.get("local_mean"),
+            candidate_side="UP",
+        )
+        canon_reversion_helps = ctx_canon.get("reversion_helps_strike", False)
 
         # Variant inclusion flags
         v_c0 = is_candidate_price
@@ -272,7 +321,7 @@ def run_stage2_study(
         v_cs_short = is_candidate_price and (spot_regime_short == "REVERSION")
         v_c1 = is_candidate_price and ((token_regime == "REVERSION") or (spot_regime == "REVERSION"))
         v_ct_strike_proxy = v_ct and proxy_reversion_helps
-        v_ct_strike_canon = False  # Canonical strike unrecorded
+        v_ct_strike_canon = v_ct and canon_reversion_helps and canonical_strike is not None
 
         # Cohort tag (Item 22)
         if v_c0:
@@ -330,7 +379,9 @@ def run_stage2_study(
                 "CT_plus_canonical_strike": v_ct_strike_canon,
                 "CT_plus_proxy_strike": v_ct_strike_proxy,
             },
-            "execution_sim": "BLOCKED_DATA",
+            "execution_sim": exec_1,
+            "execution_sim_5": exec_5,
+            "execution_sim_10": exec_10,
             "exclusion_reason": exclusion_reason,
         })
 
@@ -528,14 +579,18 @@ def run_stage2_study(
         v_daily = np.array([daily_pnls[v_key][d] for d in all_days])
         paired_daily_deltas = v_daily - c0_daily
 
+        v_mask = c0_sub["variants"].apply(lambda d: d.get(v_key, False))
+        sub_v_curr = c0_sub[v_mask]
+        n_v_curr = len(sub_v_curr)
+
         # Daily trade counts for variant
-        d_counts = sub_v.groupby("calendar_date").size().to_dict() if n_v > 0 else {}
+        d_counts = sub_v_curr.groupby("calendar_date").size().to_dict() if n_v_curr > 0 else {}
         v_daily_counts = np.array([d_counts.get(d, 0) for d in all_days])
 
         # Bootstrap paired delta and standalone expectancy
         boot_deltas = []
         boot_standalones = []
-        if n_v > 0:
+        if n_v_curr > 0:
             for _ in range(n_bootstrap):
                 sampled_day_indices = np.random.randint(0, n_days, size=n_days)
                 b_delta = float(np.sum(paired_daily_deltas[sampled_day_indices]))
@@ -553,7 +608,7 @@ def run_stage2_study(
             ci_delta_low, ci_delta_high = 0.0, 0.0
             ci_stand_low, ci_stand_high = 0.0, 0.0
 
-        if n_v > 0:
+        if n_v_curr > 0:
             variant_results[v_key]["status"] = "COMPUTED"
             variant_results[v_key]["paired_delta_vs_c0"] = round(float(variant_results[v_key]["net_pnl_usdc"] - variant_results["C0"]["net_pnl_usdc"]), 2)
             variant_results[v_key]["paired_bootstrap_ci_95"] = [round(ci_delta_low, 2), round(ci_delta_high, 2)]

@@ -414,6 +414,7 @@ class PolymarketClient:
                         f"{self.CLOB_API}/book", params={"token_id": token_id}
                     )
                     received_at_dt = datetime.now(timezone.utc)
+                    now = received_at_dt
                 except (httpx.TimeoutException, httpx.NetworkError) as exc:
                     if attempt == 2:
                         raise
