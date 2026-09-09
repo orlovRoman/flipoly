@@ -47,4 +47,4 @@ def apply_fee_to_budget(
         commission = shares * price * commission_rate
         actual_cost = total_budget
         return actual_cost, shares, commission
-    return 0.0, 0.0, 0.0
+    raise ValueError(f"Unknown mode: {mode}")
