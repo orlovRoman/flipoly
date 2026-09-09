@@ -177,6 +177,12 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
     mode_raw = raw.get("TRADING_MODE", getattr(settings, "TRADING_MODE", "combined")).lower()
     if mode_raw == "combined":
         mode = mode_raw
+    elif mode_raw in ("ct_outsider", "ct"):
+        # CT_OUTSIDER is a first-class PAPER strategy.  Keep the canonical
+        # spelling in the parsed config so the engine can route to
+        # decide_ct_outsider_mode instead of silently falling back to the
+        # legacy COMBINED path.
+        mode = "ct_outsider"
     elif mode_raw in ("ml", "lightgbm", "favorite", "pure_favorite", "outsider"):
         import structlog
         structlog.get_logger(__name__).warning("legacy_trading_mode", mode=mode_raw, new_mode="combined")
