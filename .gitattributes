@@ -1,5 +1,9 @@
-# Strike-baseline: LF everywhere so manifest sha256 verifies on all platforms.
-artifacts/research/strike_baseline/** text eol=lf
+# Strike-baseline: text artifacts LF-only so manifest sha256 verifies everywhere.
+# Binary artifacts must NEVER be text-normalized (parquet corruption risk).
+artifacts/research/strike_baseline/**/*.csv text eol=lf
+artifacts/research/strike_baseline/**/*.json text eol=lf
 research/strike_baseline/*.yaml text eol=lf
 scripts/research/strike_baseline/*.py text eol=lf
 polyflip/research/strike_baseline/*.py text eol=lf
+artifacts/research/strike_baseline/**/*.parquet binary
+artifacts/research/strike_baseline/**/*.gz binary
