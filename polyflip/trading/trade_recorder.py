@@ -483,7 +483,7 @@ async def execute_and_record(
         )
         if decision_obj.strategy_type == "CT_OUTSIDER":
             from polyflip.db.models import CTDecisionReservation
-            from sqlalchemy import update
+            from sqlalchemy import func, update
             from datetime import datetime, timezone
             spec_id = details.get("spec_id") or "BTC_CT_T5_V1"
             res_key = details.get("decision_run_id") or f"CT:{spec_id}:{market.market_id}"
@@ -492,7 +492,7 @@ async def execute_and_record(
                 update(CTDecisionReservation)
                 .where(CTDecisionReservation.key == str(res_key))
                 .values(
-                    repeat_count=CTDecisionReservation.repeat_count + 1,
+                    repeat_count=func.coalesce(CTDecisionReservation.repeat_count, 0) + 1,
                     last_repeat_at=now_utc,
                 )
             )

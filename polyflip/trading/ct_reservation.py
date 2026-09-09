@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -129,7 +129,7 @@ async def reserve_ct_decision(
             update(CTDecisionReservation)
             .where(CTDecisionReservation.key == str(key))
             .values(
-                repeat_count=CTDecisionReservation.repeat_count + 1,
+                repeat_count=func.coalesce(CTDecisionReservation.repeat_count, 0) + 1,
                 last_repeat_at=now_utc,
             )
         )
@@ -138,6 +138,7 @@ async def reserve_ct_decision(
 
     existing = await db_session.get(CTDecisionReservation, str(key))
     if existing is not None:
+        await db_session.refresh(existing)
         logger.info(
             "ct_decision_repeat_detected",
             key=key,

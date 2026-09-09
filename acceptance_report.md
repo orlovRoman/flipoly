@@ -128,9 +128,11 @@
 
 ### 17. Конкурентный запуск двух и трех воркеров
 - Тесты:
-  - `test_11_concurrency_two_sessions_atomic_reservation`: два изолированных сессионных подключения к SQLite (режим WAL), синхронизированные через `asyncio.Barrier(2)`. Один поток успешно бронирует и отправляет ордер, второй натыкается на конфликт ключа, вызывает `EnqueueRejected(ActiveExecutionConflict)` и откатывает вложенный savepoint. В БД фиксируется ровно 1 сделка и 1 бронь с `repeat_count = 1`.
+  - `test_11_concurrency_two_sessions_atomic_reservation`: два изолированных сессионных подключения к SQLite (режим WAL), синхронизированные через `asyncio.Barrier(2)`. Оба воркера проходят реальные производственные диспетчер `decide_ct_outsider_mode` и валидатор `validate_pre_trade`. Барьер синхронизирует параллельное сохранение: один поток успешно бронирует и отправляет ордер, второй натыкается на конфликт ключа, вызывает `EnqueueRejected(ActiveExecutionConflict)` и откатывает вложенный savepoint. В БД фиксируется ровно 1 сделка и 1 бронь с `repeat_count = 1`. Затем реальный воркер (`process_ready_requests`) исполняет единственную заявку до статуса `FILLED` и переводит позицию в `OPEN`.
+  - `test_11_postgres_concurrency_two_sessions_atomic_reservation`: проверка реальной межсессионной конкурентности на PostgreSQL через фикстуру `pg_session_factory` (маркер `@pytest.mark.postgres`).
   - `test_11b_concurrency_rollback_releases_lock`: откат первой сессии до подтверждения брони полностью освобождает блокировку; вторая сессия успешно захватывает бронь с `repeat_count = 0`.
-  - `test_11c_atomic_repeat_count_increment_under_concurrency`: три одновременных повторных запроса через `asyncio.Barrier(3)` инкрементируют `repeat_count` через атомарный `update(CTDecisionReservation).where(...).values(repeat_count=repeat_count + 1)`, гарантируя `repeat_count = 3` без race conditions и потерь обновлений.
+  - `test_11c_atomic_repeat_count_increment_under_concurrency`: три одновременных повторных запроса через `asyncio.Barrier(3)` инкрементируют `repeat_count` через атомарный `update(CTDecisionReservation).where(...).values(repeat_count=func.coalesce(repeat_count, 0) + 1)`, гарантируя `repeat_count = 3` без race conditions и потерь обновлений.
+  - `test_11d_repeat_count_identity_map_refresh`: подтверждено принудительное обновление (`refresh`) сущности в identity map сессии, исключающее возврат устаревшего `repeat_count` при повторном вызове в той же сессии.
 
 ### 18. Повторный запуск после settlement
 - Тест: `test_12_rerun_after_settlement_blocked`.
@@ -142,7 +144,7 @@
     1. **Сбой между бронью и outbox enqueue:** Имитация ошибки при сохранении в outbox приводит к откату сейвпойнта в `execute_and_record`, не оставляя брони-сироты в базе данных. Повторный запуск цикла успешно находит маркет и выставляет заявку.
     2. **Сбой после enqueue в состоянии READY:** Заявка сохранена в БД. Независимый экземпляр воркера обнаруживает ее через `claim_one` (без передачи объектов через память), исполняет через шлюз и переводит в терминальный статус.
     3. **Сбой после сохранения fills до подтверждения учета:** `ExecutionFill` записан в БД, но воркер упал до обновления `TradeHistory`. При перезапуске сервис `rebuild_trade_accounting` восстанавливает позицию в статус `OPEN` с точными `entry_filled_shares` и `entry_cost_usdc`.
-  - `test_13b_recovery_stuck_claimed_request`: Заявка, зависшая в статусе `CLAIMED` с истекшим `lease_expires_at`, перехватывается воркером через `reclaim_expired_claims`, отдается в шлюз и успешно исполняется.
+  - `test_13b_recovery_stuck_claimed_request`: Заявка, зависшая в статусе `CLAIMED` с истекшим `lease_expires_at`, перехватывается воркером через `claim_one`, отдается в шлюз и успешно исполняется.
 
 ### 20. Неизменность первого решения
 - Тест: `test_14_first_decision_immutability_on_quote_change`.
@@ -183,9 +185,9 @@
 ### 24. Итоговая сводка тестов
 ```
 tests/trading/test_ct_policy.py ..............................           [30 passed]
-tests/trading/test_ct_synthetic_cycle.py .......................         [23 passed]
+tests/trading/test_ct_synthetic_cycle.py ...........s.............       [24 passed, 1 skipped]
 tests/research/test_ct_historical_replay.py ..                           [2 passed]
-============================= 55 passed in 5.14s ==============================
+============================= 56 passed, 1 skipped in 5.61s ==============================
 ```
-Полный регрессионный набор тестов (`tests/trading/`, `tests/research/`): **347 passed, 1 skipped, 0 failures, 0 errors**.
-Все 3 предупреждения об unawaited coroutines устранены (предупреждения pytest теперь исключительно внешние UserWarning из scikit-learn).
+Полный регрессионный набор тестов (`tests/trading/`, `tests/research/`): **348 passed, 2 skipped, 0 failures, 0 errors**.
+Все предупреждения об unawaited coroutines устранены (предупреждения pytest теперь исключительно внешние UserWarning из scikit-learn и DeprecationWarning из pandas/numpy).
