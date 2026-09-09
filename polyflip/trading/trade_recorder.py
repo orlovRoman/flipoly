@@ -438,6 +438,7 @@ async def execute_and_record(
                 reason=decision_obj.reason,
                 trade_history_id=history.id,
                 decision_details=details,
+                increment_on_conflict=False,
             )
             if not is_first:
                 raise EnqueueRejected(f"ActiveExecutionConflict: CT decision {res_key} is already reserved (action={ct_res.action}).")

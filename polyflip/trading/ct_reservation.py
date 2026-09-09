@@ -58,6 +58,7 @@ async def reserve_ct_decision(
     reason: str = "",
     trade_history_id: Optional[int] = None,
     decision_details: Optional[dict[str, Any]] = None,
+    increment_on_conflict: bool = True,
 ) -> tuple[bool, CTDecisionReservation]:
     """
     Atomically reserves a CT decision on the database level.
@@ -122,17 +123,18 @@ async def reserve_ct_decision(
         )
         return True, new_res
 
-    # Conflict: the key was already reserved. Perform atomic SQL increment of repeat_count
-    update_stmt = (
-        update(CTDecisionReservation)
-        .where(CTDecisionReservation.key == str(key))
-        .values(
-            repeat_count=CTDecisionReservation.repeat_count + 1,
-            last_repeat_at=now_utc,
+    # Conflict: the key was already reserved. Perform atomic SQL increment of repeat_count if requested
+    if increment_on_conflict:
+        update_stmt = (
+            update(CTDecisionReservation)
+            .where(CTDecisionReservation.key == str(key))
+            .values(
+                repeat_count=CTDecisionReservation.repeat_count + 1,
+                last_repeat_at=now_utc,
+            )
         )
-    )
-    await db_session.execute(update_stmt)
-    await db_session.flush()
+        await db_session.execute(update_stmt)
+        await db_session.flush()
 
     existing = await db_session.get(CTDecisionReservation, str(key))
     if existing is not None:

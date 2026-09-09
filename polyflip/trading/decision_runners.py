@@ -1474,6 +1474,7 @@ async def decide_ct_outsider_mode(
                     model_ver=None,
                     edge=None,
                     skip_reason=f"ALREADY_DECIDED: {existing_res.action}",
+                    decision_at=existing_res.decision_at,
                 )
         except Exception as res_err:
             logger.debug("ct_check_reservation_warning", error=str(res_err))

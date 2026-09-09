@@ -56,16 +56,13 @@ from polyflip.trading.ct_reservation import (
     reserve_ct_decision,
     get_ct_decision_reservation,
 )
-from polyflip.execution.outbox import finalize_request
 from polyflip.execution.worker import (
     claim_one,
-    _persist_fills,
     rebuild_trade_accounting,
     process_ready_requests,
 )
 from polyflip.execution.settlement_service import settle_resolved_position
 from polyflip.execution.gateways.fake import FakeExecutionGateway
-from polyflip.execution.contracts import GatewayOrder, SubmissionResult
 from polyflip.research.ct_report import build_profile_report
 
 
@@ -221,137 +218,6 @@ async def _run_production_paper_cycle(
     if trade is not None:
         await db_session.refresh(trade)
     return trade, decision_res
-
-
-async def _record_and_claim_trade(
-    db_session,
-    market: LiveMarket,
-    decision: CTDecision,
-    start_time: datetime,
-) -> tuple[TradeHistory, ExecutionRequest]:
-    outcome = "YES" if decision.side == "UP" else "NO"
-    trade_decision = TradeDecision(
-        action=f"BUY_{outcome}",
-        buy_price=decision.limit_price or 0.20,
-        bet_size_usdc=decision.budget_usdc,
-        reason=decision.reason,
-        strategy_type="CT_OUTSIDER",
-        direction_value=decision.side,
-        decision_details={
-            "spec_id": decision.spec_id,
-            "spec_hash": decision.spec_hash,
-            "decision_run_id": f"CT:{decision.spec_id}:{market.market_id}",
-            "chosen_side": decision.side,
-            "token_id": decision.token_id,
-            "market_role": "OUTSIDER",
-            "strategy_type": "CT_OUTSIDER",
-            "ct_regime": decision.ct_regime,
-            "ct_features": decision.ct_features,
-            "data_ids": decision.data_ids,
-            "timing_diagnostics": decision.data_ids.get("timing_diagnostics", {}),
-        },
-    )
-    validation = PreTradeValidation(
-        valid=True,
-        buy_price=Decimal(str(decision.limit_price or 0.20)),
-        actual_bet_size=Decimal(str(decision.budget_usdc)),
-        edge=0.05,
-        market_role="OUTSIDER",
-        skip_reason=None,
-    )
-    cfg = parse_trading_settings({})
-
-    await execute_and_record(
-        db_session=db_session,
-        market=market,
-        decision_obj=trade_decision,
-        validation=validation,
-        asset_mode="FAVORITE",
-        active_features="ct_features",
-        p_flip=0.0,
-        model_ver=None,
-        cfg=cfg,
-        existing_skipped=None,
-        start_time=start_time,
-    )
-    await db_session.commit()
-
-    req = await claim_one(db_session, "PAPER")
-    assert req is not None, "Execution request was not enqueued or claimed"
-    trade = await db_session.get(TradeHistory, req.trade_history_id)
-    assert trade is not None
-    return trade, req
-
-
-async def _execute_paper_gateway(
-    db_session,
-    trade: TradeHistory,
-    req: ExecutionRequest,
-    asks: list[dict[str, float]],
-    bids: list[dict[str, float]] | None = None,
-    fee_rate: Decimal = Decimal("0.002"),
-    shares_override: Decimal | None = None,
-    order_spend_usdc: Decimal | None = None,
-) -> SubmissionResult:
-    attempt = ExecutionAttempt(
-        request_id=req.id,
-        gateway="FAKE",
-        attempt_no=1,
-        submission_key=f"{req.idempotency_key}:1",
-        started_at=datetime.now(timezone.utc),
-    )
-    db_session.add(attempt)
-    await db_session.flush()
-
-    token_id = "up_tok" if req.outcome_to_buy == "YES" else "down_tok"
-
-    async def mock_quote_provider(_tok: str):
-        return {
-            "asks": asks,
-            "bids": bids or [],
-            "best_ask": asks[0]["price"] if asks else None,
-            "best_bid": bids[0]["price"] if bids else None,
-        }
-
-    gateway = FakeExecutionGateway(
-        profile="LIVE_PARITY",
-        quote_provider=mock_quote_provider,
-        fee_rate=fee_rate,
-        min_order_shares=Decimal("0.0001"),
-    )
-
-    limit_p = Decimal(str(round(float(req.limit_price or 0.20), 4)))
-    spend_usdc = Decimal(str(round(float(req.max_spend_usdc or 1.00), 4)))
-    shares = shares_override or req.requested_shares or (spend_usdc / limit_p)
-
-    max_spend = order_spend_usdc if order_spend_usdc is not None else (spend_usdc * Decimal("1.01") if fee_rate > 0 else spend_usdc)
-
-    order = GatewayOrder(
-        attempt_id=attempt.id,
-        market_id=req.market_id,
-        asset=req.asset,
-        outcome_to_buy=req.outcome_to_buy,
-        token_id=token_id,
-        side="BUY",
-        limit_price=limit_p,
-        requested_shares=shares,
-        max_spend_usdc=max_spend,
-    )
-    sub_res = await gateway.submit(order)
-
-    if sub_res.accepted and sub_res.fills:
-        await _persist_fills(db_session, attempt, sub_res.fills)
-        req.filled_shares = sum((f.shares for f in sub_res.fills), Decimal("0"))
-        req.filled_cost_usdc = sum((f.gross_quote_usdc for f in sub_res.fills), Decimal("0"))
-        await finalize_request(db_session, req, state="FILLED")
-        await rebuild_trade_accounting(db_session, trade.id)
-    elif not sub_res.accepted:
-        err_msg = sub_res.rejection_code or sub_res.error_message or "REJECTED"
-        await finalize_request(db_session, req, state="REJECTED", error=err_msg)
-
-    await db_session.commit()
-    await db_session.refresh(trade)
-    return sub_res
 
 
 # ==============================================================================
@@ -852,26 +718,53 @@ async def test_11_concurrency_two_sessions_atomic_reservation(tmp_path, base_dec
             market = _make_live_market(init_session, market_id="mkt_concur", end_time=dec_at + timedelta(seconds=240))
             await init_session.commit()
 
-        dec = CTDecision(
-            action="BUY", side="UP", token_id="up_tok", reason="CT_SIGNAL_REVERSION",
-            spec_id="BTC_CT_T5_V1", spec_hash="hash1", decision_at=dec_at, time_left_sec=240.0,
-            market_id="mkt_concur", asset="BTC", limit_price=0.20, budget_usdc=1.00,
-            selected_ask=0.20, selected_mid=0.20, selected_bid=0.19, other_mid=0.80,
-            outsider_margin=0.30, ct_regime="REVERSION", ct_features={}, data_ids={},
-            is_executable=True,
-        )
-
         barrier = asyncio.Barrier(2)
         results: list[tuple[str, Any, Exception | None]] = []
 
         async def attempt_record(worker_id: str):
             async with session_maker() as session:
                 mkt = (await session.execute(select(LiveMarket).where(LiveMarket.market_id == "mkt_concur"))).scalar_one()
+                trade_decision = TradeDecision(
+                    action="BUY_YES",
+                    buy_price=0.20,
+                    bet_size_usdc=1.00,
+                    reason="CT_SIGNAL_REVERSION",
+                    strategy_type="CT_OUTSIDER",
+                    direction_value="UP",
+                    decision_details={
+                        "spec_id": "BTC_CT_T5_V1",
+                        "spec_hash": "hash1",
+                        "decision_run_id": "CT:BTC_CT_T5_V1:mkt_concur",
+                        "decision_at": dec_at.isoformat(),
+                    },
+                )
+                validation = PreTradeValidation(
+                    valid=True,
+                    buy_price=Decimal("0.20"),
+                    actual_bet_size=Decimal("1.00"),
+                    edge=0.05,
+                    market_role="OUTSIDER",
+                    skip_reason=None,
+                )
+                cfg = parse_trading_settings({"TRADING_MODE": "ct_outsider"})
                 await barrier.wait()
                 try:
-                    trade, req = await _record_and_claim_trade(session, mkt, dec, dec_at)
+                    await execute_and_record(
+                        db_session=session,
+                        market=mkt,
+                        decision_obj=trade_decision,
+                        validation=validation,
+                        asset_mode="FAVORITE",
+                        active_features="ct_features",
+                        p_flip=0.0,
+                        model_ver=None,
+                        cfg=cfg,
+                        existing_skipped=None,
+                        start_time=dec_at,
+                        decision_at=dec_at,
+                    )
                     await session.commit()
-                    results.append((worker_id, trade, None))
+                    results.append((worker_id, "COMMITTED", None))
                 except EnqueueRejected as exc:
                     await session.commit()
                     results.append((worker_id, None, exc))
@@ -890,13 +783,16 @@ async def test_11_concurrency_two_sessions_atomic_reservation(tmp_path, base_dec
         assert "ActiveExecutionConflict" in str(failed[0][2])
         assert "already reserved" in str(failed[0][2])
 
-        # Clean verification session: exactly 1 trade and repeat_count=1
+        # Clean verification session: exactly 1 trade, 1 reservation (repeat_count=1), and 1 READY request
         async with session_maker() as verify_session:
             trades = (await verify_session.execute(select(TradeHistory).where(TradeHistory.market_id == "mkt_concur"))).scalars().all()
             assert len(trades) == 1
             res = await get_ct_decision_reservation(verify_session, "CT:BTC_CT_T5_V1:mkt_concur")
             assert res is not None
             assert res.repeat_count == 1
+            requests = (await verify_session.execute(select(ExecutionRequest).where(ExecutionRequest.market_id == "mkt_concur"))).scalars().all()
+            assert len(requests) == 1
+            assert requests[0].state == "READY"
     finally:
         await concur_engine.dispose()
 
@@ -1015,29 +911,48 @@ async def test_12_rerun_after_settlement_blocked(db_session, base_decision_time)
     market = _make_live_market(db_session, market_id="mkt_rerun", end_time=dec_at + timedelta(seconds=240))
     await db_session.commit()
 
-    # Initial cycle completes and settles
-    dec = CTDecision(
-        action="BUY", side="UP", token_id="up_tok", reason="CT_SIGNAL_REVERSION",
-        spec_id="BTC_CT_T5_V1", spec_hash="hash1", decision_at=dec_at, time_left_sec=240.0,
-        market_id=market.market_id, asset="BTC", limit_price=0.20, budget_usdc=1.00,
-        selected_ask=0.20, selected_mid=0.20, selected_bid=0.19, other_mid=0.80,
-        outsider_margin=0.30, ct_regime="REVERSION", ct_features={}, data_ids={},
-        is_executable=True,
+    await _seed_market_snapshots(
+        db_session,
+        market.market_id,
+        dec_at,
+        [0.18, 0.24, 0.17, 0.23, 0.18, 0.24, 0.19, 0.23],
     )
-    trade, req = await _record_and_claim_trade(db_session, market, dec, dec_at)
-    asks = [{"price": 0.20, "size": 50.0}]
-    await _execute_paper_gateway(db_session, trade, req, asks=asks)
+
+    class RerunClient:
+        async def get_market_prices(self, tok, **kwargs):
+            return {
+                "best_ask": 0.20,
+                "best_bid": 0.19,
+                "best_ask_no": 0.80,
+                "best_bid_no": 0.79,
+                "current_yes_price": 0.20,
+                "current_no_price": 0.80,
+                "event_at": dec_at - timedelta(seconds=1),
+                "received_at": dec_at - timedelta(seconds=1),
+            }
+
+    async def quote_prov(_tok: str):
+        return {"asks": [{"price": 0.20, "size": 50.0}], "bids": [{"price": 0.19, "size": 50.0}], "best_ask": 0.20, "best_bid": 0.19}
+
+    # Initial cycle completes through production paper cycle and settles
+    trade, dec_res = await _run_production_paper_cycle(
+        db_session,
+        market,
+        RerunClient(),
+        dec_at,
+        quote_provider=quote_prov,
+        fee_rate=Decimal("0.002"),
+    )
+    assert trade is not None
     await settle_resolved_position(db_session, trade_id=trade.id, winning_outcome="YES", payout_per_share=Decimal("1.0"))
     await db_session.commit()
+    await db_session.refresh(trade)
+    assert trade.position_status == "CLOSED"
 
     # Subsequent cycle polls the same market via decide_ct_outsider_mode
-    class MockClient:
-        async def get_market_prices(self, _tok):
-            return {"best_ask": 0.20, "best_bid": 0.19, "event_at": dec_at, "received_at": dec_at}
-
-    dec_res = await decide_ct_outsider_mode(
+    dec_res2 = await decide_ct_outsider_mode(
         db_session=db_session,
-        api_client=MockClient(),
+        api_client=RerunClient(),
         market=market,
         cfg=parse_trading_settings({}),
         raw_settings={},
@@ -1048,13 +963,14 @@ async def test_12_rerun_after_settlement_blocked(db_session, base_decision_time)
         execution_mode="PAPER",
     )
 
-    assert dec_res.decision_obj.action == "SKIP"
-    assert "ALREADY_DECIDED: BUY" in dec_res.decision_obj.reason
-    assert dec_res.decision_obj.decision_details.get("repeat") is True
+    assert dec_res2.decision_obj.action == "SKIP"
+    assert "ALREADY_DECIDED: BUY" in dec_res2.decision_obj.reason
+    assert dec_res2.decision_obj.decision_details.get("repeat") is True
 
     # Ensure no new trade was created
     trades = (await db_session.execute(select(TradeHistory).where(TradeHistory.market_id == market.market_id))).scalars().all()
     assert len(trades) == 1
+    assert trades[0].position_status == "CLOSED"
 
 
 @pytest.mark.asyncio
@@ -1174,14 +1090,54 @@ async def test_13_recovery_at_three_failure_points(db_session, base_decision_tim
     # Point 3: Crash after fill before trade accounting update
     # Simulate: ExecutionFill written to DB, request FILLED, but worker crashed before rebuild_trade_accounting
     mkt3 = _make_live_market(db_session, market_id="mkt_crash_3", end_time=dec_at + timedelta(seconds=240))
-    trade3, req3 = await _record_and_claim_trade(db_session, mkt3, CTDecision(
-        action="BUY", side="UP", token_id="up_tok", reason="CT_SIGNAL_REVERSION",
-        spec_id="BTC_CT_T5_V1", spec_hash="hash1", decision_at=dec_at, time_left_sec=240.0,
-        market_id=mkt3.market_id, asset="BTC", limit_price=0.20, budget_usdc=1.00,
-        selected_ask=0.20, selected_mid=0.20, selected_bid=0.19, other_mid=0.80,
-        outsider_margin=0.30, ct_regime="REVERSION", ct_features={}, data_ids={},
-        is_executable=True,
-    ), dec_at)
+    await db_session.commit()
+    await _seed_market_snapshots(db_session, mkt3.market_id, dec_at, [0.20, 0.22, 0.20, 0.22, 0.20, 0.22, 0.20, 0.22])
+
+    dec3_res = await decide_ct_outsider_mode(
+        db_session=db_session,
+        api_client=CrashClient(),
+        market=mkt3,
+        cfg=parse_trading_settings({"TRADING_MODE": "ct_outsider"}),
+        raw_settings={},
+        models_cache=None,
+        crypto_predictor=None,
+        start_time=dec_at,
+        time_left_sec=240.0,
+        execution_mode="PAPER",
+        decision_at=dec_at,
+    )
+    val3 = await validate_pre_trade(
+        db_session=db_session,
+        api_client=CrashClient(),
+        market=mkt3,
+        decision_obj=dec3_res.decision_obj,
+        cfg=parse_trading_settings({"TRADING_MODE": "ct_outsider"}),
+        asset_mode="FAVORITE",
+        asset_min_edge=0.0,
+        asset_max_price=0.95,
+        p_flip=dec3_res.p_flip,
+        model_ver=dec3_res.model_ver,
+    )
+    await execute_and_record(
+        db_session=db_session,
+        market=mkt3,
+        decision_obj=dec3_res.decision_obj,
+        validation=val3,
+        asset_mode="FAVORITE",
+        active_features="ct_features",
+        p_flip=dec3_res.p_flip,
+        model_ver=dec3_res.model_ver,
+        cfg=parse_trading_settings({"TRADING_MODE": "ct_outsider"}),
+        existing_skipped=None,
+        start_time=dec_at,
+        decision_at=dec_at,
+    )
+    await db_session.commit()
+
+    req3 = await claim_one(db_session, "PAPER")
+    assert req3 is not None
+    trade3 = await db_session.get(TradeHistory, req3.trade_history_id)
+    assert trade3 is not None
 
     attempt3 = ExecutionAttempt(
         request_id=req3.id,
@@ -1197,16 +1153,16 @@ async def test_13_recovery_at_three_failure_points(db_session, base_decision_tim
         attempt_id=attempt3.id,
         provider_trade_id="RECOVERY_FILL_1",
         gateway="FAKE",
-        gross_quote_usdc=Decimal("1.00"),
+        gross_quote_usdc=Decimal("0.998004"),
         price=Decimal("0.20"),
-        shares=Decimal("5.0"),
-        fee_usdc=Decimal("0.002"),
+        shares=Decimal("4.99002"),
+        fee_usdc=Decimal("0.001996"),
         timestamp=datetime.now(timezone.utc),
     )
     db_session.add(fill3)
     req3.state = "FILLED"
-    req3.filled_shares = Decimal("5.0")
-    req3.filled_cost_usdc = Decimal("1.00")
+    req3.filled_shares = Decimal("4.99002")
+    req3.filled_cost_usdc = Decimal("0.998004")
     await db_session.commit()
 
     # Recovery: rebuild_trade_accounting restores position to OPEN
@@ -1215,16 +1171,17 @@ async def test_13_recovery_at_three_failure_points(db_session, base_decision_tim
     await db_session.refresh(trade3)
 
     assert trade3.position_status == "OPEN"
-    assert trade3.entry_filled_shares == Decimal("5.0")
-    assert trade3.remaining_shares == Decimal("5.0")
-    assert math.isclose(float(trade3.entry_cost_usdc), 1.002, abs_tol=1e-5)
+    assert math.isclose(float(trade3.entry_filled_shares), 4.99002, abs_tol=1e-5)
+    assert math.isclose(float(trade3.remaining_shares), 4.99002, abs_tol=1e-5)
+    assert math.isclose(float(trade3.entry_cost_usdc), 1.00000, abs_tol=1e-5)
 
     # Repeat call is an idempotent no-op!
     await rebuild_trade_accounting(db_session, trade3.id)
     await db_session.commit()
     await db_session.refresh(trade3)
     assert trade3.position_status == "OPEN"
-    assert trade3.entry_filled_shares == Decimal("5.0")
+    assert math.isclose(float(trade3.entry_filled_shares), 4.99002, abs_tol=1e-5)
+    assert math.isclose(float(trade3.entry_cost_usdc), 1.00000, abs_tol=1e-5)
 
 
 @pytest.mark.asyncio
@@ -1234,16 +1191,66 @@ async def test_13b_recovery_stuck_claimed_request(db_session, base_decision_time
     now = datetime.now(timezone.utc)
     market = _make_live_market(db_session, market_id="mkt_stuck_claim", end_time=dec_at + timedelta(seconds=240))
     await db_session.commit()
+    await _seed_market_snapshots(db_session, market.market_id, dec_at, [0.20, 0.22, 0.20, 0.22, 0.20, 0.22, 0.20, 0.22])
 
-    dec = CTDecision(
-        action="BUY", side="UP", token_id="up_tok", reason="CT_SIGNAL_REVERSION",
-        spec_id="BTC_CT_T5_V1", spec_hash="hash1", decision_at=dec_at, time_left_sec=240.0,
-        market_id=market.market_id, asset="BTC", limit_price=0.20, budget_usdc=1.00,
-        selected_ask=0.20, selected_mid=0.20, selected_bid=0.19, other_mid=0.80,
-        outsider_margin=0.30, ct_regime="REVERSION", ct_features={}, data_ids={},
-        is_executable=True,
+    class StuckClient:
+        async def get_market_prices(self, tok, **kwargs):
+            return {
+                "best_ask": 0.20,
+                "best_bid": 0.19,
+                "best_ask_no": 0.80,
+                "best_bid_no": 0.79,
+                "current_yes_price": 0.20,
+                "current_no_price": 0.80,
+                "event_at": dec_at - timedelta(seconds=1),
+                "received_at": dec_at - timedelta(seconds=1),
+            }
+
+    dec_res = await decide_ct_outsider_mode(
+        db_session=db_session,
+        api_client=StuckClient(),
+        market=market,
+        cfg=parse_trading_settings({"TRADING_MODE": "ct_outsider"}),
+        raw_settings={},
+        models_cache=None,
+        crypto_predictor=None,
+        start_time=dec_at,
+        time_left_sec=240.0,
+        execution_mode="PAPER",
+        decision_at=dec_at,
     )
-    trade, req = await _record_and_claim_trade(db_session, market, dec, dec_at)
+    val = await validate_pre_trade(
+        db_session=db_session,
+        api_client=StuckClient(),
+        market=market,
+        decision_obj=dec_res.decision_obj,
+        cfg=parse_trading_settings({"TRADING_MODE": "ct_outsider"}),
+        asset_mode="FAVORITE",
+        asset_min_edge=0.0,
+        asset_max_price=0.95,
+        p_flip=dec_res.p_flip,
+        model_ver=dec_res.model_ver,
+    )
+    await execute_and_record(
+        db_session=db_session,
+        market=market,
+        decision_obj=dec_res.decision_obj,
+        validation=val,
+        asset_mode="FAVORITE",
+        active_features="ct_features",
+        p_flip=dec_res.p_flip,
+        model_ver=dec_res.model_ver,
+        cfg=parse_trading_settings({"TRADING_MODE": "ct_outsider"}),
+        existing_skipped=None,
+        start_time=dec_at,
+        decision_at=dec_at,
+    )
+    await db_session.commit()
+
+    req = await claim_one(db_session, "PAPER")
+    assert req is not None
+    trade = await db_session.get(TradeHistory, req.trade_history_id)
+    assert trade is not None
 
     # Simulate crashed worker: lease expired 30 seconds ago
     req.state = "CLAIMED"
@@ -1279,17 +1286,34 @@ async def test_14_first_decision_immutability_on_quote_change(db_session, base_d
     dec_at = base_decision_time
     market = _make_live_market(db_session, market_id="mkt_immutable", end_time=dec_at + timedelta(seconds=240))
     await db_session.commit()
+    await _seed_market_snapshots(db_session, market.market_id, dec_at, [0.18, 0.24, 0.17, 0.23, 0.18, 0.24, 0.19, 0.23])
+
+    class UpClient:
+        async def get_market_prices(self, tok, **kwargs):
+            return {
+                "best_ask": 0.20,
+                "best_bid": 0.19,
+                "best_ask_no": 0.80,
+                "best_bid_no": 0.79,
+                "current_yes_price": 0.20,
+                "current_no_price": 0.80,
+                "event_at": dec_at - timedelta(seconds=1),
+                "received_at": dec_at - timedelta(seconds=1),
+            }
+
+    async def quote_prov(_tok: str):
+        return {"asks": [{"price": 0.20, "size": 50.0}], "bids": [{"price": 0.19, "size": 50.0}], "best_ask": 0.20, "best_bid": 0.19}
 
     # First poll: UP is outsider (ask 0.20)
-    dec = CTDecision(
-        action="BUY", side="UP", token_id="up_tok", reason="CT_SIGNAL_REVERSION",
-        spec_id="BTC_CT_T5_V1", spec_hash="hash1", decision_at=dec_at, time_left_sec=240.0,
-        market_id=market.market_id, asset="BTC", limit_price=0.20, budget_usdc=1.00,
-        selected_ask=0.20, selected_mid=0.20, selected_bid=0.19, other_mid=0.80,
-        outsider_margin=0.30, ct_regime="REVERSION", ct_features={}, data_ids={},
-        is_executable=True,
+    trade, dec_res = await _run_production_paper_cycle(
+        db_session,
+        market,
+        UpClient(),
+        dec_at,
+        quote_provider=quote_prov,
+        fee_rate=Decimal("0.002"),
     )
-    trade, req = await _record_and_claim_trade(db_session, market, dec, dec_at)
+    assert trade is not None
     assert trade.outcome_bought == "YES"
 
     # Second poll: Quotes flip! DOWN is now outsider (ask 0.15), UP is expensive (ask 0.85)
