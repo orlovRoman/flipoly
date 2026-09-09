@@ -370,6 +370,20 @@ def test_item_26_multi_budget_execution():
             assert "avg_vwap" in mb[b]
 
 
+def test_item_27_execution_selection_effect():
+    """Item 27: Execution selection effect metrics."""
+    res_path = REPO_ROOT / "artifacts" / "research" / "stage2_comprehensive_study_results.json"
+    if res_path.exists():
+        with open(res_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        sel = data["item_27_execution_selection_effect"]
+        assert "filled_count" in sel
+        assert "unfilled_count" in sel
+        assert "filled_win_rate" in sel
+        assert sel["filled_count"] == 2636
+        assert sel["unfilled_count"] == 0
+
+
 def test_item_29_holdout_evaluation():
     """Item 29: Subsequent period holdout evaluation."""
     res_path = REPO_ROOT / "artifacts" / "research" / "stage2_comprehensive_study_results.json"
