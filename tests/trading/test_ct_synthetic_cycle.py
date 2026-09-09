@@ -47,8 +47,7 @@ from polyflip.trading.ct_policy import (
     CTDecision,
     evaluate_ct_policy,
 )
-from polyflip.trading.decision_logic import TradeDecision
-from polyflip.trading.pre_trade_validator import PreTradeValidation, validate_pre_trade
+from polyflip.trading.pre_trade_validator import validate_pre_trade
 from polyflip.trading.trading_config import parse_trading_settings
 from polyflip.trading.trade_recorder import execute_and_record, EnqueueRejected
 from polyflip.trading.decision_runners import decide_ct_outsider_mode, DecisionResult
@@ -717,6 +716,26 @@ async def test_11_concurrency_two_sessions_atomic_reservation(tmp_path, base_dec
         async with session_maker() as init_session:
             market = _make_live_market(init_session, market_id="mkt_concur", end_time=dec_at + timedelta(seconds=240))
             await init_session.commit()
+            await _seed_market_snapshots(
+                init_session,
+                market.market_id,
+                dec_at,
+                [0.18, 0.24, 0.17, 0.23, 0.18, 0.24, 0.19, 0.23],
+            )
+            await init_session.commit()
+
+        class ConcurClient:
+            async def get_market_prices(self, tok, **kwargs):
+                return {
+                    "best_ask": 0.20,
+                    "best_bid": 0.19,
+                    "best_ask_no": 0.80,
+                    "best_bid_no": 0.79,
+                    "current_yes_price": 0.20,
+                    "current_no_price": 0.80,
+                    "event_at": dec_at - timedelta(seconds=2),
+                    "received_at": dec_at - timedelta(seconds=2),
+                }
 
         barrier = asyncio.Barrier(2)
         results: list[tuple[str, Any, Exception | None]] = []
@@ -724,44 +743,57 @@ async def test_11_concurrency_two_sessions_atomic_reservation(tmp_path, base_dec
         async def attempt_record(worker_id: str):
             async with session_maker() as session:
                 mkt = (await session.execute(select(LiveMarket).where(LiveMarket.market_id == "mkt_concur"))).scalar_one()
-                trade_decision = TradeDecision(
-                    action="BUY_YES",
-                    buy_price=0.20,
-                    bet_size_usdc=1.00,
-                    reason="CT_SIGNAL_REVERSION",
-                    strategy_type="CT_OUTSIDER",
-                    direction_value="UP",
-                    decision_details={
-                        "spec_id": "BTC_CT_T5_V1",
-                        "spec_hash": "hash1",
-                        "decision_run_id": "CT:BTC_CT_T5_V1:mkt_concur",
-                        "decision_at": dec_at.isoformat(),
-                    },
-                )
-                validation = PreTradeValidation(
-                    valid=True,
-                    buy_price=Decimal("0.20"),
-                    actual_bet_size=Decimal("1.00"),
-                    edge=0.05,
-                    market_role="OUTSIDER",
-                    skip_reason=None,
-                )
                 cfg = parse_trading_settings({"TRADING_MODE": "ct_outsider"})
+
+                # Production dispatcher
+                dec_res = await decide_ct_outsider_mode(
+                    db_session=session,
+                    api_client=ConcurClient(),
+                    market=mkt,
+                    cfg=cfg,
+                    raw_settings={"TRADING_MODE": "ct_outsider"},
+                    models_cache=None,
+                    crypto_predictor=None,
+                    start_time=dec_at,
+                    time_left_sec=240.0,
+                    execution_mode="PAPER",
+                    decision_at=dec_at,
+                )
+                assert dec_res is not None
+                assert dec_res.decision_obj is not None
+                assert dec_res.decision_obj.action == "BUY_YES"
+
+                # Production validator
+                val = await validate_pre_trade(
+                    db_session=session,
+                    api_client=ConcurClient(),
+                    market=mkt,
+                    decision_obj=dec_res.decision_obj,
+                    cfg=cfg,
+                    asset_mode="FAVORITE",
+                    asset_min_edge=0.0,
+                    asset_max_price=0.95,
+                    p_flip=dec_res.p_flip,
+                    model_ver=dec_res.model_ver,
+                )
+                assert val.valid is True
+
+                # Synchronize right before atomic reservation and enqueue
                 await barrier.wait()
                 try:
                     await execute_and_record(
                         db_session=session,
                         market=mkt,
-                        decision_obj=trade_decision,
-                        validation=validation,
+                        decision_obj=dec_res.decision_obj,
+                        validation=val,
                         asset_mode="FAVORITE",
                         active_features="ct_features",
-                        p_flip=0.0,
-                        model_ver=None,
+                        p_flip=dec_res.p_flip,
+                        model_ver=dec_res.model_ver,
                         cfg=cfg,
                         existing_skipped=None,
                         start_time=dec_at,
-                        decision_at=dec_at,
+                        decision_at=dec_res.decision_at,
                     )
                     await session.commit()
                     results.append((worker_id, "COMMITTED", None))
@@ -793,8 +825,140 @@ async def test_11_concurrency_two_sessions_atomic_reservation(tmp_path, base_dec
             requests = (await verify_session.execute(select(ExecutionRequest).where(ExecutionRequest.market_id == "mkt_concur"))).scalars().all()
             assert len(requests) == 1
             assert requests[0].state == "READY"
+
+        # Production worker processes the single winning READY request to completion
+        import polyflip.execution.worker as worker_module
+        orig_worker_session = worker_module.async_session
+        worker_module.async_session = session_maker
+        try:
+            async def quote_prov(_tok: str):
+                return {"asks": [{"price": 0.20, "size": 50.0}], "bids": [{"price": 0.19, "size": 50.0}], "best_ask": 0.20, "best_bid": 0.19}
+            gateway = FakeExecutionGateway(profile="LIVE_PARITY", quote_provider=quote_prov, fee_rate=Decimal("0.002"))
+            await process_ready_requests(gateway=gateway, quote_provider=quote_prov)
+        finally:
+            worker_module.async_session = orig_worker_session
+
+        async with session_maker() as final_session:
+            req_final = (await final_session.execute(select(ExecutionRequest).where(ExecutionRequest.market_id == "mkt_concur"))).scalar_one()
+            assert req_final.state in {"FILLED", "PARTIALLY_FILLED_FINAL"}
+            trade_final = (await final_session.execute(select(TradeHistory).where(TradeHistory.market_id == "mkt_concur"))).scalar_one()
+            assert trade_final.position_status == "OPEN"
+            assert math.isclose(float(trade_final.entry_filled_shares), 4.99002, abs_tol=1e-4)
     finally:
         await concur_engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.postgres
+async def test_11_postgres_concurrency_two_sessions_atomic_reservation(pg_session_factory, base_decision_time):
+    """Requirement 13, 14: Real PostgreSQL concurrency verification with two independent sessions and barrier."""
+    dec_at = base_decision_time
+    mkt_id = f"mkt_pg_concur_{uuid.uuid4().hex[:8]}"
+
+    async with pg_session_factory() as init_session:
+        market = _make_live_market(init_session, market_id=mkt_id, end_time=dec_at + timedelta(seconds=240))
+        await init_session.commit()
+        await _seed_market_snapshots(
+            init_session,
+            mkt_id,
+            dec_at,
+            [0.18, 0.24, 0.17, 0.23, 0.18, 0.24, 0.19, 0.23],
+        )
+        await init_session.commit()
+
+    class ConcurClient:
+        async def get_market_prices(self, tok, **kwargs):
+            return {
+                "best_ask": 0.20,
+                "best_bid": 0.19,
+                "best_ask_no": 0.80,
+                "best_bid_no": 0.79,
+                "current_yes_price": 0.20,
+                "current_no_price": 0.80,
+                "event_at": dec_at - timedelta(seconds=2),
+                "received_at": dec_at - timedelta(seconds=2),
+            }
+
+    barrier = asyncio.Barrier(2)
+    results: list[tuple[str, Any, Exception | None]] = []
+
+    async def attempt_record(worker_id: str):
+        async with pg_session_factory() as session:
+            mkt = (await session.execute(select(LiveMarket).where(LiveMarket.market_id == mkt_id))).scalar_one()
+            cfg = parse_trading_settings({"TRADING_MODE": "ct_outsider"})
+
+            dec_res = await decide_ct_outsider_mode(
+                db_session=session,
+                api_client=ConcurClient(),
+                market=mkt,
+                cfg=cfg,
+                raw_settings={"TRADING_MODE": "ct_outsider"},
+                models_cache=None,
+                crypto_predictor=None,
+                start_time=dec_at,
+                time_left_sec=240.0,
+                execution_mode="PAPER",
+                decision_at=dec_at,
+            )
+            assert dec_res is not None
+            assert dec_res.decision_obj.action == "BUY_YES"
+
+            val = await validate_pre_trade(
+                db_session=session,
+                api_client=ConcurClient(),
+                market=mkt,
+                decision_obj=dec_res.decision_obj,
+                cfg=cfg,
+                asset_mode="FAVORITE",
+                asset_min_edge=0.0,
+                asset_max_price=0.95,
+                p_flip=dec_res.p_flip,
+                model_ver=dec_res.model_ver,
+            )
+            assert val.valid is True
+
+            await barrier.wait()
+            try:
+                await execute_and_record(
+                    db_session=session,
+                    market=mkt,
+                    decision_obj=dec_res.decision_obj,
+                    validation=val,
+                    asset_mode="FAVORITE",
+                    active_features="ct_features",
+                    p_flip=dec_res.p_flip,
+                    model_ver=dec_res.model_ver,
+                    cfg=cfg,
+                    existing_skipped=None,
+                    start_time=dec_at,
+                    decision_at=dec_res.decision_at,
+                )
+                await session.commit()
+                results.append((worker_id, "COMMITTED", None))
+            except EnqueueRejected as exc:
+                await session.commit()
+                results.append((worker_id, None, exc))
+            except Exception as exc:
+                await session.rollback()
+                results.append((worker_id, None, exc))
+
+    await asyncio.gather(attempt_record("pg_worker_1"), attempt_record("pg_worker_2"))
+
+    succeeded = [r for r in results if r[1] is not None]
+    failed = [r for r in results if r[2] is not None]
+    assert len(succeeded) == 1
+    assert len(failed) == 1
+    assert isinstance(failed[0][2], EnqueueRejected)
+
+    async with pg_session_factory() as verify_session:
+        trades = (await verify_session.execute(select(TradeHistory).where(TradeHistory.market_id == mkt_id))).scalars().all()
+        assert len(trades) == 1
+        res = await get_ct_decision_reservation(verify_session, f"CT:BTC_CT_T5_V1:{mkt_id}")
+        assert res is not None
+        assert res.repeat_count == 1
+        requests = (await verify_session.execute(select(ExecutionRequest).where(ExecutionRequest.market_id == mkt_id))).scalars().all()
+        assert len(requests) == 1
+        assert requests[0].state == "READY"
 
 
 @pytest.mark.asyncio
@@ -902,6 +1066,48 @@ async def test_11c_atomic_repeat_count_increment_under_concurrency(engine, base_
         assert final_res.repeat_count == 3
         assert final_res.action == "BUY"
         assert final_res.side == "UP"
+
+
+@pytest.mark.asyncio
+async def test_11d_repeat_count_identity_map_refresh(db_session, base_decision_time):
+    """Requirement 17: reserve_ct_decision refreshes existing instance if already cached in session identity map."""
+    dec_at = base_decision_time
+    _make_live_market(db_session, market_id="mkt_id_map", end_time=dec_at + timedelta(seconds=240))
+    # Initial reservation
+    is_first, res = await reserve_ct_decision(
+        db_session,
+        key="CT:BTC_CT_T5_V1:mkt_id_map",
+        market_id="mkt_id_map",
+        spec_id="BTC_CT_T5_V1",
+        action="BUY",
+        decision_at=dec_at,
+        side="UP",
+        limit_price=0.20,
+        budget_usdc=1.00,
+        reason="CT_SIGNAL_REVERSION",
+    )
+    await db_session.commit()
+    assert is_first is True
+    assert res.repeat_count == 0
+
+    # Load into identity map
+    cached_res = await get_ct_decision_reservation(db_session, "CT:BTC_CT_T5_V1:mkt_id_map")
+    assert cached_res is not None
+    assert cached_res.repeat_count == 0
+
+    # Repeat reservation in same session must refresh cached entity
+    is_first2, res2 = await reserve_ct_decision(
+        db_session,
+        key="CT:BTC_CT_T5_V1:mkt_id_map",
+        market_id="mkt_id_map",
+        spec_id="BTC_CT_T5_V1",
+        action="BUY",
+        decision_at=dec_at,
+    )
+    await db_session.commit()
+    assert is_first2 is False
+    assert res2.repeat_count == 1
+    assert cached_res.repeat_count == 1
 
 
 @pytest.mark.asyncio
