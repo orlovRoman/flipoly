@@ -44,6 +44,23 @@ def _get_crypto_predictor():
 _ACTIVE_MARKETS = set()
 
 
+def _settings_for_asset(raw_settings: dict[str, str], asset: str) -> dict[str, str]:
+    """Resolve an optional per-asset trading mode without mutating the base map.
+
+    The global ``TRADING_MODE`` remains the fallback for every asset.  A non-empty
+    ``TRADING_MODE_<ASSET>`` setting only changes the decision runner for that
+    asset; all other settings (including the global asset allow-list) are kept.
+    This lets PAPER run a CT experiment for BTC while the other assets continue
+    through the normal combined strategy.
+    """
+    resolved = dict(raw_settings)
+    asset_key = f"TRADING_MODE_{str(asset or '').strip().upper()}"
+    override = str(resolved.get(asset_key, "") or "").strip()
+    if override:
+        resolved["TRADING_MODE"] = override
+    return resolved
+
+
 async def _record_skip(
     db_session,
     market,
@@ -126,7 +143,7 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                 continue
             _ACTIVE_MARKETS.add(market.market_id)
             try:
-                raw_settings = base_raw_settings
+                raw_settings = _settings_for_asset(base_raw_settings, market.asset)
                 overlay_ids = []
                 if execution_mode.strip().upper() == "PAPER":
                     from polyflip.ai_lab.paper_overlay import resolve_paper_runtime_settings
@@ -134,6 +151,17 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                     raw_settings, overlay_ids = await resolve_paper_runtime_settings(
                         db_session, raw_settings, now=start_time, asset=market.asset
                     )
+                    # A per-asset mode is an explicit routing decision.  Keep it
+                    # in force if a PAPER overlay only changes global settings.
+                    mode_override = str(
+                        base_raw_settings.get(
+                            f"TRADING_MODE_{str(market.asset or '').strip().upper()}",
+                            "",
+                        )
+                        or ""
+                    ).strip()
+                    if mode_override:
+                        raw_settings["TRADING_MODE"] = mode_override
                     cfg = parse_trading_settings(raw_settings)
                     if not cfg.trading_enabled:
                         continue

@@ -311,7 +311,9 @@ async def update_setting(key: str, payload: SettingValue, request: Optional[Requ
     if key == "TRADING_MODE" or key.startswith("TRADING_MODE_"):
         if payload.value == "CRYPTO":
             payload.value = "lightgbm"
-        allowed_per_asset = ("ml", "lightgbm", "combined", "")
+        # Per-asset routing may opt one asset into the PAPER CT experiment
+        # while the global mode remains ``combined`` for the others.
+        allowed_per_asset = ("ml", "lightgbm", "combined", "ct_outsider", "ct", "")
         allowed_global   = ("ml", "lightgbm", "combined")
         allowed = allowed_per_asset if key.startswith("TRADING_MODE_") else allowed_global
         if payload.value not in allowed:
