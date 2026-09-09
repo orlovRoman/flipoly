@@ -2304,7 +2304,7 @@ def build_meta_model_dataset(
     Ensures no market_id or time overlaps between training and evaluation splits.
     """
     if df.empty:
-        return {"temporal_isolated": True, "X": np.empty((0, 2)), "y": np.empty(0), "splits": []}
+        return {"temporal_isolated": True, "status": "OK", "X": np.empty((0, 2)), "y": np.empty(0), "splits": []}
 
     from polyflip.models.temporal_validation import grouped_walk_forward_folds
 
@@ -2319,30 +2319,48 @@ def build_meta_model_dataset(
     ])
     y = pd.to_numeric(df.get(target_col, 0), errors="coerce").fillna(0).to_numpy().astype(int)
 
-    groups = pd.Series(df[market_col].values) if market_col in df.columns else pd.Series(np.arange(len(df)))
-    t_series = df[time_col] if time_col in df.columns else (df["recorded_at"] if "recorded_at" in df.columns else pd.date_range("2026-01-01", periods=len(df), freq="1min", tz="UTC"))
+    def _fail(status: str) -> dict[str, Any]:
+        return {"temporal_isolated": False, "status": status, "X": X_meta, "y": y, "splits": []}
+
+    # TEMPORAL CHECKS (Item 5: No fake dates or silent fallbacks)
+    if market_col not in df.columns or time_col not in df.columns:
+        return _fail("MISSING_TEMPORAL_FIELDS")
+
+    # PROVENANCE CHECKS (Item 6: Reject in-sample or future models)
+    if "is_out_of_sample" in df.columns and not df["is_out_of_sample"].fillna(False).all():
+        return _fail("IN_SAMPLE_PREDICTIONS_REJECTED")
+    if "is_in_sample" in df.columns and df["is_in_sample"].fillna(False).any():
+        return _fail("IN_SAMPLE_PREDICTIONS_REJECTED")
+    if "prediction_type" in df.columns and (df["prediction_type"] == "IN_SAMPLE").any():
+        return _fail("IN_SAMPLE_PREDICTIONS_REJECTED")
+
+    if "training_cutoff_at" in df.columns:
+        cutoff = pd.to_datetime(df["training_cutoff_at"], utc=True, errors="coerce")
+        dec = pd.to_datetime(df[time_col], utc=True, errors="coerce")
+        if (cutoff > dec).any():
+            return _fail("FUTURE_PREDICTIONS_REJECTED")
+
+    groups = pd.Series(df[market_col].values)
+    t_series = df[time_col]
 
     splits = []
     try:
-        folds = grouped_walk_forward_folds(groups, t_series, n_splits=n_splits)
+        folds = grouped_walk_forward_folds(
+            groups, 
+            t_series, 
+            n_splits=n_splits,
+            label_available_at=df["label_available_at"] if "label_available_at" in df.columns else None
+        )
         splits = [(f.train_index, f.validation_index) for f in folds if len(f.train_index) > 0 and len(f.validation_index) > 0]
-    except Exception:
-        splits = []
+    except Exception as e:
+        return _fail("MISSING_TEMPORAL_FIELDS")
 
     if not splits:
-        unique_groups = groups.unique()
-        n_grps = len(unique_groups)
-        if n_grps >= 2:
-            split_point = max(1, int(n_grps * 0.7))
-            train_grps = set(unique_groups[:split_point])
-            val_grps = set(unique_groups[split_point:])
-            tr_idx = np.flatnonzero(groups.isin(train_grps).to_numpy())
-            val_idx = np.flatnonzero(groups.isin(val_grps).to_numpy())
-            if len(tr_idx) > 0 and len(val_idx) > 0:
-                splits = [(tr_idx, val_idx)]
+        return {"temporal_isolated": True, "status": "NO_LABELS_AVAILABLE", "X": X_meta, "y": y, "splits": [], "groups": groups.to_numpy(), "timestamps": pd.to_datetime(t_series, utc=True).to_numpy()}
 
     return {
         "temporal_isolated": True,
+        "status": "OK",
         "X": X_meta,
         "y": y,
         "splits": splits,
@@ -2403,9 +2421,10 @@ def evaluate_lgbm_outsider_interaction(
 
     for idx in candidate_indices:
         ask = asks[idx]
-        fee = ask * fee_rate
+        fee = fee_rate
         outcome = targets[idx]
-        pnl = (1.0 - ask - fee) if outcome == 1 else (-ask - fee)
+        shares = 1.0 / ask if ask > 0 else 0.0
+        pnl = shares * (outcome - ask) - fee
         pnl_b_only += pnl
         if outcome == 1:
             wins_b_only += 1
@@ -2444,9 +2463,10 @@ def evaluate_lgbm_outsider_interaction(
     accepted_pnls = []
     for idx in accepted_indices:
         ask = asks[idx]
-        fee = ask * fee_rate
+        fee = fee_rate
         outcome = targets[idx]
-        pnl = (1.0 - ask - fee) if outcome == 1 else (-ask - fee)
+        shares = 1.0 / ask if ask > 0 else 0.0
+        pnl = shares * (outcome - ask) - fee
         pnl_veto_accepted += pnl
         accepted_pnls.append(pnl)
         if outcome == 1:
@@ -2460,9 +2480,10 @@ def evaluate_lgbm_outsider_interaction(
 
     for idx in vetoed_indices:
         ask = asks[idx]
-        fee = ask * fee_rate
+        fee = fee_rate
         outcome = targets[idx]
-        pnl = (1.0 - ask - fee) if outcome == 1 else (-ask - fee)
+        shares = 1.0 / ask if ask > 0 else 0.0
+        pnl = shares * (outcome - ask) - fee
         pnl_vetoed_counterfactual += pnl
         if outcome == 1:
             wins_vetoed_counterfactual += 1
@@ -2487,6 +2508,7 @@ def evaluate_lgbm_outsider_interaction(
     unique_groups = np.unique(groups)
     n_groups = len(unique_groups)
 
+    meta_status = "OK"
     if splits:
         m_model = LogisticRegression(C=1.0, solver="lbfgs", max_iter=500, random_state=42)
         for train_idx, val_idx in splits:
@@ -2499,21 +2521,35 @@ def evaluate_lgbm_outsider_interaction(
                     clean_val_idx = val_idx[valid_val]
                     if len(clean_val_idx) > 0:
                         meta_probs[clean_val_idx] = m_model.predict_proba(X_meta[clean_val_idx])[:, 1]
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("meta_model_fold_failed", error=str(e))
+            else:
+                logger.warning("meta_model_fold_skipped", reason="INSUFFICIENT_CLASSES")
 
     meta_model = LogisticRegression(C=1.0, solver="lbfgs", max_iter=500, random_state=42)
-    try:
-        valid_all = ~np.isnan(X_meta).any(axis=1)
-        if valid_all.sum() > 0:
-            meta_model.fit(X_meta[valid_all], targets[valid_all])
-            w_b = round(float(meta_model.coef_[0][0]), 4)
-            w_l = round(float(meta_model.coef_[0][1]), 4)
-            intercept = round(float(meta_model.intercept_[0]), 4)
-        else:
-            w_b, w_l, intercept = 1.0, 0.0, 0.0
-    except Exception:
+    if meta_data.get("status") != "OK":
+        meta_status = meta_data.get("status", "NO_SPLITS")
         w_b, w_l, intercept = 1.0, 0.0, 0.0
+    else:
+        try:
+            valid_all = ~np.isnan(X_meta).any(axis=1)
+            if "label_available_at" in df.columns:
+                label_avail_dates = pd.to_datetime(df["label_available_at"], utc=True, errors="coerce")
+                now_t = pd.to_datetime(df[time_col if time_col in df.columns else "decision_at"], utc=True, errors="coerce").max()
+                valid_all = valid_all & (label_avail_dates <= now_t).to_numpy()
+
+            if valid_all.sum() > 0 and len(np.unique(targets[valid_all])) >= 2:
+                meta_model.fit(X_meta[valid_all], targets[valid_all])
+                w_b = round(float(meta_model.coef_[0][0]), 4)
+                w_l = round(float(meta_model.coef_[0][1]), 4)
+                intercept = round(float(meta_model.intercept_[0]), 4)
+            else:
+                meta_status = "NO_LABELS_AVAILABLE" if valid_all.sum() == 0 else "INSUFFICIENT_CLASSES"
+                w_b, w_l, intercept = 1.0, 0.0, 0.0
+        except Exception as e:
+            logger.warning("meta_model_final_failed", error=str(e))
+            meta_status = "TRAINING_FAILED"
+            w_b, w_l, intercept = 1.0, 0.0, 0.0
         
     # Restore NaN where original predictions were missing
     raw_lgbm = pd.to_numeric(df.get(lgbm_prob_col), errors="coerce").to_numpy()
@@ -2531,8 +2567,9 @@ def evaluate_lgbm_outsider_interaction(
         if net_ev >= min_edge and asks[i] < 0.95:
             n_meta_trades += 1
             outcome = targets[i]
-            fee = asks[i] * fee_rate
-            pnl = (1.0 - asks[i] - fee) if outcome == 1 else (-asks[i] - fee)
+            fee = fee_rate
+            shares = 1.0 / asks[i] if asks[i] > 0 else 0.0
+            pnl = shares * (outcome - asks[i]) - fee
             pnl_meta += pnl
             meta_pnls.append(pnl)
             meta_indices.append(i)
@@ -2579,6 +2616,7 @@ def evaluate_lgbm_outsider_interaction(
                 "w_lgbm": w_l,
                 "intercept": intercept,
             },
+            "meta_status": meta_status,
         },
     }
 

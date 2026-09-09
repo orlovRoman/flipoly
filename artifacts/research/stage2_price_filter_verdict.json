@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-09-08T23:47:18.448963+00:00",
+  "timestamp": "2026-09-09T00:19:33.904619+00:00",
   "item": "29",
   "title": "Stage 2 Final Evaluation Verdict: Model A1 Hard Max Price Filter (<=0.40)",
   "dataset_integrity": {
@@ -62,8 +62,8 @@
       "max_drawdown": 10.02,
       "payoff_ratio": 1.7599
     },
-    "NAIVE_PRICE_RULE_040": {
-      "name": "NAIVE_PRICE_RULE_040",
+    "NAIVE_PRICE_RULE_040_FULL": {
+      "name": "NAIVE_PRICE_RULE_040_FULL",
       "max_price": 0.4,
       "n_trades": 177,
       "win_rate": 0.3672,
@@ -73,6 +73,18 @@
       "ci_upper": 0.2486,
       "max_drawdown": 18.9922,
       "payoff_ratio": 1.7804
+    },
+    "NAIVE_PRICE_RULE_040_OOF": {
+      "name": "NAIVE_PRICE_RULE_040_OOF",
+      "max_price": 0.4,
+      "n_trades": 158,
+      "win_rate": 0.3797,
+      "net_pnl_usdc": 8.1571,
+      "expectancy": 0.051627,
+      "ci_lower": -0.1897,
+      "ci_upper": 0.3364,
+      "max_drawdown": 13.8688,
+      "payoff_ratio": 1.769
     }
   },
   "development_robustness": {

@@ -258,8 +258,12 @@ def run_stage2_evaluation() -> dict[str, Any]:
     sum_a1_cap_dev, ledger_a1_cap_dev = run_replay_on_dev(p_a1_dev, max_p=0.40, name="MODEL_A1_CAP_040")
 
     # Item 25: Disentangle price cap from ML: Naive Price Rule (buy all outsiders with ask <= 0.40 without ML)
-    naive_p_win_dev = df_dev["executable_ask"].to_numpy() + 0.03
-    sum_naive_dev, ledger_naive_dev = run_replay_on_dev(naive_p_win_dev, max_p=0.40, name="NAIVE_PRICE_RULE_040")
+    naive_p_win_dev_full = df_dev["executable_ask"].to_numpy() + 0.03
+    sum_naive_dev_full, ledger_naive_dev_full = run_replay_on_dev(naive_p_win_dev_full, max_p=0.40, name="NAIVE_PRICE_RULE_040_FULL")
+
+    naive_p_win_dev_oof = df_dev["executable_ask"].to_numpy() + 0.03
+    naive_p_win_dev_oof[~np.isfinite(p_a1_dev)] = np.nan
+    sum_naive_dev_oof, ledger_naive_dev_oof = run_replay_on_dev(naive_p_win_dev_oof, max_p=0.40, name="NAIVE_PRICE_RULE_040_OOF")
 
     dev_results = {
         "M0_MARKET": {"brier": round(m0_brier, 4), "n_trades": 0, "net_pnl_usdc": 0.0},
@@ -267,15 +271,16 @@ def run_stage2_evaluation() -> dict[str, Any]:
         "MODEL_A_PRICE": sum_a_price_dev,
         "MODEL_A1_BASE": sum_a1_base_dev,
         "MODEL_A1_CAP_040": sum_a1_cap_dev,
-        "NAIVE_PRICE_RULE_040": sum_naive_dev,
+        "NAIVE_PRICE_RULE_040_FULL": sum_naive_dev_full,
+        "NAIVE_PRICE_RULE_040_OOF": sum_naive_dev_oof,
     }
 
     print("Dev Results Summary:")
     for k, v in dev_results.items():
         if k == "M0_MARKET":
-            print(f"  {k:20}: Brier={v['brier']}")
+            print(f"  {k:25}: Brier={v['brier']}")
         else:
-            print(f"  {k:20}: Trades={v['n_trades']:3d} | PnL={v['net_pnl_usdc']:+6.2f} USDC | Exp={v['expectancy']:+.4f} [{v['ci_lower']:+.3f}, {v['ci_upper']:+.3f}] | DD={v['max_drawdown']:.2f}")
+            print(f"  {k:25}: Trades={v['n_trades']:3d} | PnL={v['net_pnl_usdc']:+6.2f} USDC | Exp={v['expectancy']:+.4f} [{v['ci_lower']:+.3f}, {v['ci_upper']:+.3f}] | DD={v['max_drawdown']:.2f}")
 
     # =========================================================================
     # Item 26: Development Robustness Checks
@@ -329,10 +334,13 @@ def run_stage2_evaluation() -> dict[str, Any]:
     # =========================================================================
     print("\n--- [Item 27] Candidate Selection on Development ---")
     dev_delta_vs_base = round(sum_a1_cap_dev["net_pnl_usdc"] - sum_a1_base_dev["net_pnl_usdc"], 4)
-    dev_delta_vs_naive = round(sum_a1_cap_dev["net_pnl_usdc"] - sum_naive_dev["net_pnl_usdc"], 4)
+    dev_delta_vs_naive_full = round(sum_a1_cap_dev["net_pnl_usdc"] - sum_naive_dev_full["net_pnl_usdc"], 4)
+    dev_delta_vs_naive_oof = round(sum_a1_cap_dev["net_pnl_usdc"] - sum_naive_dev_oof["net_pnl_usdc"], 4)
 
     print(f"Dev Delta PnL (A1_CAP_040 vs A1_BASE): {dev_delta_vs_base:+.2f} USDC")
-    print(f"Dev Delta PnL (A1_CAP_040 vs NAIVE):   {dev_delta_vs_naive:+.2f} USDC")
+    print(f"Dev Delta PnL (A1_CAP_040 vs NAIVE FULL): {dev_delta_vs_naive_full:+.2f} USDC")
+    print(f"Dev Delta PnL (A1_CAP_040 vs NAIVE OOF):  {dev_delta_vs_naive_oof:+.2f} USDC")
+    print(f"On the common eligible OOF cohort, the ML contribution of A1 is actually {dev_delta_vs_naive_oof:+.2f} USDC.")
 
     selected_candidate_name = "MODEL_A1_CAP_040"
     candidate_selection_status = "CANDIDATE_SELECTED_FOR_OOS_VERIFICATION"

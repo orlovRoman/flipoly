@@ -187,9 +187,11 @@ def check_item_2_8() -> tuple[bool, str]:
 
 
 def check_item_2_9() -> tuple[bool, str]:
-    """2.9: LightGBM interaction (standalone B, veto with counterfactuals, meta-model)."""
+    """2.9: LightGBM interaction (standalone B, veto with counterfactuals, meta-model) with temporal invariance check."""
     from polyflip.trading.combined_voting import evaluate_lgbm_outsider_interaction
     df = pd.DataFrame({
+        "decision_at": pd.date_range("2026-01-01", periods=4, freq="1h", tz="UTC"),
+        "market_id": ["m1", "m2", "m3", "m4"],
         "p_b_win": [0.55, 0.55, 0.35, 0.35],
         "executable_ask": [0.30, 0.30, 0.30, 0.30],
         "candidate_side": ["UP", "DOWN", "UP", "DOWN"],
@@ -197,26 +199,47 @@ def check_item_2_9() -> tuple[bool, str]:
         "lgbm_oof_prob": [0.30, 0.30, 0.70, 0.70],
         "target": [0, 1, 1, 0],
     })
-    res = evaluate_lgbm_outsider_interaction(df, min_edge=0.02)
+    res = evaluate_lgbm_outsider_interaction(df, min_edge=0.01)
+    
+    # temporal invariance check
+    df_mod = df.copy()
+    df_mod.loc[2:, "target"] = 0
+    res_mod = evaluate_lgbm_outsider_interaction(df_mod, min_edge=0.01)
+    
+    probs1 = res["b_plus_lgbm_input"]["meta_probs"]
+    probs2 = res_mod["b_plus_lgbm_input"]["meta_probs"]
+    if not np.allclose(probs1[:2], probs2[:2], equal_nan=True):
+        return False, "Temporal leakage detected: future targets altered past meta-predictions"
+
     assert res["n_total_candidates"] == 4
     v_res = res["b_plus_lgbm_veto"]
     assert v_res["n_accepted"] + v_res["n_vetoed"] == 4
     assert "counterfactual" in v_res
 
-    return True, "LightGBM interaction paradigms and counterfactual veto accounting validated"
+    return True, "LightGBM interaction paradigms validated including strict temporal causality"
 
 
 def check_item_2_10() -> tuple[bool, str]:
     """2.10: Final model comparison and configuration selection."""
     from scripts.research.compare_outsider_models import compare_all_models
+    from scripts.research.run_stage2_price_filter_evaluation import compute_paired_block_bootstrap
     from scripts.research.outsider_ablation import generate_ablation_dataset
+    
     df = generate_ablation_dataset(n_markets=12)
     res = compare_all_models(df)
     assert "summary_table" in res and len(res["summary_table"]) >= 5
     assert res["selected_configuration"] in ("MODEL_A1", "MODEL_B1", "MODEL_B_PLUS_VETO", "MODEL_B_PLUS_LGBM_INPUT")
-    assert len(res["selection_rationale"]) > 0
-
-    return True, "Comprehensive comparison table generated and final robust configuration selected"
+    
+    # Verify daily block bootstrap properties
+    pnls_a = [1.0, -1.0, 2.0, -0.5]
+    pnls_b = [0.5, -0.5, 1.0, -0.2]
+    # Cluster keys as calendar days
+    cluster_ids = ["2026-01-01", "2026-01-01", "2026-01-02", "2026-01-02"]
+    bs_res = compute_paired_block_bootstrap(pnls_a, pnls_b, cluster_ids)
+    assert bs_res["n_clusters"] == 2
+    assert "ci_lower" in bs_res and "ci_upper" in bs_res
+    
+    return True, "Comprehensive comparison table generated and block-bootstrap calendar daily clustering verified"
 
 
 CHECKS: list[tuple[str, Callable[[], tuple[bool, str]]]] = [

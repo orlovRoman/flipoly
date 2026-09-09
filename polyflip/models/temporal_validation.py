@@ -65,6 +65,7 @@ def grouped_walk_forward_folds(
     timestamps: pd.Series,
     *,
     n_splits: int = 5,
+    label_available_at: pd.Series | None = None,
 ) -> list[TemporalFold]:
     """Build expanding-window folds with whole markets in each partition.
 
@@ -86,6 +87,11 @@ def grouped_walk_forward_folds(
         for indexes in cohort_blocks
     ]
     group_values = groups.astype(str).reset_index(drop=True)
+    
+    label_avail_dates = None
+    if label_available_at is not None:
+        label_avail_dates = pd.to_datetime(label_available_at.reset_index(drop=True), utc=True, errors="coerce")
+
     folds: list[TemporalFold] = []
 
     for block_index in range(1, len(blocks)):
@@ -93,14 +99,22 @@ def grouped_walk_forward_folds(
         validation_table = blocks[block_index]
         train_groups = tuple(train_table["group"].astype(str))
         validation_groups = tuple(validation_table["group"].astype(str))
-        train_index = np.flatnonzero(group_values.isin(train_groups).to_numpy())
+        
+        train_mask = group_values.isin(train_groups).to_numpy()
         validation_index = np.flatnonzero(
             group_values.isin(validation_groups).to_numpy()
         )
+        
+        validation_start = pd.Timestamp(validation_table["min"].min())
+        
+        if label_avail_dates is not None:
+            train_mask = train_mask & (label_avail_dates <= validation_start).to_numpy()
+            
+        train_index = np.flatnonzero(train_mask)
+        
         if set(train_groups) & set(validation_groups):
             raise AssertionError("Market leakage between temporal train and validation")
         train_end = pd.Timestamp(train_table["max"].max())
-        validation_start = pd.Timestamp(validation_table["min"].min())
         if train_end > validation_start:
             raise AssertionError(
                 "Temporal leakage: training markets overlap validation markets"

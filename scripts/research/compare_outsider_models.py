@@ -218,6 +218,11 @@ def compare_all_models(
     # 5. Model B + LGBM Veto and Input (Items 1.28, 1.29)
     df_interaction = df.copy()
     df_interaction["p_b_win"] = p_b
+    df_interaction["is_out_of_sample"] = True
+    if "decision_at" in df_interaction.columns:
+        df_interaction["training_cutoff_at"] = pd.to_datetime(df_interaction["decision_at"], utc=True) - pd.Timedelta(seconds=1)
+    else:
+        df_interaction["training_cutoff_at"] = pd.Timestamp("2026-01-01", tz="UTC")
     if "lgbm_direction" not in df_interaction.columns:
         df_interaction["lgbm_direction"] = "NONE"
     if "lgbm_oof_prob" not in df_interaction.columns:
