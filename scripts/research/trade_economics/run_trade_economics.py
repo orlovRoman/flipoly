@@ -8,7 +8,8 @@ import numpy as np
 
 BASE_DIR = "/home/orlovrp/flipoly-worktrees/trade-economics"
 LEDGER_PATH = os.path.join(BASE_DIR, "artifacts/research/common_opportunity_ledger.json")
-RUN_ID = "latest"
+import shutil
+RUN_ID = datetime.now().strftime("run_%Y%m%d_%H%M%S")
 ARTIFACTS_DIR = os.path.join(BASE_DIR, "artifacts/research/trade_economics", RUN_ID)
 
 from polyflip.research.trade_economics.commissions import calculate_commission
@@ -28,6 +29,17 @@ def is_dirty():
 
 def main():
     os.makedirs(ARTIFACTS_DIR, exist_ok=True)
+    
+    latest_link = os.path.join(BASE_DIR, "artifacts/research/trade_economics", "latest")
+    if os.path.exists(latest_link) or os.path.islink(latest_link):
+        if os.path.isdir(latest_link) and not os.path.islink(latest_link):
+            shutil.rmtree(latest_link)
+        else:
+            os.remove(latest_link)
+    try:
+        os.symlink(RUN_ID, latest_link)
+    except OSError:
+        pass
     
     commit_sha = get_git_commit("HEAD")
     try:
@@ -64,6 +76,41 @@ def main():
     else:
         period_utc = "UNKNOWN"
         
+    # 6-7. Fee evidence
+    # Demonstration fee and Unknown fee
+    fee_evidence = [
+        {
+            "market_id": "*",
+            "valid_from": "2020-01-01",
+            "valid_to": "2099-12-31",
+            "liquidity_role": "taker",
+            "formula_id": "FIXED_PERCENTAGE",
+            "parameters": {"rate": 0.001},
+            "charged_asset": "USD",
+            "round_method": "ROUND_DOWN",
+            "round_decimals": 4,
+            "source_reference": "DEMONSTRATION",
+            "evidence_status": "DEMONSTRATION"
+        },
+        {
+            "market_id": "*",
+            "valid_from": "2020-01-01",
+            "valid_to": "2099-12-31",
+            "liquidity_role": "taker",
+            "formula_id": "UNKNOWN",
+            "parameters": {},
+            "charged_asset": "USD",
+            "round_method": "NONE",
+            "source_reference": "UNKNOWN",
+            "evidence_status": "UNKNOWN"
+        }
+    ]
+    with open(os.path.join(ARTIFACTS_DIR, "fee_evidence.json"), "w") as f:
+        json.dump(fee_evidence, f, indent=4)
+        
+    fee_evidence_str = json.dumps(fee_evidence, sort_keys=True)
+    fee_hash = hashlib.sha256(fee_evidence_str.encode('utf-8')).hexdigest()
+        
     # 4. Create manifest
     manifest = {
         "run_id": RUN_ID,
@@ -77,42 +124,12 @@ def main():
         "assets": assets,
         "policy_version": "1.0",
         "accounting_convention": "exclusive",
-        "fee_evidence_version": "v1"
+        "fee_evidence_version": "v1",
+        "fee_evidence_hash": fee_hash
     }
     
     with open(os.path.join(ARTIFACTS_DIR, "manifest.json"), "w") as f:
         json.dump(manifest, f, indent=4)
-        
-    # 6-7. Fee evidence
-    # Demonstration fee and Unknown fee
-    fee_evidence = [
-        {
-            "market_id": "*",
-            "valid_from": "2020-01-01",
-            "valid_to": "2099-12-31",
-            "liquidity_role": "taker",
-            "formula_id": "FIXED_PERCENTAGE",
-            "parameters": {"rate": 0.001},
-            "charged_asset": "USD",
-            "rounding_rule": "ROUND_DOWN",
-            "source_reference": "DEMONSTRATION",
-            "evidence_status": "DEMONSTRATION"
-        },
-        {
-            "market_id": "*",
-            "valid_from": "2020-01-01",
-            "valid_to": "2099-12-31",
-            "liquidity_role": "taker",
-            "formula_id": "UNKNOWN",
-            "parameters": {},
-            "charged_asset": "USD",
-            "rounding_rule": "NONE",
-            "source_reference": "UNKNOWN",
-            "evidence_status": "UNKNOWN"
-        }
-    ]
-    with open(os.path.join(ARTIFACTS_DIR, "fee_evidence.json"), "w") as f:
-        json.dump(fee_evidence, f, indent=4)
         
     # 5. Split actuals and historical
     actual_fills = "BLOCKED_DATA"
@@ -128,60 +145,99 @@ def main():
         
         for name, df_trades in datasets:
             total_trades = len(df_trades)
+            # Check mandatory columns
+            required_cols = ['gross_pnl', 'net_pnl', 'shares', 'executable_ask', 'target']
+            missing_cols = [c for c in required_cols if c not in df_trades.columns]
+            if missing_cols:
+                raise ValueError(f"Missing mandatory columns for reproduction: {missing_cols} in {name}.")
+            
             # 13. Reproduce old calculation (baseline is 0.002 taker fee)
+            def get_settlement(r):
+                if pd.isna(r.get('target')) or str(r.get('final_outcome')).upper() == 'UNKNOWN':
+                    return np.nan
+                return float(r['shares']) if float(r['target']) == 1.0 else 0.0
+
+            df_trades['reproduced_purchase_cash'] = df_trades['shares'] * df_trades['executable_ask']
+            df_trades['reproduced_settlement'] = df_trades.apply(get_settlement, axis=1)
+            df_trades['reproduced_gross_pnl'] = df_trades['reproduced_settlement'] - df_trades['reproduced_purchase_cash']
             df_trades['reproduced_fee'] = df_trades['shares'] * df_trades['executable_ask'] * 0.002
-            df_trades['reproduced_net_pnl'] = df_trades['gross_pnl'] - df_trades['reproduced_fee']
+            df_trades['reproduced_net_pnl'] = df_trades['reproduced_gross_pnl'] - df_trades['reproduced_fee']
             
-            # Check reproduction
-            if 'net_pnl' in df_trades.columns:
-                mismatch = ~np.isclose(df_trades['net_pnl'], df_trades['reproduced_net_pnl'], atol=1e-4) & df_trades['net_pnl'].notna()
-                if mismatch.sum() > 0:
-                    raise ValueError(f"Mandatory PnL reproduction check failed for {mismatch.sum()} rows in {name}.")
+            # Check reproduction with strict tolerances
+            mismatch_gross = ~np.isclose(
+                df_trades['gross_pnl'].astype(float).fillna(-999999.0), 
+                df_trades['reproduced_gross_pnl'].astype(float).fillna(-999999.0), 
+                rtol=0.0, atol=1e-4
+            )
+            mismatch_net = ~np.isclose(
+                df_trades['net_pnl'].astype(float).fillna(-999999.0), 
+                df_trades['reproduced_net_pnl'].astype(float).fillna(-999999.0), 
+                rtol=0.0, atol=1e-4
+            )
+            if mismatch_gross.sum() > 0 or mismatch_net.sum() > 0:
+                raise ValueError(f"Mandatory PnL reproduction check failed for {mismatch_net.sum()} net, {mismatch_gross.sum()} gross rows in {name}.")
             
-            # 14. Apply demonstration schema (index 0)
-            scheme = fee_evidence[0]
-            
-            df_trades['new_fee'] = df_trades.apply(
+            # Apply historical schema (UNKNOWN, index 1)
+            historical_scheme = fee_evidence[1]
+            df_trades['historical_fee'] = df_trades.apply(
                 lambda row: calculate_commission(
-                    scheme=scheme,
+                    scheme=historical_scheme,
                     role='taker',
                     price=row['executable_ask'],
-                    shares=row['shares']
+                    shares=row['shares'],
+                    transaction_date=row.get('calendar_date')
                 ), axis=1
             )
             
-            # 12. Calculate new PnL
-            df_trades['purchase_cash'] = df_trades['shares'] * df_trades['executable_ask']
-            df_trades['settlement_proceeds'] = df_trades.apply(lambda r: r['shares'] if r['target'] == 1 else 0.0, axis=1)
-            df_trades['new_net_pnl'] = df_trades.apply(
+            # Calculate historical PnL
+            df_trades['purchase_cash'] = df_trades['reproduced_purchase_cash']
+            df_trades['settlement_proceeds'] = df_trades['reproduced_settlement']
+            df_trades['historical_net_pnl'] = df_trades.apply(
                 lambda row: calculate_net_pnl(
                     sale_proceeds=0.0,
                     settlement_proceeds=row['settlement_proceeds'],
                     purchase_cash=row['purchase_cash'],
-                    platform_fees=row['new_fee'],
+                    platform_fees=row['historical_fee'],
                     attributable_network_costs=0.0,
                     confirmed_rebates=0.0,
                     is_fully_closed=True,
-                    fee_is_uncertain=pd.isna(row['new_fee'])
+                    fee_is_uncertain=pd.isna(row['historical_fee'])
                 ), axis=1
             )
             
-            # Also calculate with UNKNOWN schema (index 1) to show coverage
-            df_trades['unknown_fee'] = df_trades.apply(
+            # Apply demonstration schema (index 0)
+            scenario_scheme = fee_evidence[0]
+            df_trades['scenario_fee'] = df_trades.apply(
                 lambda row: calculate_commission(
-                    scheme=fee_evidence[1],
+                    scheme=scenario_scheme,
                     role='taker',
                     price=row['executable_ask'],
-                    shares=row['shares']
+                    shares=row['shares'],
+                    transaction_date=row.get('calendar_date')
                 ), axis=1
             )
-            # Coverage is % of trades where fee is not None
-            valid_fees = df_trades['unknown_fee'].notna().sum()
+            
+            df_trades['scenario_net_pnl'] = df_trades.apply(
+                lambda row: calculate_net_pnl(
+                    sale_proceeds=0.0,
+                    settlement_proceeds=row['settlement_proceeds'],
+                    purchase_cash=row['purchase_cash'],
+                    platform_fees=row['scenario_fee'],
+                    attributable_network_costs=0.0,
+                    confirmed_rebates=0.0,
+                    is_fully_closed=True,
+                    fee_is_uncertain=pd.isna(row['scenario_fee'])
+                ), axis=1
+            )
+            df_trades['scenario_id'] = scenario_scheme.get('source_reference', 'DEMONSTRATION')
+            
+            # Coverage is % of trades where historical_fee is not None
+            valid_fees = df_trades['historical_fee'].notna().sum()
             coverage_pct = (valid_fees / total_trades * 100) if total_trades > 0 else 0.0
             
             # 21. Sign change assessment (Demonstration)
-            df_trades['gross_positive'] = df_trades['gross_pnl'] > 0
-            df_trades['net_positive'] = df_trades['new_net_pnl'] > 0
+            df_trades['gross_positive'] = df_trades['reproduced_gross_pnl'] > 0
+            df_trades['net_positive'] = df_trades['scenario_net_pnl'] > 0
             df_trades['sign_changed'] = df_trades['gross_positive'] & (~df_trades['net_positive'])
             
             try:
@@ -189,12 +245,23 @@ def main():
             except Exception:
                 df_trades.to_csv(os.path.join(ARTIFACTS_DIR, f"opportunity_economics_{name}.csv"), index=False)
                 
-            accounting_diffs = df_trades[['opportunity_id', 'net_pnl', 'reproduced_net_pnl', 'new_net_pnl', 'sign_changed']]
+            accounting_diffs = df_trades[['opportunity_id', 'net_pnl', 'reproduced_net_pnl', 'scenario_net_pnl', 'sign_changed']]
             accounting_diffs.to_csv(os.path.join(ARTIFACTS_DIR, f"accounting_differences_{name}.csv"), index=False)
             
             sign_flips = int(df_trades['sign_changed'].sum())
             old_net_sum = float(df_trades['reproduced_net_pnl'].sum())
-            new_net_sum = float(df_trades['new_net_pnl'].sum())
+            new_net_sum = float(df_trades['scenario_net_pnl'].fillna(0).sum())
+            
+            if "datasets_summary" not in locals():
+                datasets_summary = {}
+            datasets_summary[name] = {
+                "total_trades": total_trades,
+                "coverage_pct": coverage_pct,
+                "status": "UNKNOWN",
+                "scenario_net_pnl_sum": new_net_sum,
+                "reproduced_net_pnl_sum": old_net_sum,
+                "sign_flips": sign_flips
+            }
             
             reports_parts.append(f"### {name} Выборка\n"
                                  f"Всего сделок: {total_trades}\n"
@@ -205,7 +272,8 @@ def main():
 
     summary = {
         "total_opportunities": len(df),
-        "actual_fills": actual_fills
+        "actual_fills": actual_fills,
+        "datasets": datasets_summary if "datasets_summary" in locals() else {}
     }
     with open(os.path.join(ARTIFACTS_DIR, "summary.json"), "w") as f:
         json.dump(summary, f, indent=4)

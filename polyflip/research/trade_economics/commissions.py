@@ -16,9 +16,18 @@ def calculate_commission(
     if scheme is None or scheme.get('evidence_status') == 'UNKNOWN':
         return None
         
-    if scheme.get('evidence_status') == 'CURRENT_ONLY' and transaction_date:
-        # If the scheme is only for current trades, but we have a historical date, we can't apply it to the past
-        return None
+    if transaction_date:
+        if scheme.get('evidence_status') == 'CURRENT_ONLY':
+            return None
+        
+        tx_date_str = str(transaction_date)[:10]
+        valid_from = scheme.get('valid_from')
+        valid_to = scheme.get('valid_to')
+        
+        if valid_from and tx_date_str < str(valid_from)[:10]:
+            return None
+        if valid_to and tx_date_str > str(valid_to)[:10]:
+            return None
         
     formula_id = scheme.get('formula_id')
     params = scheme.get('parameters', {})
@@ -45,10 +54,12 @@ def calculate_commission(
     else:
         return None
         
-    rounding = scheme.get('rounding_rule')
-    if rounding == 'ROUND_DOWN':
-        charged_asset = scheme.get('charged_asset', 'USD')
-        decimals = 6 if charged_asset == 'USDC' else 2
+    round_method = scheme.get('round_method') or scheme.get('rounding_rule')
+    if round_method == 'ROUND_DOWN':
+        decimals = scheme.get('round_decimals')
+        if decimals is None:
+            charged_asset = scheme.get('charged_asset', 'USD')
+            decimals = 6 if charged_asset == 'USDC' else 2
         multiplier = 10 ** decimals
         fee = math.floor(fee * multiplier) / multiplier
             

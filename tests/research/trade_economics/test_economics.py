@@ -49,12 +49,12 @@ def test_calculate_commission_rounding():
         'evidence_status': 'HISTORICAL',
         'formula_id': 'FIXED_PERCENTAGE',
         'parameters': {'rate': 0.001},
-        'rounding_rule': 'ROUND_DOWN',
-        'charged_asset': 'USD' # 2 decimals
+        'round_method': 'ROUND_DOWN',
+        'round_decimals': 4
     }
-    # 100 * 0.555 * 0.001 = 0.0555
-    # Rounded down to 2 decimals -> 0.05
-    assert calculate_commission(scheme, 'taker', 0.555, 100) == 0.05
+    # 100 * 0.55555 * 0.001 = 0.055555
+    # Rounded down to 4 decimals -> 0.0555
+    assert calculate_commission(scheme, 'taker', 0.55555, 100) == 0.0555
 
 def test_apply_fee_to_budget():
     # exclusive: 100 budget, price 0.5, rate 0.01 -> shares = 200, fee = 200*0.5*0.01 = 1, cost = 101
