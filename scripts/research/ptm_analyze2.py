@@ -104,6 +104,43 @@ def holm(pvals):
     return adj
 
 
+def perm_pvalues(groups, measure="gross", seed=SEED, reps=BOOT):
+    """Day-block recentered bootstrap test of H0: E[daily pnl] <= 0.
+
+    Resamples whole calendar days from mean-recentered day totals, so
+    within-day dependence is preserved and NO normality assumption is made.
+    One-sided: p = P(boot mean >= observed mean | H0). +1 smoothing avoids
+    p == 0. Degenerate (zero-variance) day totals get p ~= 1/(reps+1) and
+    are flagged via day_var for downstream screening.
+    Returns {key: {"p_perm": p, "days": D, "day_var": var}}; cells with
+    < MIN_DAYS get p_perm None.
+    """
+    key = "gross_pnl" if measure == "gross" else "scenario_net_pnl"
+    out = {}
+    for gkey in sorted(groups, key=str):
+        byday = defaultdict(float)
+        for r in groups[gkey]:
+            byday[r["calendar_date"]] += r[key]
+        days = sorted(byday)
+        if len(days) < MIN_DAYS:
+            out[gkey] = {"p_perm": None, "days": len(days), "day_var": None}
+            continue
+        vals = [byday[d] for d in days]
+        D = len(vals)
+        obs = sum(vals) / D
+        rec = [v - obs for v in vals]
+        var = sum((v - obs) ** 2 for v in vals) / D
+        rng = random.Random("%s|%s" % (seed, gkey))
+        ge = 0
+        for _ in range(reps):
+            m = sum(rec[rng.randrange(D)] for _ in range(D)) / D
+            if m >= obs:
+                ge += 1
+        out[gkey] = {"p_perm": round((ge + 1) / (reps + 1), 6), "days": D,
+                     "day_var": round(var, 6)}
+    return out
+
+
 def main():
     rows = load()
     print("valid rows:", len(rows), "measure:", MEASURE)
@@ -111,23 +148,18 @@ def main():
     groups = defaultdict(list)
     for r in rows:
         groups[(r["entry_policy"], r["entry_rule"], r["asset"], r["entry_variant"], r["price_bin"])].append(r)
-    table, pvals = [], {}
+    perms = perm_pvalues(groups, MEASURE)
+    table = []
     for key in sorted(groups, key=str):
         a = agg(groups[key], MEASURE)
         b = boot_ci(groups[key], MEASURE)
         a.update({"entry_policy": key[0], "entry_rule": key[1], "asset": key[2],
                   "variant": key[3], "price_bin": key[4], **{k: v for k, v in b.items() if k != "exp_ci95"},
-                  "exp_ci95": b["exp_ci95"]})
+                  "exp_ci95": b["exp_ci95"], "p_perm": perms[key]["p_perm"],
+                  "day_var": perms[key]["day_var"]})
         table.append(a)
-        if b["status"] == "OK" and b["exp_ci95"]:
-            lo, hi = b["exp_ci95"]
-            # two-sided bootstrap p-value approx via CI position relative to 0
-            mid = a["expectancy"]
-            width = max(hi - lo, 1e-12)
-            z = abs(mid) / (width / (2 * 1.96))
-            from math import erf, sqrt
-            p = 2 * (1 - 0.5 * (1 + erf(z / sqrt(2))))
-            pvals[key] = p
+    pvals = {k: (a["p_perm"]) for k, a in
+             zip(sorted(groups, key=str), table) if a["p_perm"] is not None}
     adj = holm(pvals)
     for a in table:
         k = (a["entry_policy"], a["entry_rule"], a["asset"], a["variant"], a["price_bin"])
@@ -144,7 +176,10 @@ def main():
         "positive_lower_ci": len(pos),
         "positive_cells": [
             {"key": [a["entry_policy"], a["entry_rule"], a["asset"], a["variant"], a["price_bin"]],
-             "n": a["n"], "pnl": a["pnl"], "ci": a["exp_ci95"], "holm_adj_p": a["holm_adj_p"]} for a in pos],
+             "n": a["n"], "pnl": a["pnl"], "ci": a["exp_ci95"], "holm_adj_p": a["holm_adj_p"],
+             "p_perm": a["p_perm"], "day_var": a["day_var"]} for a in pos],
+        "method": "one-sided day-block recentered bootstrap H0:E<=0, Holm over tested cells; "
+                  "NO normal approximation (removed v1 pseudo-p)",
         "coverage_statuses": {},
     }
     with open(os.path.join(BASE, "opportunity_ledger.csv"), newline="") as f:

@@ -50,9 +50,14 @@ for mid, m in markets.items():
     if asset not in ASSETS:
         continue
     first = datetime.fromisoformat(m["first"])
-    duration_min = (expiry - first).total_seconds() / 60.0
+    last = datetime.fromisoformat(m["last"])
+    # NOTE: this is the OBSERVED snapshot window (expiry - first snapshot),
+    # NOT the contract duration (market creation time is not in the freeze).
+    observed_window_min = (expiry - first).total_seconds() / 60.0
     rows.append({"market_id": mid, "asset": asset, "expiry": exp[mid],
-                 "duration_min": round(duration_min, 1), "snapshots": m["n"],
+                 "observed_window_min": round(observed_window_min, 1),
+                 "snapshot_span_min": round((last - first).total_seconds() / 60.0, 1),
+                 "snapshots": m["n"],
                  "outcome": sorted(m["outs"])[0] if len(m["outs"]) == 1 else ("CONFLICT" if m["outs"] else "MISSING"),
                  "in_funnel": mid in funnel_mids})
 
@@ -68,8 +73,10 @@ def desc(rs):
          "outcomes": dict(Counter(r["outcome"] for r in rs))}
     ds = sorted({r["expiry"][:10] for r in rs})
     d["days"] = len(ds)
-    durs = sorted(r["duration_min"] for r in rs)
-    d["duration_p50"] = durs[len(durs) // 2] if durs else None
+    wins = sorted(r["observed_window_min"] for r in rs)
+    spans = sorted(r["snapshot_span_min"] for r in rs)
+    d["observed_window_p50"] = wins[len(wins) // 2] if wins else None
+    d["snapshot_span_p50"] = spans[len(spans) // 2] if spans else None
     return d
 
 

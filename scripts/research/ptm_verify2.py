@@ -87,12 +87,14 @@ check("t5_biggest_day", big[0], "2026-08-28")
 check("t5_biggest_day_pnl", round(big[1], 2), 92.49, tol=0.01)
 
 af = json.load(open(os.path.join(BASE, "auto_findings.json")))
+# P1-1 fix: significance = day-block recentered bootstrap null + Holm; no normal approx.
+check("perm_method", "NO normal approximation" in af.get("method", ""), True)
 check("positive_cells", len(af["positive_cells"]), 15)
-surv = [p for p in af["positive_cells"] if p["holm_adj_p"] < 0.05]
-check("holm_survivors", len(surv), 7)
-real = [p for p in surv if p["holm_adj_p"] > 0]
-check("holm_nondegenerate", len(real), 1)
-check("holm_best", (real[0]["key"][2], real[0]["key"][1], real[0]["key"][4]), ("DOGE", "T-8", "[0.90,0.99]"))
+surv = [p for p in af["positive_cells"]
+        if p.get("holm_adj_p") is not None and p["holm_adj_p"] < 0.05]
+check("holm_survivors_at_0_05", len(surv), 0)
+best = min(p["holm_adj_p"] for p in af["positive_cells"] if p.get("holm_adj_p") is not None)
+check("holm_best_adj", best, 0.1545, tol=0.001)
 
 u = json.load(open(os.path.join(BASE, "..", "_freeze", "universe_freeze_independent.json")))
 check("universe_markets", len(u["markets"]), 14820)  # 12745 funnel (incl 1 PENDING) + 2075 non-funnel

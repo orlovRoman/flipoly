@@ -2,18 +2,45 @@
   "pairs": [
     {
       "pair": "T-12_vs_T-8_CT",
-      "markets": 1682,
-      "mean_diff": 0.046438
+      "markets": 12744,
+      "both_ok": 4602,
+      "only_a_ok": 4621,
+      "only_b_ok": 2661,
+      "days": 26,
+      "mean_diff": -0.004629,
+      "ci95": [
+        -0.012062,
+        0.00513
+      ],
+      "perm_p": 0.861069
     },
     {
       "pair": "T-12_vs_T-5_CT",
-      "markets": 1608,
-      "mean_diff": 0.132511
+      "markets": 12744,
+      "both_ok": 4525,
+      "only_a_ok": 4698,
+      "only_b_ok": 2454,
+      "days": 25,
+      "mean_diff": 0.010552,
+      "ci95": [
+        -0.013374,
+        0.048165
+      ],
+      "perm_p": 0.114943
     },
     {
       "pair": "T-8_vs_T-5_CT",
-      "markets": 2633,
-      "mean_diff": 0.12249
+      "markets": 12744,
+      "both_ok": 6367,
+      "only_a_ok": 896,
+      "only_b_ok": 612,
+      "days": 28,
+      "mean_diff": 0.015181,
+      "ci95": [
+        -0.001639,
+        0.049772
+      ],
+      "perm_p": 0.033483
     }
   ],
   "t5_concentration": {

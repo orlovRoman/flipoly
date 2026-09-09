@@ -63,21 +63,19 @@ def research_file_hashes():
     return out
 
 
-def load_freeze():
+def parse_snap_row(r):
+    r["recorded_at"] = datetime.fromisoformat(str(r["recorded_at"]))
+    if r["recorded_at"].tzinfo is None:
+        r["recorded_at"] = r["recorded_at"].replace(tzinfo=timezone.utc)
+    r["time_left_min"] = float(r["time_left_min"]) if r["time_left_min"] else None
+    for k in ("mid_price", "best_bid", "best_ask", "spread"):
+        r[k] = float(r[k]) if r[k] not in (None, "") else None
+    return r
+
+
+def freeze_meta():
     base = os.path.join("artifacts", "research", "price_time_map", "_freeze", FREEZE)
-    meta = json.load(open(os.path.join(base, "meta.json"), encoding="utf-8"))
-    snaps = {}
-    for f in meta["files"]:
-        with gzip.open(os.path.join(base, f["path"]), "rt", newline="") as fh:
-            for r in csv.DictReader(fh):
-                r["recorded_at"] = datetime.fromisoformat(str(r["recorded_at"]))
-                if r["recorded_at"].tzinfo is None:
-                    r["recorded_at"] = r["recorded_at"].replace(tzinfo=timezone.utc)
-                r["time_left_min"] = float(r["time_left_min"]) if r["time_left_min"] else None
-                for k in ("mid_price", "best_bid", "best_ask", "spread"):
-                    r[k] = float(r[k]) if r[k] not in (None, "") else None
-                snaps.setdefault(r["market_id"], []).append(r)
-    return meta, snaps
+    return json.load(open(os.path.join(base, "meta.json"), encoding="utf-8"))
 
 
 def main():
@@ -88,16 +86,16 @@ def main():
     if UNIVERSE == "funnel":
         mids = sorted({str(o["market_id"]) for o in obs})
     else:
-        uni = json.load(open(os.path.join("artifacts", "research", "price_time_map",
-                                           "universe_freeze_independent.json"), encoding="utf-8"))
+        uni = json.load(open(os.path.join("artifacts", "research", "price_time_map", "_freeze",
+                                           "universe_" + FREEZE + ".json"), encoding="utf-8"))
         mids = sorted({r["market_id"] for r in uni["markets"] if r["outcome"] in ("YES", "NO")})
     period = sorted(o["timestamp"] for o in obs if o.get("timestamp"))
     asset_of = {}
     for o in obs:
         asset_of.setdefault(str(o["market_id"]), o.get("asset"))
     if UNIVERSE != "funnel":
-        uni = json.load(open(os.path.join("artifacts", "research", "price_time_map",
-                                           "universe_freeze_independent.json"), encoding="utf-8"))
+        uni = json.load(open(os.path.join("artifacts", "research", "price_time_map", "_freeze",
+                                           "universe_" + FREEZE + ".json"), encoding="utf-8"))
         for r in uni["markets"]:
             asset_of.setdefault(r["market_id"], r["asset"])
     job_of = {}
@@ -121,7 +119,7 @@ def main():
                 "input_file_hashes": {
                     "observations_30d.json": sha256_file("artifacts/weighted_policy/observations_30d.json"),
                     "market_expirations.json": sha256_file("artifacts/research/market_expirations.json")}}
-    meta, snaps_by_m = load_freeze()
+    meta = freeze_meta()
     manifest["freeze_meta"] = meta["name"]
     cov = {"markets": len(mids), "with_snapshots": 0, "outcome_ok": 0, "outcome_conflict": 0,
            "outcome_missing": 0, "outcome_not_final": 0, "entries_ok": 0, "entries_missing": 0,
@@ -131,26 +129,24 @@ def main():
     w = csv.DictWriter(f, fieldnames=COLS, extrasaction="ignore")
     w.writeheader()
     n = 0
-    for mid in mids:
-        snaps = snaps_by_m.get(mid)
-        if not snaps:
-            continue
+    def process_market(mid, snaps):
+        nonlocal_n = [n]
         cov["with_snapshots"] += 1
         outs = {s["final_outcome"] for s in snaps if s["final_outcome"]}
         asset = asset_of.get(mid)
         if not outs:
             cov["outcome_missing"] += 1
-            continue
+            return nonlocal_n[0]
         if len(outs) > 1:
             cov["outcome_conflict"] += 1
-            continue
+            return nonlocal_n[0]
         final = outs.pop()
         if final not in ("YES", "NO"):
             cov["outcome_not_final"] += 1
-            continue
+            return nonlocal_n[0]
         cov["outcome_ok"] += 1
         if mid not in exp:
-            continue
+            return nonlocal_n[0]
         expiry = datetime.fromisoformat(exp[mid])
         for x in ENTRY_TARGETS_MAIN:
             target_at = expiry - timedelta(minutes=x)
@@ -162,7 +158,7 @@ def main():
                 cov["entries_missing"] += 1
                 w.writerow({**base, "decision_at": target_at.isoformat(), "entry_delay_sec": "",
                             "selection_status": status, "skip_reason": reason})
-                n += 1
+                nonlocal_n[0] += 1
                 continue
             dt = row["recorded_at"]
             tl_db = row["time_left_min"]
@@ -176,7 +172,7 @@ def main():
                 cov["entries_missing"] += 1
                 w.writerow({**base, "decision_at": dt.isoformat(), "entry_delay_sec": round(delay, 1),
                             "selection_status": "MISSING_ENTRY_QUOTE", "skip_reason": "NO_REAL_QUOTE"})
-                n += 1
+                nonlocal_n[0] += 1
                 continue
             role, basis = classify_role(mid_px, ask)
             variant = ("YES_OUTSIDER" if role == "OUTSIDER" else "YES_FAVORITE")
@@ -203,7 +199,7 @@ def main():
                 "recorded_at": dt.isoformat(),
                 "calendar_date": dt.date().isoformat(), "hour_utc": dt.hour, "weekday": dt.weekday(),
             })
-            n += 1
+            nonlocal_n[0] += 1
         # FUNNEL stratum (real funnel quotes only)
         o = job_of.get(mid)
         if o is not None and o.get("timestamp"):
@@ -222,7 +218,7 @@ def main():
                                 "entry_delay_sec": "", "time_left_target": "", "time_left_actual": round(tl, 3),
                                 "final_outcome": final, "selection_status": "MISSING_ENTRY_QUOTE",
                                 "skip_reason": "NO_REAL_QUOTE_IN_FUNNEL_ROW"})
-                    n += 1
+                    nonlocal_n[0] += 1
                 for aq, side, mpx in fvars:
                     role, basis = classify_role(mpx if side == "YES" else None, aq)
                     if side == "NO":
@@ -254,7 +250,22 @@ def main():
                         "recorded_at": dt.isoformat(),
                         "calendar_date": dt.date().isoformat(), "hour_utc": dt.hour, "weekday": dt.weekday(),
                     })
-                    n += 1
+                    nonlocal_n[0] += 1
+        return nonlocal_n[0]
+
+    wanted = set(mids)
+    fbase = os.path.join("artifacts", "research", "price_time_map", "_freeze", FREEZE)
+    for fi, fm in enumerate(meta["files"]):
+        snaps = {}
+        with gzip.open(os.path.join(fbase, fm["path"]), "rt", newline="") as fh:
+            for r in csv.DictReader(fh):
+                if r["market_id"] not in wanted:
+                    continue
+                snaps.setdefault(r["market_id"], []).append(parse_snap_row(r))
+        for mid in sorted(snaps):
+            n = process_market(mid, snaps[mid])
+        print("build chunk %d/%d markets=%d ledger_rows=%d" % (fi + 1, len(meta["files"]), len(snaps), n), flush=True)
+        del snaps
     f.close()
     json.dump(manifest, open(os.path.join(OUTDIR, "manifest.json"), "w"), indent=2)
     json.dump(cov, open(os.path.join(OUTDIR, "coverage.json"), "w"), indent=2, default=str)

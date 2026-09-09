@@ -14,7 +14,8 @@
       "PENDING": 1
     },
     "days": 30,
-    "duration_p50": 174.6
+    "observed_window_p50": 174.6,
+    "snapshot_span_p50": 173.0
   },
   "non_funnel": {
     "n": 2075,
@@ -30,6 +31,7 @@
       "NO": 1061
     },
     "days": 22,
-    "duration_p50": 174.6
+    "observed_window_p50": 174.6,
+    "snapshot_span_p50": 173.5
   }
 }

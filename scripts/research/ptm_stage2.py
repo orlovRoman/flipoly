@@ -82,18 +82,68 @@ def main():
         w = csv.DictWriter(f, fieldnames=list(paired[0].keys()))
         w.writeheader()
         w.writerows(paired)
-    # 22. CT time-pair comparison on common markets (CT-skip = zero position)
-    trows = defaultdict(lambda: defaultdict(list))
-    for r in rows:
-        trows[r["market_id"]][r["entry_rule"]].append(r)
+    # 22. Time-pair comparison on COMMON AVAILABILITY sample (review fix P1-4):
+    # markets with >=1 ledger row (OK or MISSING) for BOTH rules, GRID policy.
+    # Position(market, rule) = CT-kept YES_OUTSIDER gross, else 0 (no signal -> flat).
+    # Uncertainty: day-block bootstrap CI for mean market diff (preserves day
+    # dependence). H0 (no time advantage): within-market sign-flip permutation p.
+    led_grid = []
+    with open(os.path.join(BASE, "opportunity_ledger.csv"), newline="") as f:
+        for r in csv.DictReader(f):
+            if r.get("entry_policy") == "GRID":
+                led_grid.append(r)
+    prng = random.Random(SEED + 7)
     pairs = []
     for (ra, rb) in (("T-12", "T-8"), ("T-12", "T-5"), ("T-8", "T-5")):
-        common = [m for m in trows if ra in trows[m] and rb in trows[m]]
-        da = [sum(r["gross_pnl"] for r in trows[m][ra] if r["ct"] == "REVERSION") for m in common]
-        db = [sum(r["gross_pnl"] for r in trows[m][rb] if r["ct"] == "REVERSION") for m in common]
-        diffs = [b - a for a, b in zip(da, db)]
-        pairs.append({"pair": "%s_vs_%s_CT" % (ra, rb), "markets": len(common),
-                      "mean_diff": round(sum(diffs) / len(diffs), 6) if diffs else None})
+        have = defaultdict(set)
+        okhave = defaultdict(set)
+        pos = defaultdict(float)
+        mdates = defaultdict(list)
+        for r in led_grid:
+            rule = r["entry_rule"]
+            if rule not in (ra, rb):
+                continue
+            m = r["market_id"]
+            have[rule].add(m)
+            mdates[m].append(r["calendar_date"])
+            if r["selection_status"] == "OK":
+                okhave[rule].add(m)
+                if (r.get("entry_variant") == "YES_OUTSIDER"
+                        and ct.get(r["opportunity_id"]) == "REVERSION"):
+                    pos[(m, rule)] += float(r["gross_pnl"])
+        common = sorted(have[ra] & have[rb])
+        diffs = [pos[(m, rb)] - pos[(m, ra)] for m in common]
+        mday = {m: max(set(mdates[m]), key=mdates[m].count) for m in common}
+        byday = defaultdict(list)
+        for m, d in zip(common, [diffs[i] for i in range(len(common))]):
+            byday[mday[m]].append(d)
+        days = sorted(byday)
+        rec = {"pair": "%s_vs_%s_CT" % (ra, rb), "markets": len(common),
+               "both_ok": len(okhave[ra] & okhave[rb]),
+               "only_a_ok": len(okhave[ra] - okhave[rb]),
+               "only_b_ok": len(okhave[rb] - okhave[ra]),
+               "days": len(days)}
+        if common and len(days) >= MIN_DAYS:
+            obs = sum(diffs) / len(diffs)
+            boots = []
+            for _ in range(BOOT):
+                s = [prng.choice(days) for _ in days]
+                pool = [d for dd in s for d in byday[dd]]
+                boots.append(sum(pool) / len(pool))
+            boots.sort()
+            ge = 0
+            for _ in range(BOOT):
+                sm = sum(d * prng.choice((-1.0, 1.0)) for d in diffs) / len(diffs)
+                if sm >= obs:
+                    ge += 1
+            rec.update({"mean_diff": round(obs, 6),
+                        "ci95": [round(boots[int(0.025 * BOOT)], 6),
+                                 round(boots[int(0.975 * BOOT)], 6)],
+                        "perm_p": round((ge + 1) / (BOOT + 1), 6)})
+        else:
+            rec.update({"mean_diff": round(sum(diffs) / len(diffs), 6) if diffs else None,
+                        "ci95": None, "perm_p": None})
+        pairs.append(rec)
     # 23. T-5 CT concentration
     t5 = [r for r in rows if r["entry_rule"] == "T-5" and r["ct"] == "REVERSION"]
     pnls = sorted((r["gross_pnl"] for r in t5), reverse=True)
