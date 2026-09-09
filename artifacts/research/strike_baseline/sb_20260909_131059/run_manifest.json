@@ -1,0 +1,25 @@
+{
+  "artifacts": {
+    "coverage.csv": {
+      "bytes": 1653,
+      "sha256": "4cf5832a57efaf2bda2bbb9c9c81bdce87d1d5c5db649c80a5f33474283360d4"
+    },
+    "ledger.parquet": {
+      "bytes": 7029618,
+      "sha256": "ab981ff002c89831f2a6d4f3ccafd2cc689111a26679947e1cdf8f592ed56fab"
+    }
+  },
+  "branch_protocol": {
+    "commit": "f366e0e0d471f60bcf96e6827252728713ed9653",
+    "protocol_file": "C:\\Users\\orlov\\AppData\\Local\\Temp\\opencode\\flipoly-strike\\research\\strike_baseline\\protocol.yaml",
+    "protocol_sha256": "4ef4a003e0f0a9e71cfb95c0d87edfe4a75959a008a6bac6beeef46a9a8c88b4"
+  },
+  "created_at": "2026-09-09T13:13:12.881772+00:00",
+  "data_export": {
+    "binance_manifest_sha256": "d8cce332ec33df80e8979a5115f5061dfb9f7e6a6d73dbb732c957bd4fef5b5a",
+    "dir": "C:\\Users\\orlov\\AppData\\Local\\Temp\\opencode\\flipoly-strike\\artifacts\\research\\strike_baseline\\data_export\\20260909_115314",
+    "export_manifest_sha256": "b2b78bc9ecf3c663863828efbdde70897a7b23d48c23e1a35873c79d49296941"
+  },
+  "manifest_file_sha256": "9f443eaca7c8a0b3817697258f8073d130b7a147784eec4e6535830f043511d8",
+  "run_id": "sb_20260909_131059"
+}
