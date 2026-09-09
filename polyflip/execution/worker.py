@@ -7,7 +7,7 @@ import socket
 import ssl
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy import select, or_, and_, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
