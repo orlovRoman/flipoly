@@ -1,0 +1,26 @@
+{
+  "artifacts": {
+    "feature_coverage.json": {
+      "bytes": 313,
+      "sha256": "cf77ddf92d1d2c359e2991d8cc1ae8755fdf49396398350f364628fc74606323"
+    },
+    "phase2b_metrics.json": {
+      "bytes": 13849,
+      "sha256": "4b682d018c5103c206d156218551c574d0a82afff6b77ecfe4243dc8f9527505"
+    },
+    "reliability.csv": {
+      "bytes": 5185,
+      "sha256": "77b37829b84605abb950ff502c66785e081f74a84ec193738a89a0ae3fa2b394"
+    }
+  },
+  "commit": "152151ec1a362d3d92b2d6ce72ec6621d9ac1b97",
+  "created_at": "2026-09-09T13:47:14.359328+00:00",
+  "input_ledger": "sb_20260909_131059",
+  "input_splits": "sb2a_20260909_131711",
+  "ledger_sha256": "ab981ff002c89831f2a6d4f3ccafd2cc689111a26679947e1cdf8f592ed56fab",
+  "manifest_file_sha256": "b8134d2d2420c0e4a23e4a302372de22e6ea7994e1897a78fbd2ee7d8db59668",
+  "phase": "2b",
+  "protocol_sha256": "0b9e429275b54938c18bc7e9f37488316f18610ea25092f3c143e660110b104b",
+  "run_id": "sb2b_20260909_134714",
+  "splits_sha256": "1f413031e1b81e3aeda0a91ff4fa6d235e9d876fcdd011256e202113eddd53a8"
+}

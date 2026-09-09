@@ -1,0 +1,17 @@
+{
+  "cs_non_uncertain_rate": 0.5311,
+  "cs_state": {
+    "QUIET": 4209,
+    "REVERSION": 19010,
+    "TREND": 9747,
+    "UNCERTAIN": 29103
+  },
+  "ct_n_mids_median": 30.0,
+  "ct_non_uncertain_rate": 0.5268,
+  "ct_state": {
+    "QUIET": 416,
+    "REVERSION": 15145,
+    "TREND": 17140,
+    "UNCERTAIN": 29368
+  }
+}
