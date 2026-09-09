@@ -1,0 +1,107 @@
+{
+    "baseline_02_pct": {
+        "n_bootstrap": 1000,
+        "n_calendar_days": 71,
+        "pnl_column": "net_pnl",
+        "point_estimate_c0": -343.75,
+        "point_estimate_ct": 81.65,
+        "point_estimate_delta": 425.39,
+        "c0_net_pnl_ci95": [
+            -574.55,
+            -96.08
+        ],
+        "ct_net_pnl_ci95": [
+            -36.85,
+            204.63
+        ],
+        "delta_pnl_ci95": [
+            200.26,
+            626.74
+        ],
+        "c0_expectancy_ci95": [
+            -0.219,
+            -0.0359
+        ],
+        "ct_expectancy_ci95": [
+            -0.0572,
+            0.3163
+        ],
+        "delta_expectancy_ci95": [
+            0.0892,
+            0.4329
+        ],
+        "nonpositive_delta_count": 0,
+        "nonpositive_delta_fraction": 0.0,
+        "p_value_ct_superior_to_c0": 0.0,
+        "note": "0 of 1000 iterations had delta <= 0 (fraction: 0.0000). This is an empirical resample fraction, not an asymptotic p-value."
+    },
+    "scenario_01_pct": {
+        "n_bootstrap": 1000,
+        "n_calendar_days": 71,
+        "pnl_column": "scenario_net_pnl",
+        "point_estimate_c0": -341.11,
+        "point_estimate_ct": 82.29,
+        "point_estimate_delta": 423.41,
+        "c0_net_pnl_ci95": [
+            -571.97,
+            -93.41
+        ],
+        "ct_net_pnl_ci95": [
+            -36.19,
+            205.28
+        ],
+        "delta_pnl_ci95": [
+            198.34,
+            624.77
+        ],
+        "c0_expectancy_ci95": [
+            -0.218,
+            -0.0349
+        ],
+        "ct_expectancy_ci95": [
+            -0.0562,
+            0.3173
+        ],
+        "delta_expectancy_ci95": [
+            0.0892,
+            0.4329
+        ],
+        "nonpositive_delta_count": 0,
+        "nonpositive_delta_fraction": 0.0,
+        "p_value_ct_superior_to_c0": 0.0,
+        "note": "0 of 1000 iterations had delta <= 0 (fraction: 0.0000). This is an empirical resample fraction, not an asymptotic p-value."
+    },
+    "n_bootstrap": 1000,
+    "n_calendar_days": 71,
+    "c0_net_pnl_ci95": [
+        -574.55,
+        -96.08
+    ],
+    "ct_net_pnl_ci95": [
+        -36.85,
+        204.63
+    ],
+    "delta_pnl_ci95": [
+        200.26,
+        626.74
+    ],
+    "point_estimate_c0": -343.75,
+    "point_estimate_ct": 81.65,
+    "point_estimate_delta": 425.39,
+    "c0_expectancy_ci95": [
+        -0.219,
+        -0.0359
+    ],
+    "ct_expectancy_ci95": [
+        -0.0572,
+        0.3163
+    ],
+    "delta_expectancy_ci95": [
+        0.0892,
+        0.4329
+    ],
+    "nonpositive_delta_count": 0,
+    "nonpositive_delta_fraction": 0.0,
+    "p_value_ct_superior_to_c0": 0.0,
+    "note": "0 of 1000 iterations had delta <= 0 (fraction: 0.0000). This is an empirical resample fraction, not an asymptotic p-value."
+}

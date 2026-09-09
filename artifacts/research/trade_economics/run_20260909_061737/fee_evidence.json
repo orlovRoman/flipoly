@@ -1,0 +1,16 @@
+[
+    {
+        "market_id": "*",
+        "valid_from": "2020-01-01",
+        "valid_to": "2099-12-31",
+        "liquidity_role": "taker",
+        "formula_id": "FIXED_PERCENTAGE",
+        "parameters": {
+            "rate": 0.002
+        },
+        "charged_asset": "USD",
+        "rounding_rule": "ROUND_DOWN",
+        "source_reference": "Platform documentation",
+        "evidence_status": "HISTORICAL_SCHEDULE"
+    }
+]

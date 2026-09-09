@@ -1,0 +1,7 @@
+variant,table_type,step_number,step_name,incremental_change_usdc,cumulative_pnl_usdc,coverage,description
+C0,FULL_SCENARIO,0,0. Baseline (Ask + 0.2% fee),0.0,-343.75,100% (Full Strategy Universe),"Decision ask, standard 0.2% taker fee (N=2636)"
+C0,FULL_SCENARIO,1,1. Scenario Fee Adjustment (0.1%),2.64,-341.11,100% (Full Strategy Universe),Fee rate reduced from 0.2% to 0.1%
+C0,FULL_SCENARIO,2,2. Zero-Fee Scenario (Gross PnL),2.64,-338.48,100% (Full Strategy Universe),Gross settlement proceeds minus purchase cash (no platform fees)
+CT,FULL_SCENARIO,0,0. Baseline (Ask + 0.2% fee),0.0,81.65,100% (Full Strategy Universe),"Decision ask, standard 0.2% taker fee (N=647)"
+CT,FULL_SCENARIO,1,1. Scenario Fee Adjustment (0.1%),0.65,82.29,100% (Full Strategy Universe),Fee rate reduced from 0.2% to 0.1%
+CT,FULL_SCENARIO,2,2. Zero-Fee Scenario (Gross PnL),0.65,82.94,100% (Full Strategy Universe),Gross settlement proceeds minus purchase cash (no platform fees)

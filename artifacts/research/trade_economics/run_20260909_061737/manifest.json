@@ -1,0 +1,16 @@
+{
+    "run_id": "run_20260909_061737",
+    "base_commit": "7eade12",
+    "research_commit": "HEAD",
+    "dirty_worktree": true,
+    "input_files": {
+        "common_opportunity_ledger.json": "207a445ef472ddae7268acc68299b5c8cadb3ffaba1119864ce68905fdc0af89"
+    },
+    "period_utc": "2026-09",
+    "assets": [
+        "all"
+    ],
+    "policy_version": "1.0",
+    "accounting_convention": "exclusive",
+    "fee_evidence_version": "v1"
+}

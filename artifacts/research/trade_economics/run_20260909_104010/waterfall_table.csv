@@ -1,0 +1,11 @@
+variant,step_number,step_name,incremental_change_usdc,cumulative_pnl_usdc,description
+C0,0,0. Baseline (Ask + 0.2% fee),0.0,-343.75,"Decision ask, 1.0 USDC budget, standard 0.2% taker fee"
+C0,1,1. Scenario Fee (0.1%),2.64,-341.11,Fee rate reduced from 0.2% to 0.1%
+C0,2,2. Execution Price Degradation (Slippage),-6.9,-348.02,VWAP vs Decision Ask on confirmed fills (spread is NOT deducted twice)
+C0,3,3. Execution Size Adjustment,0.0,-348.02,Difference between requested shares and filled shares
+C0,4,4. Other Confirmed Costs / Rebates,0.0,-348.02,Network gas costs and confirmed rebates
+CT,0,0. Baseline (Ask + 0.2% fee),0.0,81.65,"Decision ask, 1.0 USDC budget, standard 0.2% taker fee"
+CT,1,1. Scenario Fee (0.1%),0.65,82.29,Fee rate reduced from 0.2% to 0.1%
+CT,2,2. Execution Price Degradation (Slippage),-3.83,78.47,VWAP vs Decision Ask on confirmed fills (spread is NOT deducted twice)
+CT,3,3. Execution Size Adjustment,0.0,78.47,Difference between requested shares and filled shares
+CT,4,4. Other Confirmed Costs / Rebates,0.0,78.47,Network gas costs and confirmed rebates

@@ -1,0 +1,11 @@
+variant,table_type,step_number,step_name,incremental_change_usdc,cumulative_pnl_usdc,coverage,description
+C0,MATCHED_PAPER_SUBSET,0,0. Hypothetical Decision PnL (Ask + 0.2% fee),0.0,37.84,Candidate Subset (N=15),"Decision ask, hypothetical shares/budget, 0.2% baseline fee"
+C0,MATCHED_PAPER_SUBSET,1,1. Execution Price Degradation (Slippage),-6.9,30.94,Candidate Subset (N=15),VWAP vs Decision Ask on filled shares (latency delta: -1.8s to +105s)
+C0,MATCHED_PAPER_SUBSET,2,2. Position Size & Cash Allocation Adjustment,-32.56,-1.63,Candidate Subset (N=15),Difference between requested shares and actually filled order shares
+C0,MATCHED_PAPER_SUBSET,3,3. Simulator Fee Adjustment,0.03,-1.6,Candidate Subset (N=15),Simulator fee (0.0 USDC recorded in DB) vs baseline 0.2% fee
+C0,MATCHED_PAPER_SUBSET,4,4. Actual Simulated Net PnL of Subset,0.0,-1.6,Candidate Subset (N=15),Simulated resolution payout minus purchase cash and fees in DB
+CT,MATCHED_PAPER_SUBSET,0,0. Hypothetical Decision PnL (Ask + 0.2% fee),0.0,7.95,Candidate Subset (N=8),"Decision ask, hypothetical shares/budget, 0.2% baseline fee"
+CT,MATCHED_PAPER_SUBSET,1,1. Execution Price Degradation (Slippage),-3.83,4.12,Candidate Subset (N=8),VWAP vs Decision Ask on filled shares (latency delta: -1.8s to +105s)
+CT,MATCHED_PAPER_SUBSET,2,2. Position Size & Cash Allocation Adjustment,-7.95,-3.83,Candidate Subset (N=8),Difference between requested shares and actually filled order shares
+CT,MATCHED_PAPER_SUBSET,3,3. Simulator Fee Adjustment,0.02,-3.81,Candidate Subset (N=8),Simulator fee (0.0 USDC recorded in DB) vs baseline 0.2% fee
+CT,MATCHED_PAPER_SUBSET,4,4. Actual Simulated Net PnL of Subset,0.0,-3.81,Candidate Subset (N=8),Simulated resolution payout minus purchase cash and fees in DB
