@@ -1,6 +1,6 @@
 {
   "timestamp": "2026-09-09T02:59:46.901970+00:00",
-  "git_commit": "1cc86168f132dca3b5a5d721249b3273218789e6",
+  "git_commit": "10ce34d735a9cf75521922daf9510335254c5072",
   "git_branch": "main",
   "python_environment": {
     "python_version": "3.14.4 (tags/v3.14.4:23116f9, Apr  7 2026, 14:10:54) [MSC v.1944 64 bit (AMD64)]",
@@ -72,8 +72,8 @@
     },
     "stage2_comprehensive_study_results.json": {
       "path": "C:\\Users\\orlov\\.gemini\\antigravity\\scratch\\flipoly\\artifacts\\research\\stage2_comprehensive_study_results.json",
-      "sha256": "240ec5eb725a0766d53b8fab4573226be8006198ccfc22d67e608b5c7ca354ca",
-      "size_bytes": 28329
+      "sha256": "69be15c9c596aa36422dccab458f89988f961eddd29ebc4cb18b710ab9d63daa",
+      "size_bytes": 30838
     },
     "common_opportunity_ledger.json": {
       "path": "C:\\Users\\orlov\\.gemini\\antigravity\\scratch\\flipoly\\artifacts\\research\\common_opportunity_ledger.json",
