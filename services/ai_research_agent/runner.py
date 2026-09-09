@@ -217,6 +217,7 @@ async def process_one_run(client: AILabApiClient, llm: OpenCodeClient) -> bool:
 
     stop_event = asyncio.Event()
     hb_task = asyncio.create_task(_heartbeat_loop(client, run.id, stop_event))
+    proposal_attempts_by_exp: dict[int, int] = {}
     try:
         # Resumable loop: branch on server phase
         for _ in range(20):  # safety bound
@@ -267,12 +268,24 @@ async def process_one_run(client: AILabApiClient, llm: OpenCodeClient) -> bool:
                             "latest_decision"
                         )
                     proposal_bundle = await llm.propose_hypothesis(llm_context)
+                    requeue_count = (
+                        int(phase_data.get("requeue_count") or 0)
+                        if isinstance(phase_data, dict)
+                        else 0
+                    )
+                    exp_idx = int(run.experiments_completed or 0)
+                    attempt = proposal_attempts_by_exp.get(exp_idx, 0) + 1
+                    proposal_attempts_by_exp[exp_idx] = attempt
+                    client_req_id = f"proposal-{run.id}-{exp_idx}"
+                    if requeue_count > 0:
+                        client_req_id = f"{client_req_id}-r{requeue_count}"
+                    if attempt > 1:
+                        client_req_id = f"{client_req_id}-p{attempt}"
+
                     await client.submit_proposal(
                         run.id,
                         proposal_bundle["proposal"],
-                        client_request_id=(
-                            f"proposal-{run.id}-{run.experiments_completed}"
-                        ),
+                        client_request_id=client_req_id,
                         telemetry=proposal_bundle.get("telemetry"),
                     )
                     continue

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -170,22 +170,71 @@ async def recover_stale_jobs(
     result = await session.execute(
         select(AIExperimentJob)
         .where(AIExperimentJob.status == "RUNNING")
-        .where(AIExperimentJob.heartbeat_at < cutoff)
+        .where(
+            or_(
+                AIExperimentJob.heartbeat_at < cutoff,
+                and_(
+                    AIExperimentJob.heartbeat_at.is_(None),
+                    AIExperimentJob.started_at < cutoff,
+                ),
+            )
+        )
         .with_for_update()
     )
     rows = list(result.scalars().all())
     recovered = 0
     for row in rows:
-        row.status = "STALE"
-        row.error = "worker heartbeat expired"
         step = await session.get(
             AIRunStep, getattr(row, "step_id", None), with_for_update=True
         )
-        if step is not None and step.status == "RUNNING":
-            step.status = "PENDING"
-            step.finished_at = None
-            step.error_code = None
-            step.error_message = None
-            recovered += 1
+        if int(getattr(row, "attempt", 0) or 0) >= MAX_RETRY_ATTEMPTS:
+            row.status = "FAILED"
+            row.error = "worker heartbeat expired, retry limit reached"
+            if step is not None and step.status == "RUNNING":
+                step.status = "FAILED"
+                step.finished_at = utc_now()
+                step.error_code = "HEARTBEAT_EXPIRED"
+                step.error_message = "worker heartbeat expired, retry limit reached"
+                recovered += 1
+        else:
+            row.status = "STALE"
+            row.error = "worker heartbeat expired"
+            if step is not None and step.status == "RUNNING":
+                step.status = "PENDING"
+                step.finished_at = None
+                step.error_code = None
+                step.error_message = None
+                recovered += 1
+
+    try:
+        orphan_result = await session.execute(
+            select(AIRunStep)
+            .where(AIRunStep.status == "RUNNING")
+            .where(AIRunStep.started_at < cutoff)
+            .with_for_update()
+        )
+        orphan_steps = list(orphan_result.scalars().all())
+        for ostep in orphan_steps:
+            if not isinstance(ostep, AIRunStep) or ostep.status != "RUNNING":
+                continue
+            running_job = (
+                await session.execute(
+                    select(AIExperimentJob)
+                    .where(
+                        AIExperimentJob.step_id == ostep.id,
+                        AIExperimentJob.status == "RUNNING",
+                        AIExperimentJob.heartbeat_at >= cutoff,
+                    )
+                )
+            ).scalar_one_or_none()
+            if running_job is None:
+                ostep.status = "PENDING"
+                ostep.finished_at = None
+                ostep.error_code = None
+                ostep.error_message = None
+                recovered += 1
+    except Exception:
+        pass
+
     await session.flush()
     return recovered

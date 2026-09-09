@@ -298,6 +298,7 @@ async def _current_iteration(db: AsyncSession, run_id: int) -> dict[str, Any]:
             for step in steps
         )
     )
+    requeue_count = sum(1 for step in steps if step.step_type == "ITERATION_REQUEUED")
     return {
         "steps": steps,
         "boundary": boundary,
@@ -308,6 +309,7 @@ async def _current_iteration(db: AsyncSession, run_id: int) -> dict[str, Any]:
         "failed_result": failed_result,
         "current_decision": current_decision,
         "latest_decision": latest_decision,
+        "requeue_count": requeue_count,
     }
 
 
@@ -328,6 +330,7 @@ async def _agent_phase(db, run_id: int) -> dict[str, Any]:
         phase = "WAITING_RESULT"
     return {
         "phase": phase,
+        "requeue_count": iteration.get("requeue_count", 0),
         "latest_config_id": iteration["config_id"],
         "latest_result_id": terminal_result.id if terminal_result else None,
         "latest_decision": _decision_payload(decision or iteration["latest_decision"]),
@@ -822,6 +825,17 @@ async def submit_agent_proposal(
             raise HTTPException(
                 status_code=409,
                 detail="CLIENT_REQUEST_ID_REUSED",
+            )
+        iteration = await _current_iteration(db, run_id)
+        cutoff = (
+            iteration["boundary"].step_index
+            if iteration["boundary"] is not None
+            else -1
+        )
+        if existing.step_index <= cutoff:
+            raise HTTPException(
+                status_code=409,
+                detail="CLIENT_REQUEST_ID_FROM_PREVIOUS_ITERATION",
             )
         cfg_id = None
         if isinstance(existing.output_payload, dict):

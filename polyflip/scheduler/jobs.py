@@ -77,6 +77,16 @@ async def ai_lab_execution_job() -> None:
     """Drain bounded offline AI Lab steps from the shared scheduler."""
     try:
         async with async_session() as session:
+            from polyflip.ai_lab.jobs import recover_stale_jobs
+            stale_count = await recover_stale_jobs(session, stale_after_seconds=300)
+            if stale_count > 0:
+                await session.commit()
+                logger.warning("recovered_stale_ai_lab_jobs", count=stale_count)
+    except Exception as exc:
+        logger.exception("ai_lab_stale_recovery_failed", error=str(exc))
+
+    try:
+        async with async_session() as session:
             run_ids = (
                 await session.execute(
                     select(AIOptimizationRun.id)

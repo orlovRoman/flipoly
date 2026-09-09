@@ -6,6 +6,7 @@ Polymarket-OOT replays the saved OOF artifact and never retrains a candidate.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
@@ -16,6 +17,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from polyflip.config import settings
 from polyflip.ai_lab.executor import (
     ACTION_TO_EVALUATION_KIND,
     AdapterResult,
@@ -317,12 +319,27 @@ async def train_logreg(context: StepContext, session: AsyncSession) -> AdapterRe
     }
     requested_feature_set = str(context.feature_set or "AUTO").strip().upper()
     feature_set = FEATURE_SET_ALIASES.get(requested_feature_set, requested_feature_set)
-    trained = await ModelTrainer(session).train(
-        asset,
-        save_settings=False,
-        feature_set=feature_set,
-        activate_after_train=False,
+    train_timeout = float(
+        getattr(settings, "AI_LAB_TRAIN_TIMEOUT_SECONDS", 300) or 300
     )
+    try:
+        trained = await asyncio.wait_for(
+            ModelTrainer(session).train(
+                asset,
+                save_settings=False,
+                feature_set=feature_set,
+                activate_after_train=False,
+            ),
+            timeout=train_timeout,
+        )
+    except asyncio.TimeoutError:
+        return AdapterResult(
+            evaluation_kind="TRAIN",
+            status="FAILED",
+            summary=f"LogReg training timed out after {int(train_timeout)}s for {asset}.",
+            error_code="TRAINING_TIMEOUT",
+            error_message=f"ModelTrainer.train timed out after {int(train_timeout)} seconds",
+        )
     if not trained:
         return AdapterResult(
             evaluation_kind="TRAIN",

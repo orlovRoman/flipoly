@@ -140,6 +140,7 @@ class Settings(BaseSettings):
     # External ai_research_agent container authentication (falls back to API_KEY).
     AI_LAB_AGENT_TOKEN: str = ""
     AI_LAB_AGENT_LEASE_TTL_SECONDS: int = 120
+    AI_LAB_TRAIN_TIMEOUT_SECONDS: int = 300
 
     @field_validator("AI_LAB_MODE")
     @classmethod

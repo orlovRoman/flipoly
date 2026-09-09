@@ -161,6 +161,20 @@ def test_job_claim_is_idempotent_for_terminal_and_stale_recovery():
     assert row.status == "RUNNING"
 
 
+def test_job_recovery_marks_failed_when_max_retries_exceeded():
+    row = SimpleNamespace(
+        status="RUNNING",
+        attempt=3,
+        started_at=None,
+        heartbeat_at=datetime.now(timezone.utc) - timedelta(hours=1),
+    )
+    session = _JobSession(row)
+    assert asyncio.run(jobs.recover_stale_jobs(session, stale_after_seconds=60)) == 1
+    assert row.status == "FAILED"
+    assert session.step.status == "FAILED"
+    assert session.step.error_code == "HEARTBEAT_EXPIRED"
+
+
 def test_job_claim_records_owner_and_transient_errors_are_retryable():
     row = SimpleNamespace(
         status="QUEUED",

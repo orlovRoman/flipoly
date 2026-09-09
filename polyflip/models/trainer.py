@@ -832,6 +832,9 @@ class ModelTrainer:
             })
             
         df = pd.DataFrame(data)
+        del data
+        del snapshots
+        await asyncio.sleep(0)
         if df.empty:
             self.status_messages[asset] = "Training failed: no resolved market snapshots"
             return False
@@ -841,6 +844,7 @@ class ModelTrainer:
             .sort_values(["market_id", "recorded_at"])
             .reset_index(drop=True)
         )
+        await asyncio.sleep(0)
 
         sequence_coverage = 0.0
         sequence_enabled = False
@@ -864,7 +868,8 @@ class ModelTrainer:
                 .order_by(CryptoCandle.close_time.asc())
             )
             candle_rows = (await self.db.execute(candle_stmt)).scalars().all()
-            df = attach_closed_candle_features(df, candle_rows)
+            df = await asyncio.to_thread(attach_closed_candle_features, df, candle_rows)
+            await asyncio.sleep(0)
             ready_mask = sequence_history_ready(df)
             sequence_coverage = float(ready_mask.mean()) if len(df) else 0.0
             sequence_enabled = sequence_coverage >= MIN_SEQUENCE_COVERAGE
@@ -890,7 +895,8 @@ class ModelTrainer:
             return False
 
         # Добавляем инженерные признаки по полной причинной истории через единый builder
-        df = apply_market_feature_pipeline(df)
+        df = await asyncio.to_thread(apply_market_feature_pipeline, df)
+        await asyncio.sleep(0)
 
         # Фильтруем строки для обучения (таргет):
         # 1. time_left_min в диапазоне [min_time_min, max_time_min]

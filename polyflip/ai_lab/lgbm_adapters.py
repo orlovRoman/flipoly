@@ -8,6 +8,7 @@ retrain a model or call an execution gateway.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
@@ -18,6 +19,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from polyflip.config import settings
 from polyflip.ai_lab.executor import (
     ACTION_TO_EVALUATION_KIND,
     AdapterRegistry,
@@ -391,18 +393,33 @@ async def train_lgbm(context: StepContext, session: AsyncSession) -> AdapterResu
     ).scalars().all()
     before_ids = {int(item) for item in before}
 
-    trained = await CryptoModelTrainer(session).train(
-        symbol,
-        interval=context.interval or "15m",
-        save_settings=False,
-        feature_set=config["feature_set"],
-        activate_after_train=False,
-        experiment_config=config,
-        # AIExperimentConfig and legacy LGBMExperimentConfig are separate
-        # tables. The AI config remains in artifact metadata instead of being
-        # misrepresented as a legacy FK.
-        experiment_config_id=None,
+    train_timeout = float(
+        getattr(settings, "AI_LAB_TRAIN_TIMEOUT_SECONDS", 300) or 300
     )
+    try:
+        trained = await asyncio.wait_for(
+            CryptoModelTrainer(session).train(
+                symbol,
+                interval=context.interval or "15m",
+                save_settings=False,
+                feature_set=config["feature_set"],
+                activate_after_train=False,
+                experiment_config=config,
+                # AIExperimentConfig and legacy LGBMExperimentConfig are separate
+                # tables. The AI config remains in artifact metadata instead of being
+                # misrepresented as a legacy FK.
+                experiment_config_id=None,
+            ),
+            timeout=train_timeout,
+        )
+    except asyncio.TimeoutError:
+        return AdapterResult(
+            evaluation_kind=ACTION_TO_EVALUATION_KIND["TRAIN_MODEL"],
+            status="FAILED",
+            summary=f"LightGBM training timed out after {int(train_timeout)}s for {symbol}.",
+            error_code="TRAINING_TIMEOUT",
+            error_message=f"CryptoModelTrainer.train timed out after {int(train_timeout)} seconds",
+        )
     if not trained:
         return AdapterResult(
             evaluation_kind=ACTION_TO_EVALUATION_KIND["TRAIN_MODEL"],

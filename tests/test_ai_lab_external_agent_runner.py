@@ -496,6 +496,52 @@ def test_resumable_runner_phases_and_heartbeat():
         rmod.POLL_SECONDS = orig_poll
 
 
+def test_runner_proposal_client_request_id_includes_requeue_and_retry():
+    class RequeuePhaseClient(FakeClient):
+        def __init__(self):
+            super().__init__()
+            self._phase_step = 0
+            self.proposal_ids = []
+
+        async def claim(self):
+            return SimpleNamespace(
+                id=99,
+                status="RUNNING",
+                objective="test",
+                scope={"asset": "BTC"},
+                autonomy_level="EXPERIMENT",
+                budget_experiments=2,
+                experiments_completed=0,
+                budget_seconds=10,
+                lease_token="lease-token",
+                llm_provider="opencode",
+                llm_research_model="m",
+                llm_summary_model="m",
+                llm_snapshot={},
+            )
+
+        async def get_phase(self, run_id: int):
+            self._phase_step += 1
+            if self._phase_step == 1:
+                return {"phase": "NEEDS_PROPOSAL", "requeue_count": 2}
+            elif self._phase_step == 2:
+                # Still needs proposal (e.g. attempt retry)
+                return {"phase": "NEEDS_PROPOSAL", "requeue_count": 2}
+            return {"phase": "NEEDS_COMPLETION", "latest_decision": {"action": "COMPLETED"}}
+
+        async def submit_proposal(self, run_id: int, proposal, *, client_request_id=None, telemetry=None):
+            self.proposal_ids.append(client_request_id)
+            return {"config_id": 91}
+
+    client = RequeuePhaseClient()
+    progressed = _run(agent_runner.process_one_run(client, FakeLLM()))
+    assert progressed is True
+    assert len(client.proposal_ids) == 2
+    assert client.proposal_ids[0] == "proposal-99-0-r2"
+    assert client.proposal_ids[1] == "proposal-99-0-r2-p2"
+
+
+
 def test_runner_handles_lease_loss_and_transient_errors():
     # Lease loss should drop lease and return False
     class LeaseLostClient(FakeClient):
