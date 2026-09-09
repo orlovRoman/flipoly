@@ -183,11 +183,18 @@ def load_and_prepare_5m_dataset(
             # Causally available candles: open_time + 5m <= dec_time
             causal_candles = candles_df[candles_df["open_time"] + pd.Timedelta(minutes=5) <= dec_time]
             if len(causal_candles) >= 6:
+                last_candle_close = causal_candles["open_time"].iloc[-1] + pd.Timedelta(minutes=5)
+                # Item 10: Staleness check - if last closed candle is older than 15m, mark STALE
+                if (dec_time - last_candle_close) > pd.Timedelta(minutes=15):
+                    spot_status = "STALE"
+                    spot_source = "BINANCE_5M_CLOSE_STALE"
+                else:
+                    spot_status = "VALID"
+                    spot_source = "BINANCE_5M_CLOSE"
+
                 # Last closed candle close is current spot proxy
                 spot_val = float(causal_candles["close"].iloc[-1])
-                spot_ts = str(causal_candles["open_time"].iloc[-1] + pd.Timedelta(minutes=5))
-                spot_source = "BINANCE_5M_CLOSE"
-                spot_status = "VALID"
+                spot_ts = str(last_candle_close)
 
                 # Strike is the candle at market start (dec_time - 10m approximately, since market is 15m total)
                 mkt_start = dec_time - pd.Timedelta(minutes=10)
@@ -204,10 +211,15 @@ def load_and_prepare_5m_dataset(
                     sigma_val = float(sigma_5m / math.sqrt(5.0)) if sigma_5m > 0 else np.nan
 
                 # Spot regime: 6 closed 5m candles = 30m window at 5m frequency (Item 15)
-                spot_closes = causal_candles["close"].tail(6).to_numpy()
-                spot_regime = classify_local_regime(spot_closes, min_observations=4)
-                spot_regime_state = spot_regime["state"]
-                local_mean_spot = spot_regime["local_mean"]
+                # Item 10: If spot_status is STALE, spot regime cannot be confirmed REVERSION
+                if spot_status == "VALID":
+                    spot_closes = causal_candles["close"].tail(6).to_numpy()
+                    spot_regime = classify_local_regime(spot_closes, min_observations=4)
+                    spot_regime_state = spot_regime["state"]
+                    local_mean_spot = spot_regime["local_mean"]
+                else:
+                    spot_regime_state = "UNCERTAIN"
+                    local_mean_spot = np.nan
 
                 # Canonical strike lookup if provided
                 if canonical_strikes_map and str(m_id) in canonical_strikes_map:
@@ -336,14 +348,27 @@ def run_paired_experiment(
     # CS: C0 + spot regime (spot_regime == 'REVERSION') - true underlying saw hypothesis!
     # CTS: C0 + joint reversion (token_regime == 'REVERSION' and spot_regime == 'REVERSION')
     # C1: C0 + combined heuristic (token_regime == 'REVERSION' or spot_regime == 'REVERSION')
-    # C2: C1 + proxy strike context (or CS + canonical strike where available)
+    # C2: C1 + canonical strike context (POLYMARKET_CANONICAL) - strictly reduced coverage when missing
+    # C2_proxy: C1 + proxy strike context (BINANCE_5M_OPEN_PROXY) - sensitivity analysis
     c0_eligible["ct_pass"] = c0_eligible["token_regime"] == "REVERSION"
     c0_eligible["cs_pass"] = c0_eligible["spot_regime"] == "REVERSION"
     c0_eligible["cts_pass"] = c0_eligible["ct_pass"] & c0_eligible["cs_pass"]
     c0_eligible["c1_pass"] = c0_eligible["ct_pass"] | c0_eligible["cs_pass"]
-    c0_eligible["c2_proxy_pass"] = c0_eligible["c1_pass"] & c0_eligible.get("reversion_helps_proxy", c0_eligible.get("reversion_helps_strike", False))
-    c0_eligible["c2_pass"] = c0_eligible["c2_proxy_pass"]
-    c0_eligible["c2_canonical_pass"] = c0_eligible["cs_pass"] & c0_eligible.get("reversion_helps_strike", False) & (c0_eligible.get("strike_status") == "VALID")
+
+    # Item 11 & 19: Canonical C2 requires valid canonical strike provenance
+    strike_valid = (c0_eligible["strike_status"] == "VALID") if "strike_status" in c0_eligible.columns else True
+    c0_eligible["c2_canonical_pass"] = (
+        c0_eligible["c1_pass"]
+        & c0_eligible.get("reversion_helps_strike", False)
+        & strike_valid
+    )
+    c0_eligible["c2_pass"] = c0_eligible["c2_canonical_pass"]
+
+    # Sensitivity analysis: Binance 5m open proxy
+    c0_eligible["c2_proxy_pass"] = (
+        c0_eligible["c1_pass"]
+        & c0_eligible.get("reversion_helps_proxy", c0_eligible.get("reversion_helps_strike", False))
+    )
 
     # All active UTC calendar days in the study period
     all_dates = sorted(df["date_str"].unique())
@@ -402,8 +427,9 @@ def run_paired_experiment(
     cs_metrics = summarize_strategy(c0_eligible[c0_eligible["cs_pass"]], "CS_SPOT_REGIME")
     cts_metrics = summarize_strategy(c0_eligible[c0_eligible["cts_pass"]], "CTS_JOINT_REGIME")
     c1_metrics = summarize_strategy(c0_eligible[c0_eligible["c1_pass"]], "C1_REVERSION_REGIME")
-    c2_metrics = summarize_strategy(c0_eligible[c0_eligible["c2_pass"]], "C2_STRIKE_CONTEXT")
-    c2_canon_metrics = summarize_strategy(c0_eligible[c0_eligible["c2_canonical_pass"]], "C2_CANONICAL_STRIKE")
+    c2_metrics = summarize_strategy(c0_eligible[c0_eligible["c2_pass"]], "C2_CANONICAL_STRIKE")
+    c2_canon_metrics = c2_metrics
+    c2_proxy_metrics = summarize_strategy(c0_eligible[c0_eligible["c2_proxy_pass"]], "C2_PROXY_STRIKE")
 
     # Invariant Verification (Item 23 & 24)
     c0_tot_pnl = float(c0_eligible["pnl"].sum()) if not c0_eligible.empty else 0.0
@@ -431,6 +457,12 @@ def run_paired_experiment(
     c2_rej_pnl = float(c2_rej["pnl"].sum()) if not c2_rej.empty else 0.0
     c2_invariant_holds = abs(c1_acc_pnl - (c2_acc_pnl + c2_rej_pnl)) < 1e-4
 
+    c2_proxy_acc = c0_eligible[c0_eligible["c2_proxy_pass"]]
+    c2_proxy_rej = c0_eligible[c0_eligible["c1_pass"] & (~c0_eligible["c2_proxy_pass"])]
+    c2_proxy_acc_pnl = float(c2_proxy_acc["pnl"].sum()) if not c2_proxy_acc.empty else 0.0
+    c2_proxy_rej_pnl = float(c2_proxy_rej["pnl"].sum()) if not c2_proxy_rej.empty else 0.0
+    c2_proxy_invariant_holds = abs(c1_acc_pnl - (c2_proxy_acc_pnl + c2_proxy_rej_pnl)) < 1e-4
+
     # Disentangled Incremental Contributions (Item 24)
     def compute_contribution(acc_sub: pd.DataFrame, rej_sub: pd.DataFrame, base_tot: float) -> tuple[float, float, float]:
         acc_p = float(acc_sub["pnl"].sum()) if not acc_sub.empty else 0.0
@@ -441,6 +473,11 @@ def run_paired_experiment(
 
     delta_c1_c0, c1_prevented_losses, c1_missed_gains = compute_contribution(c1_acc, c1_rej, c0_tot_pnl)
     delta_c2_c1, c2_prevented_losses, c2_missed_gains = compute_contribution(c2_acc, c2_rej, c1_acc_pnl)
+
+    # Proxy C2 contribution for sensitivity analysis (Item 11 & 19)
+    delta_c2_proxy_c1, c2_proxy_prevented_losses, c2_proxy_missed_gains = compute_contribution(
+        c2_proxy_acc, c2_proxy_rej, c1_acc_pnl
+    )
 
     # CS - C0 and CT - C0 contributions
     cs_acc = c0_eligible[c0_eligible["cs_pass"]]
@@ -488,6 +525,7 @@ def run_paired_experiment(
     paired_cts_c0 = compute_daily_paired_bootstrap(cts_metrics["daily_pnls"], c0_metrics["daily_pnls"])
     paired_cs_ct = compute_daily_paired_bootstrap(cs_metrics["daily_pnls"], ct_metrics["daily_pnls"])
     paired_c2_c1 = compute_daily_paired_bootstrap(c2_metrics["daily_pnls"], c1_metrics["daily_pnls"])
+    paired_c2_proxy_c1 = compute_daily_paired_bootstrap(c2_proxy_metrics["daily_pnls"], c1_metrics["daily_pnls"])
     paired_c2_cs = compute_daily_paired_bootstrap(c2_metrics["daily_pnls"], cs_metrics["daily_pnls"])
     paired_c2_c0 = compute_daily_paired_bootstrap(c2_metrics["daily_pnls"], c0_metrics["daily_pnls"])
     paired_c0_c0 = compute_daily_paired_bootstrap(c0_metrics["daily_pnls"], c0_metrics["daily_pnls"])
@@ -566,6 +604,7 @@ def run_paired_experiment(
             "C1": c1_metrics,
             "C2": c2_metrics,
             "C2_canonical": c2_canon_metrics,
+            "C2_proxy": c2_proxy_metrics,
         },
         "invariants": {
             "c1_additive_invariant_holds": c1_invariant_holds,
@@ -573,6 +612,7 @@ def run_paired_experiment(
             "cs_additive_invariant_holds": cs_invariant_holds,
             "cts_additive_invariant_holds": cts_invariant_holds,
             "c2_additive_invariant_holds": c2_invariant_holds,
+            "c2_proxy_additive_invariant_holds": c2_proxy_invariant_holds,
             "self_comparison_zero_delta": paired_c0_c0["point_delta_usdc"] == 0.0 and paired_c0_c0["ci_lower"] == 0.0,
         },
         "disentangled_contributions": {
@@ -610,6 +650,12 @@ def run_paired_experiment(
                 "missed_gains": round(c2_missed_gains, 4),
                 "paired_bootstrap": paired_c2_c1,
             },
+            "C2_proxy_minus_C1": {
+                "delta_net_pnl": round(delta_c2_proxy_c1, 4),
+                "prevented_losses": round(c2_proxy_prevented_losses, 4),
+                "missed_gains": round(c2_proxy_missed_gains, 4),
+                "paired_bootstrap": paired_c2_proxy_c1,
+            },
             "C2_minus_CS": {
                 "delta_net_pnl": round(float(c2_metrics["net_pnl_usdc"] - cs_metrics["net_pnl_usdc"]), 4),
                 "paired_bootstrap": paired_c2_cs,
@@ -627,6 +673,7 @@ def run_paired_experiment(
                 "CTS": compute_top_trade_concentration(c0_eligible[c0_eligible["cts_pass"]]),
                 "C1": compute_top_trade_concentration(c1_acc),
                 "C2": compute_top_trade_concentration(c2_acc),
+                "C2_proxy": compute_top_trade_concentration(c2_proxy_acc),
             },
             "slippage_sensitivity": {
                 "C0": compute_slippage_sensitivity(c0_eligible),
@@ -635,6 +682,7 @@ def run_paired_experiment(
                 "CTS": compute_slippage_sensitivity(c0_eligible[c0_eligible["cts_pass"]]),
                 "C1": compute_slippage_sensitivity(c1_acc),
                 "C2": compute_slippage_sensitivity(c2_acc),
+                "C2_proxy": compute_slippage_sensitivity(c2_proxy_acc),
             },
         },
     }
@@ -801,6 +849,22 @@ def evaluate_candidate_ml_interaction(
     missed_gains = float(ml_rejected[ml_rejected["trade_pnl"] > 0]["trade_pnl"].sum()) if not ml_rejected.empty else 0.0
     delta_pnl = ml_pnl - base_pnl
 
+    # Item 28: Paired interval for delta_pnl (ML vs Base) on common cohort
+    dates = pd.to_datetime(eval_cands["decision_at"], utc=True).dt.date
+    base_daily = eval_cands.groupby(dates)["trade_pnl"].sum()
+    ml_daily = eval_cands[eval_cands["ml_pass"]].groupby(dates)["trade_pnl"].sum() if not ml_accepted.empty else pd.Series(dtype=float)
+    all_eval_dates = sorted(dates.unique())
+    daily_diffs = np.array([float(ml_daily.get(d, 0.0) - base_daily.get(d, 0.0)) for d in all_eval_dates])
+
+    rng = np.random.default_rng(seed)
+    n_days = len(daily_diffs)
+    if n_days > 0:
+        boot_sums = [float(np.sum(daily_diffs[rng.choice(n_days, size=n_days, replace=True)])) for _ in range(1000)]
+        delta_ci_l = float(np.percentile(boot_sums, 2.5))
+        delta_ci_u = float(np.percentile(boot_sums, 97.5))
+    else:
+        delta_ci_l, delta_ci_u = 0.0, 0.0
+
     return {
         "status": "SUCCESS",
         "base_variant": base_variant,
@@ -811,7 +875,11 @@ def evaluate_candidate_ml_interaction(
         "ml_variant_pnl": round(ml_pnl, 4),
         "ml_variant_expectancy": round(ml_pnl / ml_trades, 4) if ml_trades > 0 else 0.0,
         "delta_ml_minus_base": round(delta_pnl, 4),
+        "paired_ci_95": [round(delta_ci_l, 4), round(delta_ci_u, 4)],
+        "delta_ci_lower": round(delta_ci_l, 4),
+        "delta_ci_upper": round(delta_ci_u, 4),
+        "delta_ci_crosses_zero": bool(delta_ci_l <= 0.0 <= delta_ci_u),
         "prevented_losses": round(prevented_losses, 4),
         "missed_gains": round(missed_gains, 4),
-        "ml_adds_value": bool(delta_pnl > 0.0),
+        "ml_adds_value": bool(delta_pnl > 0.0 and delta_ci_l > 0.0),
     }

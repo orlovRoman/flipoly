@@ -155,7 +155,11 @@ def test_item_05_exploratory_vs_holdout() -> tuple[bool, str]:
     assert "dev_observed" in btc_cohorts
     assert "test_observed" in btc_cohorts
     assert "holdout_observed" in btc_cohorts
-    return True, "Exploratory Dev (<=2026-08-26), Exploratory Test (08-26..09-02), and Unviewed Holdout (>=09-02) partitioned"
+    splits = data["protocol"]["splits"]
+    assert "exploratory_dev" in splits
+    assert "exploratory_test" in splits
+    assert "exploratory_holdout" in splits
+    return True, "Exploratory Dev (<=2026-08-26), Exploratory Test (08-26..09-02), and Exploratory Holdout (>=09-02) partitioned; confirmatory validation post-freeze"
 
 
 def test_item_06_data_coverage_table() -> tuple[bool, str]:
@@ -404,8 +408,16 @@ def test_item_28_verdict_synthesis() -> tuple[bool, str]:
     with open(verdict_path, "r", encoding="utf-8") as f:
         data = json.load(f)
     status = data.get("verdict_status")
-    assert status in ["GROUNDS_TO_CONTINUE_BOTH", "GROUNDS_TO_CONTINUE_C1_ONLY", "HYPOTHESIS_NOT_SUPPORTED"]
-    return True, f"Final verdict synthesized: {status}"
+    assert status in [
+        "LOSS_REDUCTION_ONLY_NO_STANDALONE_PROFITABILITY",
+        "GROUNDS_TO_CONTINUE_BOTH",
+        "GROUNDS_TO_CONTINUE_C1_ONLY",
+        "HYPOTHESIS_NOT_SUPPORTED",
+    ]
+    q6 = data.get("answers_to_core_questions", {}).get("q6_production_deployment", {})
+    assert q6.get("deploy_to_production") is False
+    assert "policy_recommendation" in data
+    return True, f"Final verdict synthesized: {status} (deploy_to_production=False)"
 
 
 def test_item_29_ml_conditional_check() -> tuple[bool, str]:

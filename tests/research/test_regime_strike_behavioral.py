@@ -432,3 +432,133 @@ def test_additive_ledger_invariants_hold():
     assert inv["cts_additive_invariant_holds"] is True
     assert inv["c2_additive_invariant_holds"] is True
     assert inv["self_comparison_zero_delta"] is True
+
+
+# -------------------------------------------------------------------------
+# 16. Spot Staleness Guard: Older Than 15m Marked UNCERTAIN & STALE
+# -------------------------------------------------------------------------
+def test_spot_staleness_marks_uncertain(tmp_path: Path):
+    t0 = pd.Timestamp("2026-08-10 12:00:00+00:00")
+    # Decision at t0 (12:00:00). Candles end at 11:30:00 (>15m ago, stale!)
+    snaps = pd.DataFrame([{
+        "market_id": "m_stale_spot",
+        "asset": "BTC",
+        "recorded_at": t0,
+        "time_left_min": 4.8,
+        "mid_price": 0.25,
+        "best_ask": 0.26,
+        "best_bid": 0.24,
+        "spread": 0.02,
+        "final_outcome": "YES",
+    }])
+    # Historical snaps for token features
+    for idx in range(3):
+        snaps = pd.concat([
+            pd.DataFrame([{
+                "market_id": "m_stale_spot",
+                "asset": "BTC",
+                "recorded_at": t0 - pd.Timedelta(minutes=idx + 1),
+                "time_left_min": 5.8 + idx,
+                "mid_price": 0.25,
+                "best_ask": 0.26,
+                "best_bid": 0.24,
+                "spread": 0.02,
+                "final_outcome": "YES",
+            }]),
+            snaps
+        ], ignore_index=True)
+
+    # 6 candles ending 30 minutes before decision moment (> 15m staleness)
+    stale_candles = pd.DataFrame([
+        {
+            "symbol": "BTCUSDT",
+            "open_time": t0 - pd.Timedelta(minutes=30 + i * 5),
+            "open": 60000.0 + i * 10,
+            "high": 60100.0 + i * 10,
+            "low": 59900.0 + i * 10,
+            "close": 60050.0 + i * 10,
+        }
+        for i in range(6)
+    ]).sort_values("open_time").reset_index(drop=True)
+
+    snaps_csv = tmp_path / "snaps.csv"
+    candles_csv = tmp_path / "candles.csv"
+    snaps.to_csv(snaps_csv, index=False)
+    stale_candles.to_csv(candles_csv, index=False)
+
+    df = load_and_prepare_5m_dataset(
+        snapshots_csv_path=snaps_csv,
+        candles_csv_path=candles_csv,
+        target_asset="BTC",
+    )
+    assert len(df) == 1
+    row = df.iloc[0]
+    assert row["spot_status"] == "STALE"
+    assert row["spot_regime"] == "UNCERTAIN"
+
+
+# -------------------------------------------------------------------------
+# 17. Market Guard Snapshot Query strictly bounded to 15m window
+# -------------------------------------------------------------------------
+def test_guard_query_15m_window_bounded():
+    import inspect
+    from polyflip.trading.market_guards import check_market_guards
+    src = inspect.getsource(check_market_guards)
+    assert "MarketSnapshot.recorded_at <= start_time" in src
+    assert "MarketSnapshot.recorded_at >= start_time - timedelta(minutes=15)" in src
+
+
+# -------------------------------------------------------------------------
+# 18. Causal ML Evaluation Includes Paired Bootstrap CI
+# -------------------------------------------------------------------------
+def test_ml_interaction_paired_ci_present():
+    df = _create_synthetic_decision_dataset(n_days=15)
+    ml_res = evaluate_candidate_ml_interaction(df, base_variant="C1", stake_usdc=1.0)
+    assert ml_res["status"] == "SUCCESS"
+    assert "paired_ci_95" in ml_res
+    ci = ml_res["paired_ci_95"]
+    assert isinstance(ci, list) and len(ci) == 2
+    assert ci[0] <= ci[1]
+
+
+# -------------------------------------------------------------------------
+# 19. Canonical C2 vs C2_proxy Separation with Missing Canonical Strikes
+# -------------------------------------------------------------------------
+def test_c2_canonical_vs_c2_proxy_separation():
+    df = _create_synthetic_decision_dataset(n_days=10)
+    # Synthetic dataset has strike_status = CANONICAL_STRIKE_MISSING and reversion_helps_proxy = True
+    res = run_paired_experiment(df, stake_usdc=1.0)
+    c2_canonical = res["variants"]["C2"]
+    c2_proxy = res["variants"]["C2_proxy"]
+
+    # Canonical C2 must have 0 trades because canonical strike is missing
+    assert c2_canonical["n_trades"] == 0
+    # C2_proxy must have >0 trades from the proxy filter
+    assert c2_proxy["n_trades"] > 0
+    assert "C2_proxy_minus_C1" in res["disentangled_contributions"]
+
+
+# -------------------------------------------------------------------------
+# 20. Observed YES-only Quotes vs Reconstructed NO Quotes Separation
+# -------------------------------------------------------------------------
+def test_reconstructed_no_quotes_separate_ledger():
+    df_obs = _create_synthetic_decision_dataset(n_days=10)
+    # Create fake reconstructed NO quotes that lose
+    df_recon = _create_synthetic_decision_dataset(n_days=10)
+    df_recon["is_reconstructed"] = True
+    df_recon["quote_source"] = "RECONSTRUCTED_NO_ASK"
+    df_recon["target"] = 0  # Reconstructed losing bets
+    df_recon["market_id"] = df_recon["market_id"] + "_recon"
+
+    df_combined = pd.concat([df_obs, df_recon], ignore_index=True)
+
+    res_obs = run_paired_experiment(df_obs, stake_usdc=1.0, observed_quotes_only=True)
+    res_comb = run_paired_experiment(df_combined, stake_usdc=1.0, observed_quotes_only=False)
+    res_default = run_paired_experiment(df_combined, stake_usdc=1.0, observed_quotes_only=True)
+
+    # Default strictly rejects reconstructed quotes
+    assert res_default["variants"]["C1"]["n_trades"] == res_obs["variants"]["C1"]["n_trades"]
+    # When explicitly included, reconstructed trades increase and worsen net PnL
+    assert res_comb["variants"]["C1"]["n_trades"] > res_obs["variants"]["C1"]["n_trades"]
+    assert res_comb["variants"]["C1"]["net_pnl_usdc"] < res_obs["variants"]["C1"]["net_pnl_usdc"]
+

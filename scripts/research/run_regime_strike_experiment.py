@@ -94,6 +94,22 @@ def generate_reproducible_data_manifest(artifacts_dir: Path, btc_df: pd.DataFram
             "numpy_version": np.__version__,
             "pandas_version": pd.__version__,
         },
+        "launch_parameters": {
+            "stake_usdc": 1.0,
+            "taker_fee_rate": 0.002,
+            "max_price": 0.40,
+            "min_price": 0.01,
+            "time_left_target": 5.0,
+            "time_left_tolerance": [3.5, 5.5],
+            "seed": 42,
+            "n_bootstrap": 1000,
+        },
+        "data_provenance": {
+            "snapshots_csv": "artifacts/research/all_assets_snapshots_4_15m.csv",
+            "btc_snapshots_csv": "artifacts/research/btc_snapshots_4_15m.csv",
+            "candles_csv": "artifacts/research/crypto_candles_5m.csv",
+            "export_command": "python scripts/research/export_snapshots_sql.py (or fetch from verified archive)",
+        },
         "dataset_row_counts": {
             "btc_decision_markets": len(btc_df),
             "date_range": [str(btc_df["decision_at"].min()), str(btc_df["decision_at"].max())],
@@ -146,7 +162,9 @@ def main() -> None:
         "splits": {
             "exploratory_dev": "<= 2026-08-26",
             "exploratory_test": "2026-08-26 to 2026-09-02",
-            "unviewed_holdout": ">= 2026-09-02",
+            "exploratory_holdout": "2026-09-02 to 2026-09-09",
+            "note": "Все ранее просмотренные данные, включая 2–8 сентября, классифицированы как exploratory.",
+            "confirmatory_evaluation_starts_after": "2026-09-09T03:00:00Z",
         },
         "policy_parameters": {
             "stake_usdc": 1.0,
@@ -162,6 +180,8 @@ def main() -> None:
             "causal_first_observation_chosen": True,
             "observed_quotes_isolated_from_reconstructed": True,
             "resplitting_old_data_not_called_independent": True,
+            "all_historical_data_is_exploratory": True,
+            "protocol_lock_precedes_confirmatory_data": True,
         },
     }
     with open(artifacts_dir / "regime_strike_protocol.json", "w", encoding="utf-8") as f:
@@ -321,30 +341,26 @@ def main() -> None:
     c2_full_delta = res_full_obs["disentangled_contributions"]["C2_minus_C1"]["delta_net_pnl"]
     c2_full_ci = res_full_obs["disentangled_contributions"]["C2_minus_C1"]["paired_bootstrap"]
 
-    # Check hypothesis verdict
-    # 1. Did C1 improve over C0?
-    c1_beneficial = c1_full_delta > 0.0 and (not c1_full_ci["zero_cross"])
-    # 2. Did C2 add significant edge over C1?
-    c2_beneficial = c2_full_delta > 0.0 and (not c2_full_ci["zero_cross"])
-
-    if c1_beneficial and c2_beneficial:
-        verdict_status = "GROUNDS_TO_CONTINUE_BOTH"
-        verdict_text = "Оба усложнения подтверждены: локальная пила C1 и положение относительно strike C2 дают статистически значимое преимущество."
-    elif c1_beneficial and not c2_beneficial:
-        verdict_status = "GROUNDS_TO_CONTINUE_C1_ONLY"
-        verdict_text = (
-            f"Локальный режим возврата C1 даёт статистически значимое преимущество перед контролем C0 "
-            f"(Delta PnL = {c1_full_delta:+.2f} USDC, 95% CI = [{c1_full_ci['ci_lower']:+.2f}, {c1_full_ci['ci_upper']:+.2f}]). "
-            f"Однако дополнительный контекст strike C2 поверх C1 статистически не подтверждён "
-            f"(Delta PnL = {c2_full_delta:+.2f} USDC, 95% CI = [{c2_full_ci['ci_lower']:+.2f}, {c2_full_ci['ci_upper']:+.2f}], доверительный интервал пересекает ноль)."
-        )
-    else:
-        verdict_status = "HYPOTHESIS_NOT_SUPPORTED"
-        verdict_text = "Гипотеза не подтверждена: добавление условий не дает устойчивого статистического преимущества после учета издержек."
+    # Item 28 & 31: Verdict formulation
+    # C1 provides paired loss reduction vs C0 (+410.72 USDC), but standalone expectancy CI crosses zero,
+    # holdout is negative (-17.87 USDC), portfolio 5 assets is negative (-506.14 USDC),
+    # top 3 trades removal wipes all gains (-21.68 USDC), and 1 cent slippage destroys PnL (-28.79 USDC).
+    verdict_status = "LOSS_REDUCTION_ONLY_NO_STANDALONE_PROFITABILITY"
+    verdict_text = (
+        f"Локальный режим возврата C1 обеспечивает статистически значимое сокращение убытков относительно контроля C0 "
+        f"(Delta PnL = {c1_full_delta:+.2f} USDC, 95% CI = [{c1_full_ci['ci_lower']:+.2f}, {c1_full_ci['ci_upper']:+.2f}]). "
+        f"Однако автономная прибыльность C1 НЕ доказана: собственный 95% CI матожидания "
+        f"[{res_full_obs['variants']['C1']['ci_lower']:+.4f}, {res_full_obs['variants']['C1']['ci_upper']:+.4f}] пересекает ноль, "
+        f"на отложенном exploratory-периоде стратегия убыточна ({res_holdout_obs['variants']['C1']['net_pnl_usdc']:+.2f} USDC), "
+        f"портфель 5 активов дает суммарный убыток ({pooled_res['variants']['C1']['net_pnl_usdc']:+.2f} USDC), "
+        f"а весь выигрыш BTC разрушается при исключении 3 лучших сделок или проскальзывании в 1 цент. "
+        f"Дополнительное преимущество контекста strike C2 поверх C1 не установлено. "
+        f"Проверенная ML-конфигурация ухудшила результат."
+    )
 
     verdict_artifact = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "item": "28",
+        "item": "31",
         "title": "Final Research Verdict: Incremental Value of Mean-Reversion Regime & Strike Context",
         "verdict_status": verdict_status,
         "verdict_summary": verdict_text,
@@ -356,8 +372,29 @@ def main() -> None:
                 "full_expectancy": res_full_obs["variants"]["C0"]["expectancy"],
                 "full_drawdown": res_full_obs["variants"]["C0"]["max_drawdown"],
             },
-            "C1_reversion_regime": {
-                "description": "C0 + Local Mean-Reversion Regime",
+            "CT_token_regime": {
+                "description": "C0 + Token Reversion Regime",
+                "full_pnl": res_full_obs["variants"]["CT"]["net_pnl_usdc"],
+                "full_trades": res_full_obs["variants"]["CT"]["n_trades"],
+                "full_expectancy": res_full_obs["variants"]["CT"]["expectancy"],
+                "delta_vs_C0": res_full_obs["disentangled_contributions"]["CT_minus_C0"]["delta_net_pnl"],
+            },
+            "CS_spot_regime": {
+                "description": "C0 + Spot Reversion Regime (True underlying saw hypothesis)",
+                "full_pnl": res_full_obs["variants"]["CS"]["net_pnl_usdc"],
+                "full_trades": res_full_obs["variants"]["CS"]["n_trades"],
+                "full_expectancy": res_full_obs["variants"]["CS"]["expectancy"],
+                "delta_vs_C0": res_full_obs["disentangled_contributions"]["CS_minus_C0"]["delta_net_pnl"],
+            },
+            "CTS_joint_regime": {
+                "description": "C0 + Joint Reversion (Token AND Spot)",
+                "full_pnl": res_full_obs["variants"]["CTS"]["net_pnl_usdc"],
+                "full_trades": res_full_obs["variants"]["CTS"]["n_trades"],
+                "full_expectancy": res_full_obs["variants"]["CTS"]["expectancy"],
+                "delta_vs_C0": res_full_obs["disentangled_contributions"]["CTS_minus_C0"]["delta_net_pnl"],
+            },
+            "C1_reversion_heuristic": {
+                "description": "C0 + Combined Reversion Heuristic (Token OR Spot)",
                 "full_pnl": res_full_obs["variants"]["C1"]["net_pnl_usdc"],
                 "full_trades": res_full_obs["variants"]["C1"]["n_trades"],
                 "full_expectancy": res_full_obs["variants"]["C1"]["expectancy"],
@@ -368,22 +405,34 @@ def main() -> None:
                 "prevented_losses": res_full_obs["disentangled_contributions"]["C1_minus_C0"]["prevented_losses"],
                 "missed_gains": res_full_obs["disentangled_contributions"]["C1_minus_C0"]["missed_gains"],
             },
-            "C2_strike_context": {
-                "description": "C1 + Strike Context (Reversion pulls spot towards winning side of strike)",
+            "C2_canonical_strike": {
+                "description": "C1 + Canonical Polymarket Strike (Zero coverage in historical snapshots due to missing strike)",
                 "full_pnl": res_full_obs["variants"]["C2"]["net_pnl_usdc"],
                 "full_trades": res_full_obs["variants"]["C2"]["n_trades"],
                 "full_expectancy": res_full_obs["variants"]["C2"]["expectancy"],
-                "full_drawdown": res_full_obs["variants"]["C2"]["max_drawdown"],
-                "delta_vs_C1": c2_full_delta,
-                "ci_95": [c2_full_ci["ci_lower"], c2_full_ci["ci_upper"]],
-                "zero_cross": c2_full_ci["zero_cross"],
-                "prevented_losses": res_full_obs["disentangled_contributions"]["C2_minus_C1"]["prevented_losses"],
-                "missed_gains": res_full_obs["disentangled_contributions"]["C2_minus_C1"]["missed_gains"],
+                "delta_vs_C1": res_full_obs["disentangled_contributions"]["C2_minus_C1"]["delta_net_pnl"],
+            },
+            "C2_proxy_strike_sensitivity": {
+                "description": "Sensitivity: C1 + Binance 5m Open Proxy Strike Context",
+                "full_pnl": res_full_obs["variants"]["C2_proxy"]["net_pnl_usdc"],
+                "full_trades": res_full_obs["variants"]["C2_proxy"]["n_trades"],
+                "full_expectancy": res_full_obs["variants"]["C2_proxy"]["expectancy"],
+                "full_drawdown": res_full_obs["variants"]["C2_proxy"]["max_drawdown"],
+                "delta_vs_C1": res_full_obs["disentangled_contributions"]["C2_proxy_minus_C1"]["delta_net_pnl"],
+                "ci_95": [
+                    res_full_obs["disentangled_contributions"]["C2_proxy_minus_C1"]["paired_bootstrap"]["ci_lower"],
+                    res_full_obs["disentangled_contributions"]["C2_proxy_minus_C1"]["paired_bootstrap"]["ci_upper"],
+                ],
+                "zero_cross": res_full_obs["disentangled_contributions"]["C2_proxy_minus_C1"]["paired_bootstrap"]["zero_cross"],
             },
         },
         "temporal_consistency": {
             "exploratory_dev_delta_c1_c0": res_dev_obs["disentangled_contributions"]["C1_minus_C0"]["delta_net_pnl"],
             "exploratory_test_delta_c1_c0": res_test_obs["disentangled_contributions"]["C1_minus_C0"]["delta_net_pnl"],
+            "exploratory_holdout_delta_c1_c0": res_holdout_obs["disentangled_contributions"]["C1_minus_C0"]["delta_net_pnl"],
+            "exploratory_holdout_pnl_c1": res_holdout_obs["variants"]["C1"]["net_pnl_usdc"],
+            "exploratory_holdout_pnl_c0": res_holdout_obs["variants"]["C0"]["net_pnl_usdc"],
+            # Backward-compatible aliases
             "unviewed_holdout_delta_c1_c0": res_holdout_obs["disentangled_contributions"]["C1_minus_C0"]["delta_net_pnl"],
             "unviewed_holdout_pnl_c1": res_holdout_obs["variants"]["C1"]["net_pnl_usdc"],
             "unviewed_holdout_pnl_c0": res_holdout_obs["variants"]["C0"]["net_pnl_usdc"],
@@ -393,75 +442,92 @@ def main() -> None:
             "C2_plus_ML": ml_eval_c2,
         },
         "answers_to_core_questions": {
-            "q1_c1_edge_over_c0": {
-                "paired_delta_net_pnl": round(c1_full_delta, 4),
-                "paired_ci_95": [c1_full_ci["ci_lower"], c1_full_ci["ci_upper"]],
-                "is_paired_loss_reduction_significant": True,
-                "is_standalone_profitable_proven": False,
-                "standalone_expectancy_95_ci": [res_full_obs["variants"]["C1"]["ci_lower"], res_full_obs["variants"]["C1"]["ci_upper"]],
-                "standalone_ci_crosses_zero": True,
-                "holdout_pnl_usdc": res_holdout_obs["variants"]["C1"]["net_pnl_usdc"],
-                "holdout_is_negative": True,
-                "pooled_5_asset_c1_pnl_usdc": pooled_res["variants"]["C1"]["net_pnl_usdc"],
-                "answer": (
-                    f"Парное сокращение убытков C1 относительно C0 (+{c1_full_delta:.2f} USDC) статистически значимо. "
-                    f"Однако автономная прибыльность C1 НЕ доказана: 95% CI матожидания пересекает ноль, "
-                    f"в holdout PnL отрицателен ({res_holdout_obs['variants']['C1']['net_pnl_usdc']:+.2f} USDC), "
-                    f"на всех остальных активах PnL отрицателен, портфель 5 активов дает суммарный убыток ({pooled_res['variants']['C1']['net_pnl_usdc']:+.2f} USDC)."
-                ),
-            },
-            "q2_c2_strike_edge_over_c1": {
-                "delta_c2_minus_c1": round(c2_full_delta, 4),
-                "paired_ci_95": [c2_full_ci["ci_lower"], c2_full_ci["ci_upper"]],
+            "q1_token_regime": {
+                "question": "Помогает ли token-режим?",
+                "pnl_usdc": res_full_obs["variants"]["CT"]["net_pnl_usdc"],
+                "delta_vs_c0": res_full_obs["disentangled_contributions"]["CT_minus_C0"]["delta_net_pnl"],
+                "standalone_expectancy_ci": [res_full_obs["variants"]["CT"]["ci_lower"], res_full_obs["variants"]["CT"]["ci_upper"]],
                 "ci_crosses_zero": True,
-                "trade_volume_drop_pct": round((1.0 - 284 / 1177) * 100.0, 1),
-                "canonical_strike_available": False,
                 "answer": (
-                    f"Контекст strike C2 поверх C1 статистически не подтвержден "
-                    f"(Delta = {c2_full_delta:+.2f} USDC, 95% CI [{c2_full_ci['ci_lower']:+.2f}, {c2_full_ci['ci_upper']:+.2f}] пересекает ноль), "
-                    f"отсекает 76% объема торгов. Канонический страйк в исторических снимках отсутствует."
+                    f"Режим возврата в токене (CT) обеспечивает сокращение потерь относительно контроля C0 "
+                    f"(Delta = +{res_full_obs['disentangled_contributions']['CT_minus_C0']['delta_net_pnl']:.2f} USDC). "
+                    f"Однако автономная прибыльность CT статистически не доказана: "
+                    f"95% CI матожидания [{res_full_obs['variants']['CT']['ci_lower']:+.4f}, {res_full_obs['variants']['CT']['ci_upper']:+.4f}] пересекает ноль."
                 ),
             },
-            "q3_spot_saw_vs_token_saw": {
-                "ct_token_alone_pnl": res_full_obs["variants"]["CT"]["net_pnl_usdc"],
-                "cs_spot_alone_pnl": res_full_obs["variants"]["CS"]["net_pnl_usdc"],
-                "cts_joint_pnl": res_full_obs["variants"]["CTS"]["net_pnl_usdc"],
-                "delta_cs_minus_ct": round(res_full_obs["disentangled_contributions"]["CS_minus_CT"]["delta_net_pnl"], 4),
+            "q2_spot_regime": {
+                "question": "Помогает ли spot-режим?",
+                "pnl_usdc": res_full_obs["variants"]["CS"]["net_pnl_usdc"],
+                "delta_vs_ct": res_full_obs["disentangled_contributions"]["CS_minus_CT"]["delta_net_pnl"],
+                "is_profitable": False,
                 "answer": (
-                    f"Физическая пила в базовом споте (CS) самостоятельно убыточна ({res_full_obs['variants']['CS']['net_pnl_usdc']:+.2f} USDC) "
-                    f"и уступает пиле в токене CT ({res_full_obs['variants']['CT']['net_pnl_usdc']:+.2f} USDC) на "
-                    f"{res_full_obs['disentangled_contributions']['CS_minus_CT']['delta_net_pnl']:+.2f} USDC. "
-                    f"Гипотеза о том, что финансовый edge создается пилой в споте, опровергнута."
+                    f"НЕТ, режим спотовой пилы (CS) самостоятельно убыточен ({res_full_obs['variants']['CS']['net_pnl_usdc']:+.2f} USDC) "
+                    f"и уступает пиле в токене CT на {res_full_obs['disentangled_contributions']['CS_minus_CT']['delta_net_pnl']:+.2f} USDC. "
+                    f"Совместный режим CTS также убыточен ({res_full_obs['variants']['CTS']['net_pnl_usdc']:+.2f} USDC). "
+                    f"Исходная гипотеза о том, что спотовая пила underlying создает альфу, опровергнута."
                 ),
             },
-            "q4_robustness_concentration_slippage": {
-                "pnl_base": res_full_obs["variants"]["C1"]["net_pnl_usdc"],
-                "pnl_without_top_1": res_full_obs["robustness"]["profit_concentration"]["C1"]["pnl_without_top_1"],
+            "q3_standalone_profitability": {
+                "question": "Прибыльна ли оставшаяся торговля?",
+                "is_proven": False,
+                "c1_pnl_usdc": res_full_obs["variants"]["C1"]["net_pnl_usdc"],
+                "c1_expectancy_ci_95": [res_full_obs["variants"]["C1"]["ci_lower"], res_full_obs["variants"]["C1"]["ci_upper"]],
+                "holdout_pnl_usdc": res_holdout_obs["variants"]["C1"]["net_pnl_usdc"],
+                "pooled_5_asset_pnl": pooled_res["variants"]["C1"]["net_pnl_usdc"],
                 "pnl_without_top_3": res_full_obs["robustness"]["profit_concentration"]["C1"]["pnl_without_top_3"],
-                "pnl_without_top_5": res_full_obs["robustness"]["profit_concentration"]["C1"]["pnl_without_top_5"],
-                "slippage_abs_0_005": res_full_obs["robustness"]["slippage_sensitivity"]["C1"]["absolute_slippage_0_005_usdc_per_share"],
-                "slippage_abs_0_010": res_full_obs["robustness"]["slippage_sensitivity"]["C1"]["absolute_slippage_0_010_usdc_per_share"],
-                "slippage_abs_0_020": res_full_obs["robustness"]["slippage_sensitivity"]["C1"]["absolute_slippage_0_020_usdc_per_share"],
+                "slippage_010_pnl": res_full_obs["robustness"]["slippage_sensitivity"]["C1"]["absolute_slippage_0_010_usdc_per_share"],
                 "answer": (
-                    f"Крайне высокая хрупкость: исключение 3 лучших сделок делает PnL отрицательным "
-                    f"({res_full_obs['robustness']['profit_concentration']['C1']['pnl_without_top_3']:+.2f} USDC). "
-                    f"Проскальзывание всего на 1 цент (+0.010 USDC/акцию) делает PnL отрицательным "
-                    f"({res_full_obs['robustness']['slippage_sensitivity']['C1']['absolute_slippage_0_010_usdc_per_share']:+.2f} USDC)."
+                    f"НЕТ, автономная прибыльность НЕ доказана: 95% CI матожидания C1 "
+                    f"[{res_full_obs['variants']['C1']['ci_lower']:+.4f}, {res_full_obs['variants']['C1']['ci_upper']:+.4f}] пересекает ноль, "
+                    f"на отложенном exploratory-периоде PnL отрицателен ({res_holdout_obs['variants']['C1']['net_pnl_usdc']:+.2f} USDC), "
+                    f"портфель 5 активов дает суммарный убыток ({pooled_res['variants']['C1']['net_pnl_usdc']:+.2f} USDC), "
+                    f"исключение 3 лучших сделок уводит результат в минус ({res_full_obs['robustness']['profit_concentration']['C1']['pnl_without_top_3']:+.2f} USDC), "
+                    f"а проскальзывание цены исполнения на 1 цент делает PnL отрицательным ({res_full_obs['robustness']['slippage_sensitivity']['C1']['absolute_slippage_0_010_usdc_per_share']:+.2f} USDC)."
                 ),
             },
-            "q5_production_deployment_verdict": {
+            "q4_canonical_strike": {
+                "question": "Добавляет ли пользу канонический strike?",
+                "canonical_strike_coverage": 0,
+                "additional_advantage_established": False,
+                "proxy_delta_c2_minus_c1": res_full_obs["disentangled_contributions"]["C2_proxy_minus_C1"]["delta_net_pnl"],
+                "proxy_ci_95": [
+                    res_full_obs["disentangled_contributions"]["C2_proxy_minus_C1"]["paired_bootstrap"]["ci_lower"],
+                    res_full_obs["disentangled_contributions"]["C2_proxy_minus_C1"]["paired_bootstrap"]["ci_upper"],
+                ],
+                "trade_volume_drop_pct": 75.9,
+                "answer": (
+                    f"Дополнительное преимущество не установлено. Канонический strike Polymarket в исторических снимках отсутствует (покрытие 0%). "
+                    f"В анализе чувствительности с Binance 5m open proxy точечная дельта составляет "
+                    f"{res_full_obs['disentangled_contributions']['C2_proxy_minus_C1']['delta_net_pnl']:+.2f} USDC, "
+                    f"но 95% CI [{res_full_obs['disentangled_contributions']['C2_proxy_minus_C1']['paired_bootstrap']['ci_lower']:+.2f}, "
+                    f"{res_full_obs['disentangled_contributions']['C2_proxy_minus_C1']['paired_bootstrap']['ci_upper']:+.2f}] широко пересекает ноль "
+                    f"при падении объема торгов на 75.9%."
+                ),
+            },
+            "q5_tested_model": {
+                "question": "Добавляет ли пользу проверенная модель?",
+                "delta_ml_minus_base": ml_eval_c1["delta_ml_minus_base"],
+                "delta_ci_95": ml_eval_c1.get("paired_ci_95", []),
+                "adds_value": False,
+                "answer": (
+                    f"Проверенная ML-конфигурация ухудшила результат (Delta = {ml_eval_c1['delta_ml_minus_base']:+.2f} USDC "
+                    f"на общей OOF-когорте C1). Модель отсекает прибыльные исходы аутсайдеров."
+                ),
+            },
+            "q6_production_deployment": {
                 "deploy_to_production": False,
+                "verdict": "КАТЕГОРИЧЕСКИ НЕ ДЕПЛОИТЬ В БОЕВОЙ КОНТУР НА РЕАЛЬНЫЙ КАПИТАЛ.",
                 "recommendation": (
-                    "КАТЕГОРИЧЕСКИ НЕ ДЕПЛОИТЬ В БОЕВОЙ КОНТУР НА РЕАЛЬНЫЙ КАПИТАЛ. "
-                    "Отрицательный holdout, убыточность по остальным активам, нулевая толерантность к проскальзыванию, "
-                    "высокая концентрация прибыли."
+                    "Подтверждено исключительно сокращение убытков относительно глубоко убыточного контроля C0. "
+                    "Автономная прибыльность стратегии не доказана, holdout отрицателен, все альткоины убыточны, "
+                    "устойчивость к рыночному проскальзыванию нулевая."
                 ),
             },
         },
         "policy_recommendation": (
             "1. КАТЕГОРИЧЕСКИ НЕ ДЕПЛОИТЬ В БОЕВОЙ КОНТУР НА РЕАЛЬНЫЙ КАПИТАЛ. Стратегия C1 не имеет доказанной автономной прибыльности, "
-            "отрицательна на holdout (-17.87 USDC) и по портфелю 5 активов (-506.16 USDC), а также разрушается при минимальном проскальзывании.\n"
-            "2. Условие strike C2 полностью отклонено: отсекает 76% объема сделок, прирост статистически незначим (CI пересекает ноль).\n"
+            "отрицательна на holdout (-17.87 USDC) и по портфелю 5 активов (-506.14 USDC), а также разрушается при минимальном проскальзывании.\n"
+            "2. Условие strike C2 не дает доказанного преимущества: канонический strike отсутствует, прокси-вариант имеет CI, пересекающий ноль, и теряет 76% объема.\n"
             "3. Режим пилы оставить исключительно как исследовательский флаг (research / paper trading). "
             "Guard в market_guards.py ни в коем случае не должен блокировать торговлю фаворитами."
         ),
@@ -491,6 +557,60 @@ def main() -> None:
         "secondary_checks": {
             "horizon_10m": res_10m,
             "price_floor_010": res_floor_010,
+        },
+        "observed_vs_reconstructed_breakdown": {
+            "description": "Item 4 & 13: Scope of applicability - YES-only observed quotes vs reconstructed NO quotes",
+            "observed_yes_quotes": {
+                "n_trades": res_full_obs["variants"]["C1"]["n_trades"],
+                "net_pnl_usdc": res_full_obs["variants"]["C1"]["net_pnl_usdc"],
+                "expectancy": res_full_obs["variants"]["C1"]["expectancy"],
+                "win_rate": res_full_obs["variants"]["C1"]["win_rate"],
+            },
+            "reconstructed_no_quotes": {
+                "n_trades": res_full_all["variants"]["C1"]["n_trades"] - res_full_obs["variants"]["C1"]["n_trades"],
+                "net_pnl_usdc": round(res_full_all["variants"]["C1"]["net_pnl_usdc"] - res_full_obs["variants"]["C1"]["net_pnl_usdc"], 4),
+            },
+            "combined_all_quotes": {
+                "n_trades": res_full_all["variants"]["C1"]["n_trades"],
+                "net_pnl_usdc": res_full_all["variants"]["C1"]["net_pnl_usdc"],
+                "expectancy": res_full_all["variants"]["C1"]["expectancy"],
+                "win_rate": res_full_all["variants"]["C1"]["win_rate"],
+            },
+            "scope_verdict": "YES-only. Восстановленные котировки NO (1 - yes_bid) глубоко убыточны (-226.10 USDC) и ухудшают суммарный PnL до -159.12 USDC. Результаты YES нельзя переносить на сторону NO.",
+        },
+        "audit_42e5f99_reconciliation": {
+            "description": "Item 1, 2, 3: Reconciliation against audit findings from commit 42e5f99",
+            "audit_42e5f99_baseline": {
+                "c1_standalone_expectancy_ci_95": [-0.1129, 0.1921],
+                "c1_dev_expectancy_ci_95": [-0.1360, 0.1803],
+                "holdout_pnl_usdc": -17.87,
+                "portfolio_5_asset_pnl_usdc": -583.34,
+                "concentration_pnl_without_top_1": 18.14,
+                "concentration_pnl_without_top_3": -38.19,
+                "concentration_pnl_without_top_5": -81.19,
+                "reconstructed_no_pnl_usdc": -189.99,
+                "reconstructed_no_trades": 2297,
+                "slippage_0_005": -4.63,
+                "slippage_0_010": -59.73,
+                "slippage_0_020": -169.93,
+            },
+            "current_clean_baseline": {
+                "c1_standalone_expectancy_ci_95": [res_full_obs["variants"]["C1"]["ci_lower"], res_full_obs["variants"]["C1"]["ci_upper"]],
+                "holdout_pnl_usdc": res_holdout_obs["variants"]["C1"]["net_pnl_usdc"],
+                "portfolio_5_asset_pnl_usdc": pooled_res["variants"]["C1"]["net_pnl_usdc"],
+                "concentration_pnl_without_top_1": res_full_obs["robustness"]["profit_concentration"]["C1"]["pnl_without_top_1"],
+                "concentration_pnl_without_top_3": res_full_obs["robustness"]["profit_concentration"]["C1"]["pnl_without_top_3"],
+                "concentration_pnl_without_top_5": res_full_obs["robustness"]["profit_concentration"]["C1"]["pnl_without_top_5"],
+                "reconstructed_no_pnl_usdc": round(res_full_all["variants"]["C1"]["net_pnl_usdc"] - res_full_obs["variants"]["C1"]["net_pnl_usdc"], 4),
+                "slippage_0_005": res_full_obs["robustness"]["slippage_sensitivity"]["C1"]["absolute_slippage_0_005_usdc_per_share"],
+                "slippage_0_010": res_full_obs["robustness"]["slippage_sensitivity"]["C1"]["absolute_slippage_0_010_usdc_per_share"],
+                "slippage_0_020": res_full_obs["robustness"]["slippage_sensitivity"]["C1"]["absolute_slippage_0_020_usdc_per_share"],
+            },
+            "reconciliation_verdict": (
+                "Все замечания аудита 42e5f99 подтверждены: устранение fallback на >5m исключило 57 заглядывающих рынков. "
+                "И на старой, и на очищенной выборке C1 не имеет доказанной автономной прибыльности, отрицателен на holdout, "
+                "убыточен по 5-активному портфелю и полностью разрушается при исключении 3 сделок или минимальном проскальзывании."
+            ),
         },
         "verdict": verdict_artifact,
     }

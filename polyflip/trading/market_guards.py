@@ -1,7 +1,7 @@
 import dataclasses
 from dataclasses import dataclass
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
@@ -87,6 +87,7 @@ async def check_market_guards(
                     .where(
                         MarketSnapshot.market_id == market.market_id,
                         MarketSnapshot.recorded_at <= start_time,
+                        MarketSnapshot.recorded_at >= start_time - timedelta(minutes=15),
                     )
                     .order_by(MarketSnapshot.recorded_at.asc())
                 )

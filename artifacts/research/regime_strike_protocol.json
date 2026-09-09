@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-09-09T02:36:36.544796+00:00",
+  "timestamp": "2026-09-09T02:56:37.117980+00:00",
   "hypothesis": "При наблюдаемой локальной склонности к возврату покупка аутсайдера имеет лучший net EV, особенно когда возврат помогает завершить контракт на выигрышной стороне strike.",
   "variants": {
     "C0": "Контроль: только цена ask <= 0.40",
@@ -22,7 +22,9 @@
   "splits": {
     "exploratory_dev": "<= 2026-08-26",
     "exploratory_test": "2026-08-26 to 2026-09-02",
-    "unviewed_holdout": ">= 2026-09-02"
+    "exploratory_holdout": "2026-09-02 to 2026-09-09",
+    "note": "Все ранее просмотренные данные, включая 2–8 сентября, классифицированы как exploratory.",
+    "confirmatory_evaluation_starts_after": "2026-09-09T03:00:00Z"
   },
   "policy_parameters": {
     "stake_usdc": 1.0,
@@ -40,6 +42,8 @@
     "no_double_spread_deduction": true,
     "causal_first_observation_chosen": true,
     "observed_quotes_isolated_from_reconstructed": true,
-    "resplitting_old_data_not_called_independent": true
+    "resplitting_old_data_not_called_independent": true,
+    "all_historical_data_is_exploratory": true,
+    "protocol_lock_precedes_confirmatory_data": true
   }
 }

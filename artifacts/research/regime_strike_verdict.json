@@ -1,9 +1,9 @@
 {
-  "timestamp": "2026-09-09T02:39:41.314530+00:00",
-  "item": "28",
+  "timestamp": "2026-09-09T02:59:46.660453+00:00",
+  "item": "31",
   "title": "Final Research Verdict: Incremental Value of Mean-Reversion Regime & Strike Context",
-  "verdict_status": "GROUNDS_TO_CONTINUE_C1_ONLY",
-  "verdict_summary": "Локальный режим возврата C1 даёт статистически значимое преимущество перед контролем C0 (Delta PnL = +410.72 USDC, 95% CI = [+201.14, +620.20]). Однако дополнительный контекст strike C2 поверх C1 статистически не подтверждён (Delta PnL = +15.31 USDC, 95% CI = [-140.70, +157.31], доверительный интервал пересекает ноль).",
+  "verdict_status": "LOSS_REDUCTION_ONLY_NO_STANDALONE_PROFITABILITY",
+  "verdict_summary": "Локальный режим возврата C1 обеспечивает статистически значимое сокращение убытков относительно контроля C0 (Delta PnL = +410.72 USDC, 95% CI = [+201.14, +620.20]). Однако автономная прибыльность C1 НЕ доказана: собственный 95% CI матожидания [-0.0994, +0.2188] пересекает ноль, на отложенном exploratory-периоде стратегия убыточна (-17.87 USDC), портфель 5 активов дает суммарный убыток (-506.14 USDC), а весь выигрыш BTC разрушается при исключении 3 лучших сделок или проскальзывании в 1 цент. Дополнительное преимущество контекста strike C2 поверх C1 не установлено. Проверенная ML-конфигурация ухудшила результат.",
   "empirical_findings": {
     "C0_control": {
       "description": "Baseline outsider filter (ask <= 0.40) without regime awareness",
@@ -12,8 +12,29 @@
       "full_expectancy": -0.130405,
       "full_drawdown": 384.1638
     },
-    "C1_reversion_regime": {
-      "description": "C0 + Local Mean-Reversion Regime",
+    "CT_token_regime": {
+      "description": "C0 + Token Reversion Regime",
+      "full_pnl": 81.6466,
+      "full_trades": 647,
+      "full_expectancy": 0.126193,
+      "delta_vs_C0": 425.395
+    },
+    "CS_spot_regime": {
+      "description": "C0 + Spot Reversion Regime (True underlying saw hypothesis)",
+      "full_pnl": -50.9921,
+      "full_trades": 738,
+      "full_expectancy": -0.069095,
+      "delta_vs_C0": 292.7563
+    },
+    "CTS_joint_regime": {
+      "description": "C0 + Joint Reversion (Token AND Spot)",
+      "full_pnl": -36.3214,
+      "full_trades": 208,
+      "full_expectancy": -0.174622,
+      "delta_vs_C0": 307.427
+    },
+    "C1_reversion_heuristic": {
+      "description": "C0 + Combined Reversion Heuristic (Token OR Spot)",
       "full_pnl": 66.9758,
       "full_trades": 1177,
       "full_expectancy": 0.056904,
@@ -27,8 +48,15 @@
       "prevented_losses": 1321.638,
       "missed_gains": 910.9137
     },
-    "C2_strike_context": {
-      "description": "C1 + Strike Context (Reversion pulls spot towards winning side of strike)",
+    "C2_canonical_strike": {
+      "description": "C1 + Canonical Polymarket Strike (Zero coverage in historical snapshots due to missing strike)",
+      "full_pnl": 0.0,
+      "full_trades": 0,
+      "full_expectancy": 0.0,
+      "delta_vs_C1": -66.9758
+    },
+    "C2_proxy_strike_sensitivity": {
+      "description": "Sensitivity: C1 + Binance 5m Open Proxy Strike Context",
       "full_pnl": 82.283,
       "full_trades": 284,
       "full_expectancy": 0.289729,
@@ -38,14 +66,15 @@
         -140.6998,
         157.3108
       ],
-      "zero_cross": true,
-      "prevented_losses": 723.444,
-      "missed_gains": 708.1368
+      "zero_cross": true
     }
   },
   "temporal_consistency": {
     "exploratory_dev_delta_c1_c0": 290.6019,
     "exploratory_test_delta_c1_c0": 108.8776,
+    "exploratory_holdout_delta_c1_c0": 11.2448,
+    "exploratory_holdout_pnl_c1": -17.8729,
+    "exploratory_holdout_pnl_c0": -29.1177,
     "unviewed_holdout_delta_c1_c0": 11.2448,
     "unviewed_holdout_pnl_c1": -17.8729,
     "unviewed_holdout_pnl_c0": -29.1177
@@ -61,6 +90,13 @@
       "ml_variant_pnl": -25.4229,
       "ml_variant_expectancy": -0.0763,
       "delta_ml_minus_base": -85.396,
+      "paired_ci_95": [
+        -263.1169,
+        76.5044
+      ],
+      "delta_ci_lower": -263.1169,
+      "delta_ci_upper": 76.5044,
+      "delta_ci_crosses_zero": true,
       "prevented_losses": 522.042,
       "missed_gains": 607.438,
       "ml_adds_value": false
@@ -75,62 +111,78 @@
       "ml_variant_pnl": 87.8843,
       "ml_variant_expectancy": 0.9155,
       "delta_ml_minus_base": 2.1574,
+      "paired_ci_95": [
+        -43.9021,
+        43.8996
+      ],
+      "delta_ci_lower": -43.9021,
+      "delta_ci_upper": 43.8996,
+      "delta_ci_crosses_zero": true,
       "prevented_losses": 103.206,
       "missed_gains": 101.0486,
-      "ml_adds_value": true
+      "ml_adds_value": false
     }
   },
   "answers_to_core_questions": {
-    "q1_c1_edge_over_c0": {
-      "paired_delta_net_pnl": 410.7243,
-      "paired_ci_95": [
-        201.1372,
-        620.2017
+    "q1_token_regime": {
+      "question": "Помогает ли token-режим?",
+      "pnl_usdc": 81.6466,
+      "delta_vs_c0": 425.395,
+      "standalone_expectancy_ci": [
+        -0.059,
+        0.3068
       ],
-      "is_paired_loss_reduction_significant": true,
-      "is_standalone_profitable_proven": false,
-      "standalone_expectancy_95_ci": [
+      "ci_crosses_zero": true,
+      "answer": "Режим возврата в токене (CT) обеспечивает сокращение потерь относительно контроля C0 (Delta = +425.39 USDC). Однако автономная прибыльность CT статистически не доказана: 95% CI матожидания [-0.0590, +0.3068] пересекает ноль."
+    },
+    "q2_spot_regime": {
+      "question": "Помогает ли spot-режим?",
+      "pnl_usdc": -50.9921,
+      "delta_vs_ct": -132.6387,
+      "is_profitable": false,
+      "answer": "НЕТ, режим спотовой пилы (CS) самостоятельно убыточен (-50.99 USDC) и уступает пиле в токене CT на -132.64 USDC. Совместный режим CTS также убыточен (-36.32 USDC). Исходная гипотеза о том, что спотовая пила underlying создает альфу, опровергнута."
+    },
+    "q3_standalone_profitability": {
+      "question": "Прибыльна ли оставшаяся торговля?",
+      "is_proven": false,
+      "c1_pnl_usdc": 66.9758,
+      "c1_expectancy_ci_95": [
         -0.0994,
         0.2188
       ],
-      "standalone_ci_crosses_zero": true,
       "holdout_pnl_usdc": -17.8729,
-      "holdout_is_negative": true,
-      "pooled_5_asset_c1_pnl_usdc": -506.1369,
-      "answer": "Парное сокращение убытков C1 относительно C0 (+410.72 USDC) статистически значимо. Однако автономная прибыльность C1 НЕ доказана: 95% CI матожидания пересекает ноль, в holdout PnL отрицателен (-17.87 USDC), на всех остальных активах PnL отрицателен, портфель 5 активов дает суммарный убыток (-506.14 USDC)."
+      "pooled_5_asset_pnl": -506.1369,
+      "pnl_without_top_3": -21.6848,
+      "slippage_010_pnl": -28.7898,
+      "answer": "НЕТ, автономная прибыльность НЕ доказана: 95% CI матожидания C1 [-0.0994, +0.2188] пересекает ноль, на отложенном exploratory-периоде PnL отрицателен (-17.87 USDC), портфель 5 активов дает суммарный убыток (-506.14 USDC), исключение 3 лучших сделок уводит результат в минус (-21.68 USDC), а проскальзывание цены исполнения на 1 цент делает PnL отрицательным (-28.79 USDC)."
     },
-    "q2_c2_strike_edge_over_c1": {
-      "delta_c2_minus_c1": 15.3072,
-      "paired_ci_95": [
+    "q4_canonical_strike": {
+      "question": "Добавляет ли пользу канонический strike?",
+      "canonical_strike_coverage": 0,
+      "additional_advantage_established": false,
+      "proxy_delta_c2_minus_c1": 15.3072,
+      "proxy_ci_95": [
         -140.6998,
         157.3108
       ],
-      "ci_crosses_zero": true,
       "trade_volume_drop_pct": 75.9,
-      "canonical_strike_available": false,
-      "answer": "Контекст strike C2 поверх C1 статистически не подтвержден (Delta = +15.31 USDC, 95% CI [-140.70, +157.31] пересекает ноль), отсекает 76% объема торгов. Канонический страйк в исторических снимках отсутствует."
+      "answer": "Дополнительное преимущество не установлено. Канонический strike Polymarket в исторических снимках отсутствует (покрытие 0%). В анализе чувствительности с Binance 5m open proxy точечная дельта составляет +15.31 USDC, но 95% CI [-140.70, +157.31] широко пересекает ноль при падении объема торгов на 75.9%."
     },
-    "q3_spot_saw_vs_token_saw": {
-      "ct_token_alone_pnl": 81.6466,
-      "cs_spot_alone_pnl": -50.9921,
-      "cts_joint_pnl": -36.3214,
-      "delta_cs_minus_ct": -132.6387,
-      "answer": "Физическая пила в базовом споте (CS) самостоятельно убыточна (-50.99 USDC) и уступает пиле в токене CT (+81.65 USDC) на -132.64 USDC. Гипотеза о том, что финансовый edge создается пилой в споте, опровергнута."
+    "q5_tested_model": {
+      "question": "Добавляет ли пользу проверенная модель?",
+      "delta_ml_minus_base": -85.396,
+      "delta_ci_95": [
+        -263.1169,
+        76.5044
+      ],
+      "adds_value": false,
+      "answer": "Проверенная ML-конфигурация ухудшила результат (Delta = -85.40 USDC на общей OOF-когорте C1). Модель отсекает прибыльные исходы аутсайдеров."
     },
-    "q4_robustness_concentration_slippage": {
-      "pnl_base": 66.9758,
-      "pnl_without_top_1": 34.6445,
-      "pnl_without_top_3": -21.6848,
-      "pnl_without_top_5": -64.6808,
-      "slippage_abs_0_005": 15.8192,
-      "slippage_abs_0_010": -28.7898,
-      "slippage_abs_0_020": -104.083,
-      "answer": "Крайне высокая хрупкость: исключение 3 лучших сделок делает PnL отрицательным (-21.68 USDC). Проскальзывание всего на 1 цент (+0.010 USDC/акцию) делает PnL отрицательным (-28.79 USDC)."
-    },
-    "q5_production_deployment_verdict": {
+    "q6_production_deployment": {
       "deploy_to_production": false,
-      "recommendation": "КАТЕГОРИЧЕСКИ НЕ ДЕПЛОИТЬ В БОЕВОЙ КОНТУР НА РЕАЛЬНЫЙ КАПИТАЛ. Отрицательный holdout, убыточность по остальным активам, нулевая толерантность к проскальзыванию, высокая концентрация прибыли."
+      "verdict": "КАТЕГОРИЧЕСКИ НЕ ДЕПЛОИТЬ В БОЕВОЙ КОНТУР НА РЕАЛЬНЫЙ КАПИТАЛ.",
+      "recommendation": "Подтверждено исключительно сокращение убытков относительно глубоко убыточного контроля C0. Автономная прибыльность стратегии не доказана, holdout отрицателен, все альткоины убыточны, устойчивость к рыночному проскальзыванию нулевая."
     }
   },
-  "policy_recommendation": "1. КАТЕГОРИЧЕСКИ НЕ ДЕПЛОИТЬ В БОЕВОЙ КОНТУР НА РЕАЛЬНЫЙ КАПИТАЛ. Стратегия C1 не имеет доказанной автономной прибыльности, отрицательна на holdout (-17.87 USDC) и по портфелю 5 активов (-506.16 USDC), а также разрушается при минимальном проскальзывании.\n2. Условие strike C2 полностью отклонено: отсекает 76% объема сделок, прирост статистически незначим (CI пересекает ноль).\n3. Режим пилы оставить исключительно как исследовательский флаг (research / paper trading). Guard в market_guards.py ни в коем случае не должен блокировать торговлю фаворитами."
+  "policy_recommendation": "1. КАТЕГОРИЧЕСКИ НЕ ДЕПЛОИТЬ В БОЕВОЙ КОНТУР НА РЕАЛЬНЫЙ КАПИТАЛ. Стратегия C1 не имеет доказанной автономной прибыльности, отрицательна на holdout (-17.87 USDC) и по портфелю 5 активов (-506.14 USDC), а также разрушается при минимальном проскальзывании.\n2. Условие strike C2 не дает доказанного преимущества: канонический strike отсутствует, прокси-вариант имеет CI, пересекающий ноль, и теряет 76% объема.\n3. Режим пилы оставить исключительно как исследовательский флаг (research / paper trading). Guard в market_guards.py ни в коем случае не должен блокировать торговлю фаворитами."
 }
