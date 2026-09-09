@@ -31,11 +31,17 @@ from polyflip.trading.ct_policy import (
     evaluate_all_ct_diagnostics,
     calculate_scenario_economics,
 )
+from polyflip.trading.trading_config import parse_trading_settings
 
 
 # ==============================================================================
 # 1. Specification & Hash Tests (Stage 1, Item 2)
 # ==============================================================================
+
+def test_ct_trading_mode_is_preserved_for_engine_dispatch():
+    """The production engine must route CT settings to the CT dispatcher."""
+    assert parse_trading_settings({"TRADING_MODE": "ct_outsider"}).trading_mode == "ct_outsider"
+    assert parse_trading_settings({"TRADING_MODE": "ct"}).trading_mode == "ct_outsider"
 
 def test_spec_parameters_locked():
     """Verify BTC_CT_T5_V1 exact specification parameters."""
