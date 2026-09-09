@@ -175,10 +175,10 @@
 
 ### 24. Итоговая сводка тестов
 ```
-tests/trading/test_ct_policy.py .........................                [25 passed]
-tests/trading/test_ct_synthetic_cycle.py ................                [16 passed]
+tests/trading/test_ct_policy.py ..............................           [30 passed]
+tests/trading/test_ct_synthetic_cycle.py ...................             [19 passed]
 tests/research/test_ct_historical_replay.py ..                           [2 passed]
 tests/execution/test_paper_e2e.py ....                                   [4 passed]
-============================= 47 passed in 5.3s ==============================
+============================= 55 passed in 5.8s ==============================
 ```
-Вся торговая подсистема (`tests/trading/`): **264 passed, 1 skipped**.
+Полный набор тестов (`tests/trading/`, `tests/execution/`, `tests/research/`): **414 passed, 3 skipped**.
