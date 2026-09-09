@@ -1,0 +1,12 @@
+{
+    "n_trades": 647,
+    "total_shares": 4098.41,
+    "total_turnover_usdc": 647.0,
+    "gross_pnl_usdc": 82.94,
+    "baseline_net_pnl_usdc": 81.65,
+    "average_entry_price": 0.1579,
+    "breakeven_fee_rate": 0.1282,
+    "breakeven_fee_pct": 12.82,
+    "breakeven_slippage_per_share_usdc": 0.0199,
+    "breakeven_slippage_pct_of_price": 12.62
+}
