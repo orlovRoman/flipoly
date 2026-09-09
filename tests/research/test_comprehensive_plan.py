@@ -453,7 +453,10 @@ def test_item_30_depth_separation():
     with open(res_path, "r", encoding="utf-8") as f:
         data = json.load(f)
     # Ensure artificial depth is not used for execution
-    assert "C0" in data["item_26_multi_budget_execution"]["$1"]
+    c0_exec = data["item_26_multi_budget_execution"]["$1"].get("C0", {})
+    assert c0_exec.get("full_fills", -1) == 0
+    assert c0_exec.get("partial_fills", -1) == 0
+    assert c0_exec.get("unfilled", -1) == 0
 
 def test_item_30_bootstrap_manual_match():
     """Item 30: Bootstrap manual match on artificial data."""
@@ -535,7 +538,9 @@ def test_item_30_missing_data_behavior():
     assert res_path.exists(), "Results file missing"
     with open(res_path, "r", encoding="utf-8") as f:
         data = json.load(f)
-    assert "filled" in data["item_27_execution_selection_effect"]
+    sel = data["item_27_execution_selection_effect"]
+    assert sel["filled"]["n"] == 0
+    assert sel["unfilled"]["n"] == 2636
 
 @pytest.mark.asyncio
 async def test_item_30_integration_one_sided_orderbook_db():
