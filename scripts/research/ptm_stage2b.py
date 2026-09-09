@@ -23,10 +23,14 @@ paired = list(csv.DictReader(open(os.path.join(BASE, "ct_paired.csv"), encoding=
 # ============================================================
 # Item 26: rule set definition
 # ============================================================
-# Rule A: Holm-surviving positive-CI cells → individual bet rules
+# Rule A: Holm-surviving positive-CI cells → individual bet rules.
+# holm_adj_p == 0.0 is normal-approx underflow on near-degenerate
+# distributions (deep favorites, CI width ~1e-3): flagged DEGENERATE,
+# informational only. Only non-degenerate survivors are holdout candidates.
 rule_a = []
 for p in af["positive_cells"]:
     if p["holm_adj_p"] < 0.05:
+        degenerate = (p["holm_adj_p"] == 0.0)
         rule_a.append({
             "rule_id": "A_" + "_".join(str(k) for k in p["key"]),
             "rule_type": "CELL_BET",
@@ -36,7 +40,8 @@ for p in af["positive_cells"]:
             "price_bin": p["key"][4],
             "n": p["n"], "pnl": p["pnl"], "ci": p["ci"],
             "holm_adj_p": p["holm_adj_p"],
-            "status": "CANDIDATE_FOR_HOLDOUT",
+            "degenerate_micro_edge": degenerate,
+            "status": "INFORMATIONAL_DEGENERATE" if degenerate else "CANDIDATE_FOR_HOLDOUT",
         })
 
 # Rule B: CT filter on T-5 (positive expectancy, CI excludes zero)
@@ -90,11 +95,19 @@ with open(os.path.join(BASE, "holdout_rules.json"), "w") as f:
 # ============================================================
 decisions = []
 for r in rule_a:
-    decisions.append({
-        "rule_id": r["rule_id"], "decision": "PROCEED_TO_HOLDOUT",
-        "evidence": f"Holm adj_p={r['holm_adj_p']:.4f}, CI={r['ci']}, n={r['n']}",
-        "risk": "price_bin edge may not generalize; small n in some bins",
-    })
+    if r["degenerate_micro_edge"]:
+        decisions.append({
+            "rule_id": r["rule_id"], "decision": "INFORMATIONAL_ONLY_DEGENERATE",
+            "evidence": f"Holm adj_p=0.0 (normal-approx underflow), CI={r['ci']}, n={r['n']}, pnl={r['pnl']}",
+            "risk": "near-degenerate distribution (deep favorite micro-edge, expectancy ~1e-3); "
+                    "normal-approx p invalid; economically trivial even if real",
+        })
+    else:
+        decisions.append({
+            "rule_id": r["rule_id"], "decision": "PROCEED_TO_HOLDOUT",
+            "evidence": f"Holm adj_p={r['holm_adj_p']:.4f}, CI={r['ci']}, n={r['n']}",
+            "risk": "price_bin edge may not generalize; favorite-bin edge, needs out-of-sample confirm",
+        })
 for r in rule_b:
     decisions.append({
         "rule_id": r["rule_id"], "decision": "PROCEED_TO_HOLDOUT",
@@ -140,13 +153,13 @@ audit = {
     "stage1_items_9_15": {
         "status": "DONE",
         "items": [
-            "9. CT totals restructured to comparison_with_ct.csv: YES",
-            "10. GRID CT n=2978 gross=-27.63 verified: YES",
-            "11. FUNNEL CT n=563 gross=-20.75 verified: YES",
-            "12. GRID CT T-5 n=915 gross=100.10 verified: YES",
-            "13. T-5 top5=195 ex-top5=-94.90 verified: YES",
-            "14. 14 positive-CI cells: YES (15 in v2, 14 in baseline — small delta in FUNNEL_OBSERVED)",
-            "15. empty price_bin rows=233: YES",
+            "9. CT totals restructured to comparison_with_ct.csv (per-policy column): YES",
+            "10. GRID CT n=2978 gross=-27.63 verified on 11v2 (gross, fee UNKNOWN): YES",
+            "11. FUNNEL CT v2 (frozen scope): n=563 gross=-20.7471 — matches v1 exactly (same OK set, fee never applied in v1 either)",
+            "12. GRID CT T-5 n=915 gross=100.10 verified on 11v2 (YES_OUTSIDER scope): YES",
+            "13. T-5 top5=195 ex-top5=-94.90 verified on 11v2: YES",
+            "14. positive-CI cells: v1 table=14, v2 table=15 (delta: one FUNNEL_OBSERVED cell)",
+            "15. empty price_bin OK rows: v1=233 (leak), v2=0 by design (closed bins + OUT_OF_RANGE)",
         ],
     },
     "stage2_items_16_18": {
@@ -166,13 +179,15 @@ audit = {
             "22. CT time-pair comparison: 3 pairs (T-12/T-8, T-12/T-5, T-8/T-5), all positive diff",
             "23. T-5 concentration: top5=195 (n=915), ex-top5=-94.90, biggest_day=2026-08-28 (+92.49)",
             "24. Winner/loser row completeness: 257+658=915 rows, all have best_ask and final_outcome: YES",
-            "25. Holm correction: 14 cells positive CI → 1 survives (adj_p<0.05): DOGE T-8 [0.90,0.99]",
+            "25. Holm correction: 15 positive-CI cells → 7 nominal survivors = 1 non-degenerate "
+            "(DOGE T-8 [0.90,0.99], adj_p=0.032, n=218) + 6 degenerate micro-edge (adj_p underflow 0.0)",
         ],
     },
     "stage2_items_26_28": {
         "status": "DONE",
         "items": [
-            "26. Rule set: 1 cell rule (A), 2 CT filter rules (B), 3 time-pair rules (C) = 6 candidate rules",
+            "26. Rule set: 7 nominal Holm survivors = 1 non-degenerate candidate (DOGE T-8 [0.90,0.99]) "
+            "+ 6 degenerate micro-edge cells (adj_p underflow, informational); 0 CT-filter rules; 3 time-pair informational",
             "27. Decision log: decision_log.md written with decisions, evidence, and risks per rule",
             "28. Holdout: PENDING_DATA — no out-of-sample period defined yet",
         ],

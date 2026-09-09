@@ -19,12 +19,12 @@ FREEZE = sys.argv[2] if len(sys.argv) > 2 else "freeze_funnel"
 def main():
     sys.path.insert(0, os.path.abspath("scripts/research"))
     from polyflip.research.regime_features import classify_local_regime
-    # targets: GRID YES rows
+    # targets: GRID YES-side rows + FUNNEL YES-side rows (parity with v1 CT scope)
     targets = defaultdict(list)
     with open(os.path.join(BASE, "opportunity_ledger.csv"), newline="") as f:
         for r in csv.DictReader(f):
-            if (r.get("selection_status") == "OK" and r.get("entry_policy") == "GRID"
-                    and r.get("side") == "YES"):
+            if (r.get("selection_status") == "OK" and r.get("side") == "YES"
+                    and r.get("entry_policy") in ("GRID", "FUNNEL")):
                 targets[r["market_id"]].append(
                     (r["opportunity_id"], datetime.fromisoformat(r["decision_at"]),
                      r["entry_variant"], r["asset"], r["price_bin"], float(r["gross_pnl"])))
@@ -65,9 +65,9 @@ def main():
     groups = defaultdict(list)
     with open(os.path.join(BASE, "opportunity_ledger.csv"), newline="") as f:
         for r in csv.DictReader(f):
-            if (r.get("selection_status") == "OK" and r.get("entry_policy") == "GRID"
+            if (r.get("selection_status") == "OK" and r.get("entry_policy") in ("GRID", "FUNNEL")
                     and r.get("entry_variant") == "YES_OUTSIDER" and r.get("opportunity_id") in states):
-                groups[(r["asset"], r["entry_rule"], r["price_bin"])].append(
+                groups[(r["entry_policy"], r["asset"], r["entry_rule"], r["price_bin"])].append(
                     (float(r["gross_pnl"]), states[r["opportunity_id"]]))
     comp = []
     for key in sorted(groups, key=str):
@@ -77,7 +77,7 @@ def main():
         kpnl = sum(p for p, s in kept)
         prevented = sum(-p for p, s in rs if s != "REVERSION" and p < 0)
         missed = sum(p for p, s in rs if s != "REVERSION" and p > 0)
-        comp.append({"asset": key[0], "entry_rule": key[1], "price_bin": key[2],
+        comp.append({"entry_policy": key[0], "asset": key[1], "entry_rule": key[2], "price_bin": key[3],
                      "n_c0": len(rs), "gross_c0": round(base, 4),
                      "n_ct": len(kept), "gross_ct": round(kpnl, 4),
                      "prevented_losses": round(prevented, 4), "missed_wins": round(missed, 4),
@@ -88,6 +88,10 @@ def main():
         w.writerows(comp)
     from collections import Counter
     print("ct states:", dict(Counter(states.values())))
+    for pol in ("GRID", "FUNNEL"):
+        pn = sum(c["n_ct"] for c in comp if c["entry_policy"] == pol)
+        pg = sum(c["gross_ct"] for c in comp if c["entry_policy"] == pol)
+        print("%s CT: n=%d gross=%.4f" % (pol, pn, pg))
     print("OUTDIR=" + BASE)
 
 

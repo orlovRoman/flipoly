@@ -15,13 +15,13 @@
   "stage1_items_9_15": {
     "status": "DONE",
     "items": [
-      "9. CT totals restructured to comparison_with_ct.csv: YES",
-      "10. GRID CT n=2978 gross=-27.63 verified: YES",
-      "11. FUNNEL CT n=563 gross=-20.75 verified: YES",
-      "12. GRID CT T-5 n=915 gross=100.10 verified: YES",
-      "13. T-5 top5=195 ex-top5=-94.90 verified: YES",
-      "14. 14 positive-CI cells: YES (15 in v2, 14 in baseline \u2014 small delta in FUNNEL_OBSERVED)",
-      "15. empty price_bin rows=233: YES"
+      "9. CT totals restructured to comparison_with_ct.csv (per-policy column): YES",
+      "10. GRID CT n=2978 gross=-27.63 verified on 11v2 (gross, fee UNKNOWN): YES",
+      "11. FUNNEL CT v2 (frozen scope): n=563 gross=-20.7471 \u2014 matches v1 exactly (same OK set, fee never applied in v1 either)",
+      "12. GRID CT T-5 n=915 gross=100.10 verified on 11v2 (YES_OUTSIDER scope): YES",
+      "13. T-5 top5=195 ex-top5=-94.90 verified on 11v2: YES",
+      "14. positive-CI cells: v1 table=14, v2 table=15 (delta: one FUNNEL_OBSERVED cell)",
+      "15. empty price_bin OK rows: v1=233 (leak), v2=0 by design (closed bins + OUT_OF_RANGE)"
     ]
   },
   "stage2_items_16_18": {
@@ -41,13 +41,13 @@
       "22. CT time-pair comparison: 3 pairs (T-12/T-8, T-12/T-5, T-8/T-5), all positive diff",
       "23. T-5 concentration: top5=195 (n=915), ex-top5=-94.90, biggest_day=2026-08-28 (+92.49)",
       "24. Winner/loser row completeness: 257+658=915 rows, all have best_ask and final_outcome: YES",
-      "25. Holm correction: 14 cells positive CI \u2192 1 survives (adj_p<0.05): DOGE T-8 [0.90,0.99]"
+      "25. Holm correction: 15 positive-CI cells \u2192 7 nominal survivors = 1 non-degenerate (DOGE T-8 [0.90,0.99], adj_p=0.032, n=218) + 6 degenerate micro-edge (adj_p underflow 0.0)"
     ]
   },
   "stage2_items_26_28": {
     "status": "DONE",
     "items": [
-      "26. Rule set: 1 cell rule (A), 2 CT filter rules (B), 3 time-pair rules (C) = 6 candidate rules",
+      "26. Rule set: 7 nominal Holm survivors = 1 non-degenerate candidate (DOGE T-8 [0.90,0.99]) + 6 degenerate micro-edge cells (adj_p underflow, informational); 0 CT-filter rules; 3 time-pair informational",
       "27. Decision log: decision_log.md written with decisions, evidence, and risks per rule",
       "28. Holdout: PENDING_DATA \u2014 no out-of-sample period defined yet"
     ]
