@@ -131,6 +131,7 @@ class DecisionResult:
     confirm_model_version: Optional[int] = None
     applied_lower: Optional[float] = None
     applied_upper: Optional[float] = None
+    decision_at: Optional[datetime] = None
 
 async def infer_flip_for_market(
     db_session: AsyncSession,
@@ -1760,6 +1761,13 @@ async def decide_ct_outsider_mode(
 
     opportunity_id = f"{market.market_id}_{start_time.isoformat()}"
     decision_id = f"CT:{spec.spec_id}:{market.market_id}"
+    timing_diag = dict(symm_ct.data_ids.get("timing_diagnostics", {}))
+    timing_diag.setdefault("cycle_started_at", cycle_started_at.isoformat())
+    timing_diag.setdefault("decision_at", eff_decision_at.isoformat())
+    timing_diag.setdefault("time_left_sec", round((exp_dt - eff_decision_at).total_seconds(), 3))
+    if action == "SKIP" and "skip_reason" not in timing_diag:
+        timing_diag["skip_reason"] = reason
+
     details = {
         "opportunity_id": opportunity_id,
         "decision_id": decision_id,
@@ -1780,12 +1788,7 @@ async def decide_ct_outsider_mode(
         "model_availability": model_availability,
         "non_blocking_models": model_availability,
         "data_ids": symm_ct.data_ids,
-        "timing_diagnostics": symm_ct.data_ids.get("timing_diagnostics", {
-            "cycle_started_at": cycle_started_at.isoformat(),
-            "decision_at": eff_decision_at.isoformat(),
-            "time_left_sec": round((exp_dt - eff_decision_at).total_seconds(), 3),
-            "skip_reason": reason if action == "SKIP" else None,
-        }),
+        "timing_diagnostics": timing_diag,
         "decision_run_id": res_key,
         "max_acceptable_price": symm_ct.limit_price,
         "cycle_started_at": cycle_started_at.isoformat(),
@@ -1828,5 +1831,6 @@ async def decide_ct_outsider_mode(
         model_ver=None,
         edge=None,
         skip_reason=reason if action == "SKIP" else None,
+        decision_at=eff_decision_at,
     )
 

@@ -24,8 +24,14 @@ logger = structlog.get_logger(__name__)
 
 
 async def _get_dialect(db_session: AsyncSession) -> str:
-    conn = await db_session.connection()
-    return conn.dialect.name
+    try:
+        conn = await db_session.connection()
+        return conn.dialect.name
+    except Exception:
+        bind = getattr(db_session, "bind", None)
+        if bind and hasattr(bind, "dialect"):
+            return bind.dialect.name
+        return "sqlite"
 
 
 async def get_ct_decision_reservation(
@@ -60,6 +66,9 @@ async def reserve_ct_decision(
     - (True, reservation): The reservation was newly inserted (first execution).
     - (False, reservation): A reservation already exists (duplicate/repeat).
     """
+    import json
+    from sqlalchemy import update
+
     dialect_name = await _get_dialect(db_session)
     insert_func = sqlite_insert if dialect_name == "sqlite" else pg_insert
 
@@ -69,6 +78,13 @@ async def reserve_ct_decision(
         if decision_at.tzinfo is not None
         else decision_at.replace(tzinfo=timezone.utc)
     )
+
+    clean_details = None
+    if decision_details is not None:
+        try:
+            clean_details = json.loads(json.dumps(decision_details, default=str))
+        except Exception:
+            clean_details = None
 
     stmt = (
         insert_func(CTDecisionReservation)
@@ -83,7 +99,7 @@ async def reserve_ct_decision(
             budget_usdc=budget_usdc,
             reason=str(reason),
             trade_history_id=trade_history_id,
-            decision_details=decision_details,
+            decision_details=clean_details,
             repeat_count=0,
             last_repeat_at=None,
             created_at=now_utc,
@@ -106,12 +122,20 @@ async def reserve_ct_decision(
         )
         return True, new_res
 
-    # Conflict: the key was already reserved
+    # Conflict: the key was already reserved. Perform atomic SQL increment of repeat_count
+    update_stmt = (
+        update(CTDecisionReservation)
+        .where(CTDecisionReservation.key == str(key))
+        .values(
+            repeat_count=CTDecisionReservation.repeat_count + 1,
+            last_repeat_at=now_utc,
+        )
+    )
+    await db_session.execute(update_stmt)
+    await db_session.flush()
+
     existing = await db_session.get(CTDecisionReservation, str(key))
     if existing is not None:
-        existing.repeat_count = (existing.repeat_count or 0) + 1
-        existing.last_repeat_at = now_utc
-        await db_session.flush()
         logger.info(
             "ct_decision_repeat_detected",
             key=key,

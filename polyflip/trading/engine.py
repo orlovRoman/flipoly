@@ -302,6 +302,7 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                         confirm_model_version=decision_res.confirm_model_version
                         if decision_res
                         else None,
+                        decision_at=getattr(decision_res, "decision_at", None),
                     )
                 except EnqueueRejected as exc:
                     await _record_skip(

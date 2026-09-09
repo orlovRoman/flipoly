@@ -255,6 +255,7 @@ async def execute_and_record(
     model_key: Optional[str] = None,
     confirm_model_key: Optional[str] = None,
     confirm_model_version: Optional[int] = None,
+    decision_at: Optional[datetime] = None,
 ) -> None:
     if not validation.valid:
         raise ValueError("execute_and_record called with failed validation")
@@ -295,7 +296,7 @@ async def execute_and_record(
             "recorded_at_utc": start_time.isoformat(),
             "decision_details": getattr(decision_obj, "decision_details", None)
         }
-        config_snapshot_json = json.dumps(config_snap, ensure_ascii=False)
+        config_snapshot_json = json.dumps(config_snap, ensure_ascii=False, default=str)
     except Exception as exc_snap:
         logger.warning("trade_config_snapshot_failed", error=str(exc_snap))
         config_snapshot_json = None
@@ -414,13 +415,23 @@ async def execute_and_record(
             from polyflip.trading.ct_reservation import reserve_ct_decision
             spec_id = details.get("spec_id") or "BTC_CT_T5_V1"
             res_key = details.get("decision_run_id") or f"CT:{spec_id}:{market.market_id}"
+            eff_decision_at = decision_at
+            if eff_decision_at is None and details.get("decision_at"):
+                try:
+                    val = details["decision_at"]
+                    eff_decision_at = datetime.fromisoformat(val) if isinstance(val, str) else val
+                except Exception:
+                    eff_decision_at = None
+            if eff_decision_at is None:
+                eff_decision_at = start_time
+
             is_first, ct_res = await reserve_ct_decision(
                 db_session,
                 key=res_key,
                 market_id=str(market.market_id),
                 spec_id=spec_id,
                 action="BUY",
-                decision_at=start_time,
+                decision_at=eff_decision_at,
                 side=decision_obj.direction_value,
                 limit_price=buy_price,
                 budget_usdc=actual_bet_size,
@@ -471,14 +482,24 @@ async def execute_and_record(
         )
         if decision_obj.strategy_type == "CT_OUTSIDER":
             from polyflip.db.models import CTDecisionReservation
+            from sqlalchemy import update
             from datetime import datetime, timezone
             spec_id = details.get("spec_id") or "BTC_CT_T5_V1"
             res_key = details.get("decision_run_id") or f"CT:{spec_id}:{market.market_id}"
+            now_utc = datetime.now(timezone.utc)
+            update_stmt = (
+                update(CTDecisionReservation)
+                .where(CTDecisionReservation.key == str(res_key))
+                .values(
+                    repeat_count=CTDecisionReservation.repeat_count + 1,
+                    last_repeat_at=now_utc,
+                )
+            )
+            await db_session.execute(update_stmt)
+            await db_session.flush()
             existing = await db_session.get(CTDecisionReservation, str(res_key))
             if existing is not None:
-                existing.repeat_count = (existing.repeat_count or 0) + 1
-                existing.last_repeat_at = datetime.now(timezone.utc)
-                await db_session.flush()
+                await db_session.refresh(existing)
         raise
     except Exception as e:
         await savepoint.rollback()

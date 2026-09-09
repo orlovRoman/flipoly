@@ -103,9 +103,9 @@
 ### 14. Многоуровневый стакан и VWAP
 - Тест: `test_09_synthetic_multi_level_orderbook_vwap`.
 - Стакан: Уровень 1 (5 shares @ 0.10, $0.50), Уровень 2 (10 shares @ 0.12).
-- Заявка забирает 5 shares @ 0.10 ($0.50) и 4.166667 shares @ 0.12 ($0.50).
-- Всего куплено: 9.166667 shares за 1.00 USDC.
-- Фактическая цена входа (`executed_price` в `TradeHistory`) фиксирует точный VWAP = 1.00 / 9.166667 ≈ **0.109091** USDC/share.
+- Реальный шлюз без искусственных оверрайдов бюджета: заявка с лимитом 0.12 выкупает 5.0 shares @ 0.10 ($0.50) и 3.333333 shares @ 0.12 ($0.40).
+- Всего куплено: 8.333333 shares за 0.90 USDC.
+- Фактическая цена входа (`executed_price` в `TradeHistory`) фиксирует точный VWAP = 0.90 / 8.333333 = **0.108000** USDC/share.
 
 ### 15. Расчет settlement при частичном исполнении
 - Тест: `test_10_synthetic_partial_fill_settlement_win_and_loss`.
@@ -122,24 +122,25 @@
 - Создана таблица `ct_decision_reservations` (`CTDecisionReservation`).
 - Первичный ключ: `f"CT:{spec_id}:{market_id}"`.
 - Вставка выполняется через атомарный `INSERT ... ON CONFLICT DO NOTHING`.
-- При повторном обращении атомарно инкрементируется `repeat_count` и обновляется `last_repeat_at`.
+- При повторном обращении атомарно инкрементируется `repeat_count` через прямой SQL UPDATE (`repeat_count = repeat_count + 1`) и обновляется `last_repeat_at`.
 
-### 17. Конкурентный запуск двух воркеров
-- Тест: `test_11_concurrency_atomic_reservation`.
-- Два одновременных вызова `execute_and_record` для одного маркета:
-  - Первый вызов успешно бронирует запись и отправляет ордер в outbox.
-  - Второй вызов натыкается на конфликт ключа, вызывает `EnqueueRejected(ActiveExecutionConflict)` и безопасно откатывает savepoint.
-  - В БД сохраняется ровно 1 сделка и 1 бронь с `repeat_count = 1`.
+### 17. Конкурентный запуск двух и трех воркеров
+- Тесты:
+  - `test_11_concurrency_two_sessions_atomic_reservation`: два изолированных сессионных подключения к SQLite (режим WAL), синхронизированные через `asyncio.Barrier(2)`. Один поток успешно бронирует и отправляет ордер, второй натыкается на конфликт ключа, вызывает `EnqueueRejected(ActiveExecutionConflict)` и откатывает вложенный savepoint. В БД фиксируется ровно 1 сделка и 1 бронь с `repeat_count = 1`.
+  - `test_11b_concurrency_rollback_releases_lock`: откат первой сессии до подтверждения брони полностью освобождает блокировку; вторая сессия успешно захватывает бронь с `repeat_count = 0`.
+  - `test_11c_atomic_repeat_count_increment_under_concurrency`: три одновременных повторных запроса через `asyncio.Barrier(3)` инкрементируют `repeat_count` через атомарный `update(CTDecisionReservation).where(...).values(repeat_count=repeat_count + 1)`, гарантируя `repeat_count = 3` без race conditions и потерь обновлений.
 
 ### 18. Повторный запуск после settlement
 - Тест: `test_12_rerun_after_settlement_blocked`.
 - После завершения сделки и закрытия позиции через settlement вызов `decide_ct_outsider_mode` на том же маркете сразу находит существующую бронь и возвращает `SKIP` с причиной `ALREADY_DECIDED: BUY`. Никаких новых ордеров не создается.
 
-### 19. Прерывание и восстановление в 3 точках
-- Тест: `test_13_recovery_at_three_failure_points`.
-  1. **После брони до outbox:** Наличие брони при перезапуске предотвращает повторный вход.
-  2. **После enqueue в состоянии READY:** Воркер перезапускается, забирает заявку через `claim_one`, передает в шлюз и успешно исполняет.
-  3. **После сохранения fills до бухгалтерского подтверждения:** Воркер перезапускается, вызывает `rebuild_trade_accounting`, который по существующим записям `ExecutionFill` восстанавливает позицию в статус `OPEN` с корректными `entry_filled_shares` и `entry_cost_usdc`.
+### 19. Прерывание и восстановление в 3 точках + зависший lease
+- Тесты:
+  - `test_13_recovery_at_three_failure_points`:
+    1. **Сбой между бронью и outbox enqueue:** Имитация ошибки при сохранении в outbox приводит к откату сейвпойнта в `execute_and_record`, не оставляя брони-сироты в базе данных. Повторный запуск цикла успешно находит маркет и выставляет заявку.
+    2. **Сбой после enqueue в состоянии READY:** Заявка сохранена в БД. Независимый экземпляр воркера обнаруживает ее через `claim_one` (без передачи объектов через память), исполняет через шлюз и переводит в терминальный статус.
+    3. **Сбой после сохранения fills до подтверждения учета:** `ExecutionFill` записан в БД, но воркер упал до обновления `TradeHistory`. При перезапуске сервис `rebuild_trade_accounting` восстанавливает позицию в статус `OPEN` с точными `entry_filled_shares` и `entry_cost_usdc`.
+  - `test_13b_recovery_stuck_claimed_request`: Заявка, зависшая в статусе `CLAIMED` с истекшим `lease_expires_at`, перехватывается воркером через `reclaim_expired_claims`, отдается в шлюз и успешно исполняется.
 
 ### 20. Неизменность первого решения
 - Тест: `test_14_first_decision_immutability_on_quote_change`.
@@ -147,38 +148,42 @@
 
 ---
 
-## Этап 6. Проверка, трассировка и исторический реплей (Пункты 21–24)
+## Этап 6. Проверка, трассировка, тайминги и исторический реплей (Пункты 21–24)
 
-### 21. Диагностика моделей
+### 21. Диагностика моделей и инварианты профиля
 - В `decision_runners.py` словарь `model_availability` честно фиксирует:
   - `component_only = True`
   - `prediction_made = False`
 - Это исключает ложное впечатление, будто модели ML производили инференс в CT-режиме.
-- Проверен инвариант отчета `Total = UP + DOWN` (`test_15_paper_profile_report_invariant`).
+- Тест `test_15_paper_profile_report_invariant`: проверен инвариант отчета `Total = UP + DOWN` в `build_profile_report`.
+- Тест `test_17_unassigned_parity_skips_do_not_pollute_down_side`: подтверждено, что пропуски по PARITY сохраняются под категорией `UNASSIGNED` и не искажают метрики стороны `DOWN`.
+- Тест `test_18_decision_runners_never_substitutes_ask_for_mid_when_bid_none`: отсутствие bid не подменяется ask для mid цены (тест полностью асинхронен, 0 предупреждений о невызванных корутинах).
+- Тест `test_19_market_guards_immutability_and_skip_reason_preservation`: неизменность записей в market guards и сохранение оригинальной причины пропуска.
+- Тест `test_20_decision_at_timing_fidelity`: точная проверка разделения времени старта цикла (`cycle_started_at`) и времени решения (`decision_at`). В строке брони `CTDecisionReservation.decision_at` и в `decision_details["timing_diagnostics"]` фиксируется точный момент решения после поступления котировок, а `time_left_sec` вычисляется строго относительно `decision_at`.
 
 ### 22. Сквозная трассировка ID по реальным строкам БД
 - Тест: `test_16_full_audit_chain_traceability_from_real_db_rows`.
-- Подтверждена непрерывная цепочка ссылок в базе данных:
-  `opportunity_id` (`market_id` + `timestamp`)  
+- Без моков и ручных подстановок через единый вызов `_run_production_paper_cycle` подтверждена непрерывная цепочка ссылок в реальной БД:
+  `opportunity_id` (`market_id` + `decision_at`)  
   ↳ `decision_id` (`CTDecisionReservation.key` = `CT:BTC_CT_T5_V1:mkt_trace_chain`)  
   ↳ `trade_id` (`TradeHistory.id`)  
   ↳ `request_id` (`ExecutionRequest.id`)  
   ↳ `attempt_id` (`ExecutionAttempt.id`)  
   ↳ `fill_id` (`ExecutionFill.id`)  
-  ↳ `settlement_id` (`position_status = CLOSED`, `realized_pnl_usdc`).
+  ↳ `settlement_id` (`position_status = CLOSED`, `realized_pnl_usdc = 3.99002`).
 
 ### 23. Исторический реплей (Replay Validation)
 - Прогон `tests/research/test_ct_historical_replay.py`:
-  - **Сделок:** 647
-  - **PnL:** +81.6477 USDC
-  - **Результат:** 2 passed, 100% совпадение с эталоном.
+  - `test_historical_yes_only_replay_matches_all_647_ids`: **100% совпадение всех 647 ID** маркетов с эталонным датасетом.
+  - `test_historical_economics_reproduces_81_6477_usdc`: **ровно +81.6477 USDC** чистого PnL.
+  - **Результат:** 2 passed, абсолютная детерминированность.
 
 ### 24. Итоговая сводка тестов
 ```
 tests/trading/test_ct_policy.py ..............................           [30 passed]
-tests/trading/test_ct_synthetic_cycle.py ...................             [19 passed]
+tests/trading/test_ct_synthetic_cycle.py .......................         [23 passed]
 tests/research/test_ct_historical_replay.py ..                           [2 passed]
-tests/execution/test_paper_e2e.py ....                                   [4 passed]
-============================= 55 passed in 5.8s ==============================
+============================= 55 passed in 5.14s ==============================
 ```
-Полный набор тестов (`tests/trading/`, `tests/execution/`, `tests/research/`): **414 passed, 3 skipped**.
+Полный регрессионный набор тестов (`tests/trading/`, `tests/research/`): **347 passed, 1 skipped, 0 failures, 0 errors**.
+Все 3 предупреждения об unawaited coroutines устранены (предупреждения pytest теперь исключительно внешние UserWarning из scikit-learn).
