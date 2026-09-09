@@ -177,6 +177,45 @@ def _load_phase2a():
     return mod
 
 
+def test_phase2b_ct_cs_causal():
+    import numpy as np
+    from polyflip.research.strike_baseline.regime import (  # noqa: PLC0415
+        cs_for_decision, ct_for_decision,
+    )
+    D = pd.Timestamp("2026-09-08 00:10:00+00:00")
+    snaps = pd.DataFrame({
+        "recorded_at": pd.to_datetime(["2026-09-08 00:00:00+00:00", "2026-09-08 00:05:00+00:00",
+                                       "2026-09-08 00:09:00+00:00", "2026-09-08 00:09:30+00:00",
+                                       "2026-09-08 00:10:00+00:00", "2026-09-08 00:20:00+00:00"]),
+        "best_bid": [0.40, 0.42, 0.41, 0.43, 0.90, 0.95],
+        "best_ask": [0.45, 0.47, 0.46, 0.48, 0.95, 0.99],
+    })
+    a = ct_for_decision(snaps, D)
+    # future snapshots (at/after D) must not change CT
+    b = ct_for_decision(snaps[snaps["recorded_at"] < D], D)
+    assert a == b, (a, b)
+    assert a["ct_state"] in ("REVERSION", "TREND", "QUIET", "UNCERTAIN")
+    # empty history -> UNCERTAIN, never a signal
+    e = ct_for_decision(snaps.iloc[0:0], D)
+    assert e["ct_state"] == "UNCERTAIN"
+    # CS: future candle must not change the verdict
+    t0 = pd.Timestamp("2026-09-08 00:00:00+00:00")
+    closes = np.array([100.0 + (0.05 if i % 2 else -0.05) for i in range(12)])
+    times = np.array([t0 + pd.Timedelta(minutes=i + 1) for i in range(12)])
+    c1 = cs_for_decision(closes, times, D)
+    c2 = cs_for_decision(np.append(closes, [500.0]),
+                         np.append(times, [D + pd.Timedelta(minutes=5)]), D)
+    assert c1 == c2, (c1, c2)
+    assert c1["cs_state"] in ("REVERSION", "TREND", "QUIET", "UNCERTAIN")
+    print("P2b CT/CS causal OK")
+    import importlib.util
+    path = Path(__file__).resolve().parent / "run_phase2a.py"
+    spec = importlib.util.spec_from_file_location("sb_phase2a", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def test_phase2a_metrics_unit():
     import numpy as np
     m = _load_phase2a()
@@ -223,6 +262,7 @@ def main() -> None:
     test_proxy_vs_canonical()
     test_phase2a_metrics_unit()
     test_phase2a_split_rule()
+    test_phase2b_ct_cs_causal()
     print("\nALL SYNTHETIC CHECKS PASSED")
 
 

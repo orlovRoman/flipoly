@@ -2,7 +2,7 @@
 # Frozen research protocol. Any parameter change requires a new protocol version + new run_id.
 # Self-check: this file is hashed at run start; no parameter is chosen using validation/test outcomes.
 
-protocol_version: "1.2"
+protocol_version: "1.3"
 changelog_v1_2: >
   ADDITIVE Phase 2a (baselines + eval harness). Phase 1 params untouched.
   Frozen: sequential 60/20/20 market splits by end_time_est; models M0 (p0, no
@@ -150,7 +150,30 @@ phase2a:
     fee: "unknown -> gross only, net = null (per budget note)"
     metrics: [n_entries, gross, expectancy, pnl_per_opportunity, turnover, weekly, per_asset, concentration_top_decile_share]
   outputs: "artifacts/research/strike_baseline/sb2a_<ts>/{phase2a_metrics.json, reliability.csv, run_manifest.json}"
-  phase2b_planned: "CT/CS causal features + M2/M3/M4 + M5 LightGBM with train/val discipline (separate protocol bump)"
+  phase2b_planned: "DONE in v1.3 (see phase2b below)"
+
+# ---------- Phase 2b: CT/CS + LightGBM incremental contribution (frozen v1.3) ----------
+phase2b:
+  version: "1.3-additive"
+  note: "Phase 1 + 2a frozen params untouched. Splits REUSED from sb2a_20260909_131711/splits.csv (identical markets). Test never used for fitting or stopping."
+  input_ledger: "artifacts/research/strike_baseline/sb_20260909_131059/ledger.parquet"
+  input_splits: "artifacts/research/strike_baseline/sb2a_20260909_131711/splits.csv"
+  rows: "status == ok only"
+  ct_token_regime:
+    fn: "classify_local_regime (defaults: min_obs=4, er_trend=0.60, er_rev=0.40, sign=0.45, ac=-0.05)"
+    input: "last <=30 valid token mids of SAME market with recorded_at STRICTLY before snapshot_at; mid=(bid+ask)/2 under clean-quote rule"
+    states: [REVERSION, TREND, QUIET, UNCERTAIN]
+  cs_spot_regime:
+    fn: "classify_spot_regime_short with window_min=10.0, require_valid_autocorr=true"
+    input: "last <=30 closed BINANCE 1m closes with close_time <= snapshot_at (+timestamps); internal causal alignment, staleness<=120s"
+    states: [REVERSION, TREND, QUIET, UNCERTAIN]
+  models:
+    M2_ct: "logistic (same frozen spec as M1) on [z, time, sigma, ct_rev, ct_trend, ct_quiet]; UNCERTAIN = reference"
+    M3_cs: "logistic on [z, time, sigma, cs_rev, cs_trend, cs_quiet]"
+    M4_both: "logistic on [z, time, sigma, ct_rev, ct_trend, ct_quiet, cs_rev, cs_trend, cs_quiet]"
+    M5_gbm: "LightGBM on M4 feats + [ct_er, cs_er] (NaN native). Frozen: num_leaves=31, lr=0.05, n_estimators<=1000 with early_stopping(100) on VALIDATION only, min_child_samples=200, subsample=0.8, colsample_bytree=0.8, random_state=0, deterministic=true, verbose=-1. Train=train, stop=validation, report=test."
+  metrics: "same frozen probability + economic rule as Phase 2a (p>=0.60 YES at ask / p<=0.40 NO at 1-bid, stake 10, gross only)"
+  outputs: "artifacts/research/strike_baseline/sb2b_<ts>/{phase2b_metrics.json, reliability.csv, feature_coverage.json, run_manifest.json}"
 
 phase1_exit_condition: >
   Contract rules and data provenance traceable; causality verified; coverage limitations published.
