@@ -709,6 +709,29 @@ async function loadRevisions(silent = false) {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     const revs = Array.isArray(data) ? data : (data.revisions || []);
+
+    // Update Hero Active Revision banner
+    const titleEl = document.getElementById("hero-active-title");
+    const metaEl = document.getElementById("hero-active-meta");
+    const active = revs.find((r) => r.status === "ACTIVE");
+
+    if (titleEl) {
+      if (active) {
+        titleEl.innerHTML = `Ревизия #${active.id} (${escapeHtml(active.revision_key || "rev-" + active.id)}) <span class="status-badge badge-active">LIVE</span>`;
+      } else {
+        titleEl.innerHTML = `Нет активной AI Lab ревизии <span class="status-badge badge-draft">DEFAULT</span>`;
+      }
+    }
+    if (metaEl) {
+      if (active) {
+        const hash = active.manifest_hash ? active.manifest_hash.substring(0, 16) + "..." : "—";
+        const dt = active.activated_at ? new Date(active.activated_at).toLocaleString("ru-RU") : "—";
+        metaEl.innerHTML = `Хеш: <span class="mono-hash">${escapeHtml(hash)}</span> &bull; Активирована: ${escapeHtml(dt)}`;
+      } else {
+        metaEl.textContent = "Инференс и торговля используют базовые параметры по умолчанию (Research / Paper режим)";
+      }
+    }
+
     const stageDeployments = document.getElementById("stage9-deployments");
     if (stageDeployments) stageDeployments.innerHTML = revs.length ? `<table class="opt-table"><thead><tr><th>ID</th><th>Key</th><th>Status</th><th>Created</th></tr></thead><tbody>${revs.map((r) => `<tr><td>#${escapeHtml(r.id)}</td><td>${escapeHtml(r.revision_key || "—")}</td><td>${formatStatusBadge(r.status)}</td><td>${escapeHtml(r.created_at || "—")}</td></tr>`).join("")}</tbody></table>` : '<div class="unavailable">Ревизии отсутствуют.</div>';
 
@@ -748,6 +771,10 @@ async function loadRevisions(silent = false) {
       .join("");
   } catch (err) {
     console.error("loadRevisions error:", err);
+    const titleEl = document.getElementById("hero-active-title");
+    const metaEl = document.getElementById("hero-active-meta");
+    if (titleEl) titleEl.textContent = "Ошибка загрузки ревизии";
+    if (metaEl) metaEl.textContent = err.message || "Не удалось получить список ревизий";
     if (!silent) {
       tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--color-failed); padding: 2rem;">Ошибка загрузки ревизий: ${escapeHtml(err.message)}</td></tr>`;
     }
