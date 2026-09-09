@@ -52,6 +52,34 @@ def compute_efficiency_ratio(
     return float(np.clip(er, 0.0, 1.0)), "VALID"
 
 
+def compute_multi_horizon_efficiency_ratios(
+    timestamps: Sequence[pd.Timestamp | datetime],
+    prices: Sequence[float],
+    as_of: pd.Timestamp | datetime | None = None,
+    horizons_min: Sequence[int | float] = (3, 5, 15),
+    min_periods: int = 3,
+) -> dict[str, tuple[float, str]]:
+    """
+    Computes Kaufman Efficiency Ratio across multiple explicit time horizons (Item 12).
+    E.g. horizons 3m, 5m, 15m.
+    """
+    if len(timestamps) != len(prices) or len(prices) == 0:
+        return {f"er_{h}m": (np.nan, "INSUFFICIENT_HISTORY") for h in horizons_min}
+
+    ts_series = pd.to_datetime(list(timestamps), utc=True)
+    p_arr = np.asarray(prices, dtype=float)
+    as_of_dt = pd.to_datetime(as_of, utc=True) if as_of is not None else ts_series.max()
+
+    results: dict[str, tuple[float, str]] = {}
+    for h in horizons_min:
+        cutoff = as_of_dt - pd.Timedelta(minutes=float(h))
+        mask = (ts_series >= cutoff) & (ts_series <= as_of_dt) & np.isfinite(p_arr)
+        sub_p = p_arr[mask]
+        results[f"er_{int(h)}m"] = compute_efficiency_ratio(sub_p, min_periods=min_periods)
+
+    return results
+
+
 def compute_normalized_slope(
     prices: Sequence[float] | np.ndarray,
     sigma: float | None = None,
@@ -220,7 +248,13 @@ def classify_local_regime(
     path_len = float(np.sum(np.abs(np.diff(arr))))
 
     # Check for QUIET first (flat line or micro-noise around unchanged quote)
-    if sigma < quiet_vol_thresh or path_len < quiet_path_thresh or er_status == "QUIET_FLAT":
+    # Scale-invariant normalization (Item 18): if prices are spot level (abs(mu) > 1.0),
+    # scale thresholds by mean price to handle BTC vs DOGE consistently.
+    scale = abs(mu) if abs(mu) > 1.0 else 1.0
+    is_quiet_vol = (sigma / scale) < quiet_vol_thresh
+    is_quiet_path = (path_len / scale) < quiet_path_thresh
+
+    if is_quiet_vol or is_quiet_path or er_status == "QUIET_FLAT":
         return {
             "state": "QUIET",
             "efficiency_ratio": 0.0 if np.isnan(er) else er,
@@ -448,12 +482,22 @@ def verify_mirror_symmetry(
 
     help_sym = ctx_orig_down.get("reversion_helps_strike") == ctx_mirr_up.get("reversion_helps_strike")
 
-    passed = bool(slope_sym and er_sym and z_sym and help_sym)
+    # Economic payoff symmetry (Item 17: экономический результат зеркального контракта совпадает)
+    # If original candidate DOWN settles at target_orig (1 if p_final < K else 0)
+    # Mirrored candidate UP settles at target_mirr (1 if p_mirrored_final > K else 0)
+    target_orig = 1 if p[-1] < strike else 0
+    target_mirr = 1 if p_mirrored[-1] > strike else 0
+    pnl_orig = (1.0 / 0.30) * (target_orig - 0.30) - 0.002
+    pnl_mirr = (1.0 / 0.30) * (target_mirr - 0.30) - 0.002
+    payoff_sym = math.isclose(pnl_orig, pnl_mirr, abs_tol=1e-5)
+
+    passed = bool(slope_sym and er_sym and z_sym and help_sym and payoff_sym)
     return {
         "passed": passed,
         "slope_symmetry": slope_sym,
         "er_symmetry": er_sym,
         "z_symmetry": z_sym,
         "reversion_help_symmetry": help_sym,
+        "payoff_symmetry": payoff_sym,
         "mode": mode,
     }

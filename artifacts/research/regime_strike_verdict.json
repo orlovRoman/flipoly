@@ -1,9 +1,9 @@
 {
-  "timestamp": "2026-09-09T00:54:12.280325+00:00",
+  "timestamp": "2026-09-09T01:11:41.520445+00:00",
   "item": "28",
   "title": "Final Research Verdict: Incremental Value of Mean-Reversion Regime & Strike Context",
   "verdict_status": "GROUNDS_TO_CONTINUE_C1_ONLY",
-  "verdict_summary": "Локальный режим возврата C1 даёт статистически значимое преимущество перед контролем C0 (Delta PnL = +463.58 USDC, 95% CI = [+240.72, +684.74]). Однако дополнительный контекст strike C2 поверх C1 статистически не подтверждён (Delta PnL = +16.87 USDC, 95% CI = [-140.44, +159.00], доверительный интервал пересекает ноль).",
+  "verdict_summary": "Локальный режим возврата C1 даёт статистически значимое преимущество перед контролем C0 (Delta PnL = +430.72 USDC, 95% CI = [+213.29, +641.45]). Однако дополнительный контекст strike C2 поверх C1 статистически не подтверждён (Delta PnL = +26.74 USDC, 95% CI = [-128.83, +167.43], доверительный интервал пересекает ноль).",
   "empirical_findings": {
     "C0_control": {
       "description": "Baseline outsider filter (ask <= 0.40) without regime awareness",
@@ -14,41 +14,71 @@
     },
     "C1_reversion_regime": {
       "description": "C0 + Local Mean-Reversion Regime",
-      "full_pnl": 83.3334,
-      "full_trades": 1222,
-      "full_expectancy": 0.068194,
-      "full_drawdown": 100.9699,
-      "delta_vs_C0": 463.5847,
+      "full_pnl": 50.4702,
+      "full_trades": 1211,
+      "full_expectancy": 0.041676,
+      "full_drawdown": 113.7956,
+      "delta_vs_C0": 430.7215,
       "ci_95": [
-        240.7231,
-        684.7414
+        213.2947,
+        641.4464
       ],
       "zero_cross": false,
-      "prevented_losses": 1376.748,
-      "missed_gains": 913.1633
+      "prevented_losses": 1382.76,
+      "missed_gains": 952.0385
     },
     "C2_strike_context": {
       "description": "C1 + Strike Context (Reversion pulls spot towards winning side of strike)",
-      "full_pnl": 100.2042,
-      "full_trades": 294,
-      "full_expectancy": 0.340831,
-      "full_drawdown": 23.3448,
-      "delta_vs_C1": 16.8708,
+      "full_pnl": 77.2082,
+      "full_trades": 292,
+      "full_expectancy": 0.264412,
+      "full_drawdown": 28.3548,
+      "delta_vs_C1": 26.7379,
       "ci_95": [
-        -140.44,
-        158.9984
+        -128.8331,
+        167.4283
       ],
       "zero_cross": true,
-      "prevented_losses": 751.5,
-      "missed_gains": 734.6292
+      "prevented_losses": 746.49,
+      "missed_gains": 719.7521
     }
   },
   "temporal_consistency": {
-    "exploratory_dev_delta_c1_c0": 334.4443,
+    "exploratory_dev_delta_c1_c0": 301.5811,
     "exploratory_test_delta_c1_c0": 114.8896,
     "unviewed_holdout_delta_c1_c0": 14.2508,
     "unviewed_holdout_pnl_c1": -17.8729,
     "unviewed_holdout_pnl_c0": -32.1237
+  },
+  "ml_interaction": {
+    "C1_plus_ML": {
+      "status": "SUCCESS",
+      "base_variant": "C1",
+      "n_common_candidates": 1009,
+      "base_variant_pnl": 42.2275,
+      "base_variant_expectancy": 0.0419,
+      "ml_accepted_trades": 317,
+      "ml_variant_pnl": 14.7882,
+      "ml_variant_expectancy": 0.0467,
+      "delta_ml_minus_base": -27.4393,
+      "prevented_losses": 563.124,
+      "missed_gains": 590.5633,
+      "ml_adds_value": false
+    },
+    "C2_plus_ML": {
+      "status": "SUCCESS",
+      "base_variant": "C2",
+      "n_common_candidates": 243,
+      "base_variant_pnl": 81.6541,
+      "base_variant_expectancy": 0.336,
+      "ml_accepted_trades": 104,
+      "ml_variant_pnl": 51.9762,
+      "ml_variant_expectancy": 0.4998,
+      "delta_ml_minus_base": -29.678,
+      "prevented_losses": 101.202,
+      "missed_gains": 130.88,
+      "ml_adds_value": false
+    }
   },
   "policy_recommendation": "1. Зафиксировать локальный режим возврата C1 (Kaufman ER <= 0.40, sign_flip >= 0.45, autocorr <= -0.05) как обязательный пре-фильтр входа для аутсайдеров перед выставлением ордеров.\n2. Условие strike C2 НЕ внедрять в боевой контур: оно отсекает 76% торгового объема и не имеет статистически значимого прироста PnL (95% CI пересекает ноль).\n3. Поверх C1 дополнительное усложнение через ML не требуется: ценовой порог ask <= 0.40 в сочетании с режимом возврата полностью абсорбирует доступный финансовый edge."
 }

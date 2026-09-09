@@ -8,7 +8,7 @@ Tests for parser.py collector cycle integration with ObservationWriter:
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import pytest
 from unittest.mock import AsyncMock, patch
 from sqlalchemy import select
@@ -43,13 +43,14 @@ async def test_run_collector_cycle_empty_active_markets(db_session: AsyncSession
 @pytest.mark.asyncio
 async def test_run_collector_cycle_skipped_markets_no_error(db_session: AsyncSession):
     """If all active markets have pricing errors or are skipped, cycle completes cleanly."""
+    now = datetime.now(timezone.utc)
     mock_market = {
         "market_id": "test_m_1",
         "yes_token_id": "tok_1",
         "no_token_id": "tok_2",
         "asset": "BTC",
         "question": "Bitcoin Up or Down",
-        "end_date_iso": "2026-09-08T23:59:59Z",
+        "end_date_iso": (now + timedelta(minutes=15)).isoformat(),
     }
     with patch("polyflip.collector.parser.PolymarketClient") as MockClient:
         instance = AsyncMock()
@@ -78,7 +79,7 @@ async def test_run_collector_cycle_records_and_flushes_strike(db_session: AsyncS
         "no_token_id": "tok_no_btc",
         "asset": "BTC",
         "question": "Bitcoin Up or Down",
-        "end_date_iso": "2026-09-08T23:59:59Z",
+        "end_date_iso": (now + timedelta(minutes=15)).isoformat(),
         "underlying_price": 68500.0,
         "strike_provenance": StrikeProvenance(
             strike_value=68500.0,

@@ -42,6 +42,8 @@ from polyflip.research.coverage_table import compute_data_coverage_table
 from polyflip.research.regime_experiment import (
     load_and_prepare_5m_dataset,
     run_paired_experiment,
+    compute_multi_asset_pooled_experiment,
+    evaluate_candidate_ml_interaction,
 )
 
 
@@ -198,10 +200,12 @@ def main() -> None:
     print_cohort_summary("BTC HOLDOUT (Observed Quotes)", res_holdout_obs)
 
     # -------------------------------------------------------------------------
-    # STAGE 4 (Continued): Multi-Asset Portability (ETH, SOL, XRP, DOGE)
+    # STAGE 4 (Continued): Multi-Asset Portability & Joint Pooling (Item 25, 27)
     # -------------------------------------------------------------------------
     print("\n--- [STAGE 4] Cross-Asset Portability Evaluation (Locked Rules) ---")
     asset_results: dict[str, Any] = {}
+    all_asset_dfs: dict[str, pd.DataFrame] = {"BTC": df_full}
+
     for asset in ["ETH", "SOL", "XRP", "DOGE"]:
         print(f"Processing {asset}...")
         df_asset = load_and_prepare_5m_dataset(
@@ -212,12 +216,19 @@ def main() -> None:
             time_left_tolerance=(3.5, 5.5),
         )
         if not df_asset.empty:
+            all_asset_dfs[asset] = df_asset
             res_asset = run_paired_experiment(df_asset, observed_quotes_only=True)
             asset_results[asset] = res_asset
             v = res_asset["variants"]
             d = res_asset["disentangled_contributions"]
             print(f"  {asset:4s}: C0 PnL={v['C0']['net_pnl_usdc']:+7.2f} ({v['C0']['n_trades']} trades) | C1 PnL={v['C1']['net_pnl_usdc']:+7.2f} ({v['C1']['n_trades']} trades) | C2 PnL={v['C2']['net_pnl_usdc']:+7.2f} ({v['C2']['n_trades']} trades)")
             print(f"        Delta C1-C0={d['C1_minus_C0']['delta_net_pnl']:+7.2f} | Delta C2-C1={d['C2_minus_C1']['delta_net_pnl']:+7.2f}")
+
+    # Item 25: Multi-asset pooled joint calendar days
+    print("\n--- [STAGE 4] Pooled Multi-Asset Daily Block Experiment (Item 25) ---")
+    pooled_res = compute_multi_asset_pooled_experiment(all_asset_dfs, observed_quotes_only=True)
+    d_pool = pooled_res["disentangled_contributions"]
+    print(f"Pooled (5 assets): C1-C0 Delta={d_pool['C1_minus_C0']['delta_net_pnl']:+8.2f} USDC | 95% CI=[{d_pool['C1_minus_C0']['paired_bootstrap']['ci_lower']:+.2f}, {d_pool['C1_minus_C0']['paired_bootstrap']['ci_upper']:+.2f}]")
 
     # -------------------------------------------------------------------------
     # Secondary Slices: Entry Time (10m, 14m) & Lower Bound (0.10)
@@ -239,6 +250,13 @@ def main() -> None:
     # STAGE 5: Synthesis, Verdict, & Artifact Generation
     # -------------------------------------------------------------------------
     print("\n--- [STAGE 5] Statistical Verdict & Product Decision ---")
+
+    # Item 29: Conditional ML evaluation on common candidate cohort
+    print("\n--- [STAGE 5] Evaluating Conditional ML Interaction (Item 29) ---")
+    ml_eval_c1 = evaluate_candidate_ml_interaction(df_full, base_variant="C1")
+    ml_eval_c2 = evaluate_candidate_ml_interaction(df_full, base_variant="C2")
+    print(f"  ML on C1 candidates: Base PnL={ml_eval_c1.get('base_variant_pnl')}, ML PnL={ml_eval_c1.get('ml_variant_pnl')}, Delta={ml_eval_c1.get('delta_ml_minus_base')}, Adds Value={ml_eval_c1.get('ml_adds_value')}")
+    print(f"  ML on C2 candidates: Base PnL={ml_eval_c2.get('base_variant_pnl')}, ML PnL={ml_eval_c2.get('ml_variant_pnl')}, Delta={ml_eval_c2.get('delta_ml_minus_base')}, Adds Value={ml_eval_c2.get('ml_adds_value')}")
 
     # Item 28: Verdict formulation
     # C1 (Regime) on Full Sample and Holdout:
@@ -314,6 +332,10 @@ def main() -> None:
             "unviewed_holdout_pnl_c1": res_holdout_obs["variants"]["C1"]["net_pnl_usdc"],
             "unviewed_holdout_pnl_c0": res_holdout_obs["variants"]["C0"]["net_pnl_usdc"],
         },
+        "ml_interaction": {
+            "C1_plus_ML": ml_eval_c1,
+            "C2_plus_ML": ml_eval_c2,
+        },
         "policy_recommendation": (
             "1. Зафиксировать локальный режим возврата C1 (Kaufman ER <= 0.40, sign_flip >= 0.45, autocorr <= -0.05) "
             "как обязательный пре-фильтр входа для аутсайдеров перед выставлением ордеров.\n"
@@ -340,6 +362,11 @@ def main() -> None:
             "full_sample_all_quotes_sensitivity": res_full_all,
         },
         "cross_asset_portability": asset_results,
+        "pooled_multi_asset": pooled_res,
+        "ml_evaluation": {
+            "C1_plus_ML": ml_eval_c1,
+            "C2_plus_ML": ml_eval_c2,
+        },
         "secondary_checks": {
             "horizon_10m": res_10m,
             "price_floor_010": res_floor_010,
