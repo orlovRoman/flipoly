@@ -7,8 +7,9 @@ Integrated sources:
 - strike-baseline 44d061c: M1 is a proxy-target prediction baseline. Lack of
   a significant CT/CS improvement is not an equivalence result. NO economics
   remain synthetic; changing proxy strike changes about 9.67% of labels.
-- paper-ct-outsider 33a283e: production-pipeline tests and reservation updates.
-  Integration fixes the missing typing.Any import in execution/worker.py.
+- paper-ct-outsider a3d040d: production-pipeline tests, reservation updates,
+  and real concurrency/recovery checks. Integration fixes the missing typing.Any
+  import in execution/worker.py.
 - price-time-map a198f26: independent universe, cross-universe comparison and
   recentered day-block permutation outputs. Its acceptance remains provisional:
   no holdout exists and the study is descriptive gross research.
@@ -35,7 +36,7 @@ No trading configuration, model promotion or service deployment is performed
 by this integration task. Historical research artifacts are not regenerated.
 
 Validation on the integrated code:
-- tests/trading and tests/research: 368 passed, 1 skipped, 11 sklearn warnings.
-- CT policy/replay/pipeline subset: 55 passed.
+- tests/trading and tests/research: 386 passed, 2 skipped, 11 sklearn warnings.
+- CT policy/replay/pipeline subset: 56 passed, 1 skipped.
 - strike-baseline synthetic_checks.py: 14 checks passed.
 - trade-economics subset before subsequent merges: 21 passed.
