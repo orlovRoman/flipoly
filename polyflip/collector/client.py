@@ -428,14 +428,15 @@ class PolymarketClient:
                 break
 
             if response is None or response.status_code != 200:
+                err_time = datetime.now(timezone.utc)
                 status = "API_ERROR" if response else "NO_RESPONSE"
                 err_msg = f"HTTP {response.status_code}" if response else "No response from API"
                 return OrderbookContract(
                     market_id=str(market_id),
                     token_id=str(token_id),
                     outcome_side=outcome_side,
-                    event_at=now,
-                    received_at=received_at_dt,
+                    event_at=err_time,
+                    received_at=err_time,
                     bids=[],
                     asks=[],
                     quality_status=status,
@@ -483,12 +484,13 @@ class PolymarketClient:
                 source="CLOB",
             )
         except Exception as exc:
+            err_now = datetime.now(timezone.utc)
             return OrderbookContract(
                 market_id=str(market_id),
                 token_id=str(token_id),
                 outcome_side=outcome_side,
-                event_at=now,
-                received_at=now,
+                event_at=err_now,
+                received_at=err_now,
                 bids=[],
                 asks=[],
                 quality_status="EXCEPTION",
@@ -503,17 +505,26 @@ class PolymarketClient:
         depth_limit: int | None = None,
     ) -> tuple[OrderbookContract, OrderbookContract]:
         """
-        Fetches real orderbooks for both YES and NO tokens concurrently.
+        Fetches real orderbooks for both YES and NO tokens sequentially to form a valid causal pair.
         Prevents reconstructing NO from YES (Point 6). Errors on one side are NOT masked.
+        Enforces directed causal rule: 0 <= no_received - yes_received <= 5.0s.
         """
-        yes_contract, no_contract = await asyncio.gather(
-            self.get_single_orderbook(
-                yes_token_id, outcome_side="YES", market_id=market_id, depth_limit=depth_limit
-            ),
-            self.get_single_orderbook(
-                no_token_id, outcome_side="NO", market_id=market_id, depth_limit=depth_limit
-            ),
+        yes_contract = await self.get_single_orderbook(
+            yes_token_id, outcome_side="YES", market_id=market_id, depth_limit=depth_limit
         )
+        no_contract = await self.get_single_orderbook(
+            no_token_id, outcome_side="NO", market_id=market_id, depth_limit=depth_limit
+        )
+        delta = (no_contract.received_at - yes_contract.received_at).total_seconds()
+        if delta < 0.0 or delta > 5.0:
+            logger.warning(
+                "causal_pairing_latency_exceeded",
+                market_id=market_id,
+                latency_sec=delta,
+            )
+            if delta > 5.0 and no_contract.quality_status in ("VALID", "UNORDERED_LEVELS_NORMALIZED"):
+                no_contract.quality_status = "CAUSAL_PAIR_TIMEOUT"
+                no_contract.quality_notes = f"Pairing latency {delta:.2f}s exceeded 5s causal threshold"
         return yes_contract, no_contract
 
     async def get_market_prices(

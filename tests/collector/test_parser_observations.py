@@ -166,15 +166,17 @@ async def test_run_collector_cycle_one_sided_orderbook(db_session: AsyncSession)
 
         await run_collector_cycle(db_session)
 
-    # Verify MarketSnapshot is NOT created
+    # Verify MarketSnapshot IS created with nullable mid_price and spread (Point 6/7/P0 fix)
     from polyflip.db.models import MarketSnapshot, OrderbookDepthSnapshot
     res = await db_session.execute(select(MarketSnapshot).where(MarketSnapshot.market_id == "test_m_oneside"))
     snapshot = res.scalar_one_or_none()
-    assert snapshot is None
+    assert snapshot is not None
+    assert snapshot.mid_price is None
+    assert snapshot.spread is None
 
-    # Verify OrderbookDepthSnapshot is created and snapshot_id is None
+    # Verify OrderbookDepthSnapshot is created and linked to snapshot.id
     res = await db_session.execute(select(OrderbookDepthSnapshot).where(OrderbookDepthSnapshot.market_id == "test_m_oneside"))
     depths = res.scalars().all()
     assert len(depths) == 2
-    assert depths[0].snapshot_id is None
-    assert depths[1].snapshot_id is None
+    assert depths[0].snapshot_id == snapshot.id
+    assert depths[1].snapshot_id == snapshot.id

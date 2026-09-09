@@ -321,8 +321,12 @@ def compute_orderbook_completeness_report(
         
         for yb in yes_books:
             total_decision_snaps += 1
-            # Causal search: find any NO book within 5 seconds
-            paired = any(abs((nb.received_at - yb.received_at).total_seconds()) <= 5.0 for nb in no_books)
+            # Directed causal search: NO book must be received at or after YES within 5.0 seconds
+            # 0.0 <= (nb.received_at - yb.received_at).total_seconds() <= 5.0
+            paired = any(
+                0.0 <= (nb.received_at - yb.received_at).total_seconds() <= 5.0
+                for nb in no_books
+            )
             if paired:
                 both_count += 1
 

@@ -180,37 +180,35 @@ async def run_collector_cycle(db_session: AsyncSession):
                 )
                 db_session.add(live_m)
 
-            # 4. Сохраняем Snapshot
-            snapshot = None
-            if mid_price is not None and spread is not None:
-                snapshot = MarketSnapshot(
-                    asset=m_data["asset"],
-                    market_id=market_id,
-                    time_left_min=time_left_min,
-                    mid_price=mid_price,
-                    spread=spread,
-                    best_bid=prices.get("best_bid"),
-                    best_ask=prices.get("best_ask"),
-                    volume_5min=vol_val,
-                    volume_status=vol_status,
-                    price_velocity=price_velocity,
-                    hour_of_day=current_time.hour,
-                    final_outcome="PENDING",
-                    flip_vs_final=False,
-                    recorded_at=current_time,
-                    strike_value=strike_val,
-                    strike_source=strike_src,
-                    strike_effective_at=strike_eff,
-                    strike_received_at=strike_rec,
-                    strike_observed_at=strike_rec,
-                    market_start_at=start_date,
-                    market_end_at=end_date,
-                    settlement_price_source=settlement_src,
-                    binance_price=binance_price,
-                    oracle_price=oracle_price,
-                )
-                db_session.add(snapshot)
-                await db_session.flush()
+            # 4. Сохраняем Snapshot (saved even if mid_price or spread is None, Point 6/7/P0)
+            snapshot = MarketSnapshot(
+                asset=m_data["asset"],
+                market_id=market_id,
+                time_left_min=time_left_min,
+                mid_price=mid_price,
+                spread=spread,
+                best_bid=prices.get("best_bid"),
+                best_ask=prices.get("best_ask"),
+                volume_5min=vol_val,
+                volume_status=vol_status,
+                price_velocity=price_velocity,
+                hour_of_day=current_time.hour,
+                final_outcome="PENDING",
+                flip_vs_final=False,
+                recorded_at=current_time,
+                strike_value=strike_val,
+                strike_source=strike_src,
+                strike_effective_at=strike_eff,
+                strike_received_at=strike_rec,
+                strike_observed_at=strike_rec,
+                market_start_at=start_date,
+                market_end_at=end_date,
+                settlement_price_source=settlement_src,
+                binance_price=binance_price,
+                oracle_price=oracle_price,
+            )
+            db_session.add(snapshot)
+            await db_session.flush()
 
             # 5. Сохраняем OrderbookDepthSnapshot для YES и NO (Point 6)
             yb = prices.get("yes_orderbook")

@@ -297,14 +297,14 @@ def run_stage2_study(
         
         if sim_asks is not None:
             is_trunc = bool(dec_row.get("is_truncated", False))
-            book_age = 0.0
+            book_age = None
             if "depth_event_at" in dec_row and "depth_received_at" in dec_row and pd.notna(dec_row["depth_event_at"]) and pd.notna(dec_row["depth_received_at"]):
                 try:
                     de_at = pd.to_datetime(dec_row["depth_event_at"], utc=True)
                     dr_at = pd.to_datetime(dec_row["depth_received_at"], utc=True)
                     book_age = max(0.0, (dr_at - de_at).total_seconds())
                 except Exception:
-                    pass
+                    book_age = None
             
             dec_id = vol_tracker.make_decision_id(m_str, decision_at, "YES")
             
@@ -681,10 +681,12 @@ def run_stage2_study(
             tot_spent = 0.0
             tot_pnl = 0.0
             vwap_drifts = []
+            has_sim_data = False
             
             for _, row in sub_v.iterrows():
                 sim = row[b_key]
                 if isinstance(sim, dict):
+                    has_sim_data = True
                     st = sim.get("fill_status")
                     if st == "FULL": full += 1
                     elif st == "PARTIAL": partial += 1
@@ -704,16 +706,33 @@ def run_stage2_study(
                     v = sim.get("vwap")
                     if v is not None and v > 0:
                         vwap_drifts.append((v - row["executable_ask"]) / row["executable_ask"])
+                else:
+                    # Missing asks or string "BLOCKED_DATA" -> unfulfilled opportunity
+                    unfill += 1
                         
-            budget_tables[b_lbl][v_key] = {
-                "full_fills": full,
-                "partial_fills": partial,
-                "unfilled": unfill,
-                "total_spent_usdc": round(tot_spent, 2),
-                "vwap_drift_vs_decision_price": round(float(np.mean(vwap_drifts)), 4) if vwap_drifts else 0.0,
-                "net_pnl_total": round(tot_pnl, 2),
-                "return_on_spent_pct": round(tot_pnl / tot_spent * 100, 2) if tot_spent > 0 else 0.0
-            }
+            if not has_sim_data:
+                budget_tables[b_lbl][v_key] = {
+                    "status": "BLOCKED_DATA",
+                    "reason": "missing historical asks/depth timestamps",
+                    "full_fills": 0,
+                    "partial_fills": 0,
+                    "unfilled": unfill,
+                    "total_spent_usdc": 0.0,
+                    "vwap_drift_vs_decision_price": None,
+                    "net_pnl_total": None,
+                    "return_on_spent_pct": None,
+                }
+            else:
+                budget_tables[b_lbl][v_key] = {
+                    "status": "COMPUTED",
+                    "full_fills": full,
+                    "partial_fills": partial,
+                    "unfilled": unfill,
+                    "total_spent_usdc": round(tot_spent, 2),
+                    "vwap_drift_vs_decision_price": round(float(np.mean(vwap_drifts)), 4) if vwap_drifts else 0.0,
+                    "net_pnl_total": round(tot_pnl, 2),
+                    "return_on_spent_pct": round(tot_pnl / tot_spent * 100, 2) if tot_spent > 0 else 0.0
+                }
 
     # 10. Item 27: Selection effect of execution
     filled_mask = c0_sub["execution_sim"].apply(lambda x: isinstance(x, dict) and x.get("fill_status") in ("FULL", "PARTIAL"))
@@ -799,6 +818,23 @@ def run_stage2_study(
         decision_verdict = "GROUNDS_TO_TEST_ML"
         decision_action = "Есть положительная собственная expectancy и дополнительная польза на последующих данных -> Проверить вклад логистической регрессии, затем LightGBM"
 
+    ct_exec_1 = budget_tables["$1"]["CT"]
+    if ct_exec_1.get("status") == "BLOCKED_DATA" or ct_exec_1.get("net_pnl_total") is None:
+        q3_execution = {
+            "status": "BLOCKED_DATA",
+            "net_pnl_usdc": None,
+            "reason": "missing historical asks/depth timestamps",
+            "verdict": False,
+            "evidence": "Нет данных по историческим стаканам (asks/depth timestamps). Симуляция исполнения заблокирована (BLOCKED_DATA). Доказательства торговой исполнимости и прибыли отсутствуют."
+        }
+    else:
+        q3_execution = {
+            "status": "COMPUTED",
+            "net_pnl_usdc": ct_exec_1["net_pnl_total"],
+            "verdict": bool(ct_exec_1["net_pnl_total"] > 0),
+            "evidence": f"Executed CT $1 net PnL: {ct_exec_1['net_pnl_total']} USDC (vs C0: {budget_tables['$1']['C0']['net_pnl_total']}). VWAP drift: {ct_exec_1['vwap_drift_vs_decision_price']*100:.2f}%"
+        }
+
     three_core_answers = {
         "q1_is_there_a_mechanism": {
             "verdict": bool(ff_stats["FORMER_FAVORITE"]["expectancy"] > 0.0),
@@ -808,10 +844,7 @@ def run_stage2_study(
             "verdict": bool(improves_control),
             "evidence": f"Delta {delta_ct:+.2f} USDC, 95% CI {ci_delta_ct}. Улучшение относительно контроля {improves_control}."
         },
-        "q3_does_result_survive_execution": {
-            "verdict": bool(budget_tables["$1"]["CT"]["net_pnl_total"] > 0),
-            "evidence": f"Executed CT $1 net PnL: {budget_tables['$1']['CT']['net_pnl_total']} USDC (vs C0: {budget_tables['$1']['C0']['net_pnl_total']}). VWAP drift: {budget_tables['$1']['CT']['vwap_drift_vs_decision_price']*100:.2f}%"
-        },
+        "q3_does_result_survive_execution": q3_execution,
     }
 
     # Item 02 & Robustness: Stress testing tables (absolute +0.005, +0.010, +0.020 and relative +2%, +5%)

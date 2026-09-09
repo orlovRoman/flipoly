@@ -25,6 +25,8 @@ def update_manifest(study_results: dict) -> None:
     with open(manifest_path, "r", encoding="utf-8") as f:
         manifest = json.load(f)
 
+    manifest["git_commit"] = study_results.get("metadata", {}).get("git_commit", manifest.get("git_commit"))
+
     # Recompute sha256 of updated artifacts
     for fname in [
         "stage2_comprehensive_study_results.json",
@@ -116,7 +118,10 @@ def main() -> None:
                 if v_key in b_data:
                     v_data = b_data[v_key]
                     fills_str = f"{v_data['full_fills']}/{v_data['partial_fills']}/{v_data['unfilled']}"
-                    print(f"{b_lbl:<8s} | {v_key:<10s} | {fills_str:<25s} | {v_data['total_spent_usdc']:<11.2f} | {v_data['vwap_drift_vs_decision_price']:+9.4f} | {v_data['net_pnl_total']:+9.2f}  | {v_data['return_on_spent_pct']:+6.2f}%")
+                    if v_data.get("status") == "BLOCKED_DATA" or v_data.get("net_pnl_total") is None:
+                        print(f"{b_lbl:<8s} | {v_key:<10s} | {fills_str:<25s} | {v_data['total_spent_usdc']:<11.2f} | {'N/A':>10s} | {'BLOCKED':>10s} | {'N/A':>8s}")
+                    else:
+                        print(f"{b_lbl:<8s} | {v_key:<10s} | {fills_str:<25s} | {v_data['total_spent_usdc']:<11.2f} | {v_data['vwap_drift_vs_decision_price']:+9.4f} | {v_data['net_pnl_total']:+9.2f}  | {v_data['return_on_spent_pct']:+6.2f}%")
 
     print("\n" + "=" * 80)
     print(f"VERDICT: {res['item_30_decision_verdict']['verdict_status']}")

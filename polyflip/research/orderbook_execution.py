@@ -87,6 +87,18 @@ def simulate_orderbook_execution(
         )
 
     # Point 16: Latency and staleness safeguards
+    if book_age_sec is None:
+        return OrderbookFillResult(
+            filled_shares=0.0,
+            spent_usdc=0.0,
+            remaining_budget=budget_usdc,
+            vwap=None,
+            fee=0.0,
+            fill_status="STALE_BOOK",
+            data_status="UNKNOWN_TIMESTAMP",
+            levels_consumed=0,
+        )
+
     total_latency_sec = book_age_sec + arrival_delay_sec
     if total_latency_sec > max_staleness_sec:
         return OrderbookFillResult(

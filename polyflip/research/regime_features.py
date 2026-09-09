@@ -524,7 +524,7 @@ def align_underlying_history_causal(
     p_arr = np.asarray(prices, dtype=float)
     as_of_dt = pd.to_datetime(as_of, utc=True)
 
-    cutoff = as_of_dt - pd.Timedelta(minutes=float(window_min))
+    cutoff = as_of_dt - pd.to_timedelta(float(window_min), unit="m")
     mask = (ts_series >= cutoff) & (ts_series <= as_of_dt) & np.isfinite(p_arr)
 
     valid_ts = ts_series[mask]

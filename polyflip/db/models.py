@@ -98,8 +98,8 @@ class MarketSnapshot(Base):
 
     market_id = Column(String(128), nullable=False)
     time_left_min = Column(Float, nullable=False)
-    mid_price = Column(Float, nullable=False)
-    spread = Column(Float, nullable=False)
+    mid_price = Column(Float, nullable=True)
+    spread = Column(Float, nullable=True)
     best_bid = Column(Float, nullable=True)
     best_ask = Column(Float, nullable=True)
     volume_5min = Column(Float, nullable=False)

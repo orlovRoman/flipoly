@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -174,6 +174,32 @@ def test_item_08_orderbook_completeness_report():
     assert rep["invalid_fraction"] == 0.0
 
 
+def test_item_08_causal_pairing_directional_rejection():
+    """Item 8 requirement 2: Directional causal condition.
+    NO snapshot received 6 seconds later MUST be rejected.
+    NO snapshot received in the past (before YES) MUST be rejected.
+    NO snapshot within [0, 5] seconds MUST be accepted.
+    """
+    from datetime import timedelta
+    t0 = datetime(2026, 8, 10, 12, 0, 0, tzinfo=timezone.utc)
+    ob_yes = validate_and_normalize_orderbook([{"price": 0.3, "size": 10}], [{"price": 0.4, "size": 10}], "m1", "t1", "YES", received_at=t0)
+    
+    # 1. NO snapshot 6 seconds later -> MUST be rejected (coverage 0%)
+    ob_no_6s_late = validate_and_normalize_orderbook([{"price": 0.6, "size": 10}], [{"price": 0.7, "size": 10}], "m1", "t2", "NO", received_at=t0 + timedelta(seconds=6))
+    rep_late = compute_orderbook_completeness_report([ob_yes, ob_no_6s_late], decision_market_ids=["m1"])
+    assert rep_late["both_sides_coverage_pct"] == 0.0
+
+    # 2. NO snapshot 1 second before YES -> MUST be rejected (coverage 0%)
+    ob_no_past = validate_and_normalize_orderbook([{"price": 0.6, "size": 10}], [{"price": 0.7, "size": 10}], "m1", "t2", "NO", received_at=t0 - timedelta(seconds=1))
+    rep_past = compute_orderbook_completeness_report([ob_yes, ob_no_past], decision_market_ids=["m1"])
+    assert rep_past["both_sides_coverage_pct"] == 0.0
+
+    # 3. NO snapshot 4 seconds later (within [0, 5]s) -> MUST be accepted (coverage 100%)
+    ob_no_valid = validate_and_normalize_orderbook([{"price": 0.6, "size": 10}], [{"price": 0.7, "size": 10}], "m1", "t2", "NO", received_at=t0 + timedelta(seconds=4))
+    rep_valid = compute_orderbook_completeness_report([ob_yes, ob_no_valid], decision_market_ids=["m1"])
+    assert rep_valid["both_sides_coverage_pct"] == 100.0
+
+
 def test_item_09_canonical_strike_verification():
     """Item 9: Canonical strike provenance tracks extraction method and unrecorded state."""
     from polyflip.collector.client import _canonical_strike_provenance
@@ -196,14 +222,14 @@ def test_item_10_market_bounds_storage():
 def test_item_11_causal_underlying_alignment():
     """Item 11: Causal underlying alignment (no future data, max staleness)."""
     t0 = pd.Timestamp("2026-08-10 12:00:00+00:00")
-    ts = [t0 - pd.Timedelta(minutes=m) for m in [8, 5, 2]]
+    ts = [t0 - timedelta(minutes=m) for m in [8, 5, 2]]
     p = [100.0, 101.0, 102.0]
     valid_ts, valid_p, status = align_underlying_history_causal(ts, p, as_of=t0, window_min=10.0, max_staleness_sec=180.0)
     assert status == "VALID"
     assert len(valid_p) == 3
 
     # Stale test
-    valid_ts_stale, valid_p_stale, status_stale = align_underlying_history_causal(ts, p, as_of=t0 + pd.Timedelta(hours=1), window_min=10.0)
+    valid_ts_stale, valid_p_stale, status_stale = align_underlying_history_causal(ts, p, as_of=t0 + timedelta(hours=1), window_min=10.0)
     assert status_stale == "NO_OBSERVATIONS_IN_WINDOW"
 
 
@@ -434,11 +460,11 @@ def test_item_30_cs_short_window():
     t0 = pd.Timestamp("2026-08-10 12:00:00+00:00")
     # CS_short uses 10 min window prior to decision_at
     ts = [
-        t0 - pd.Timedelta(minutes=15),
-        t0 - pd.Timedelta(minutes=9),
-        t0 - pd.Timedelta(minutes=5),
-        t0 - pd.Timedelta(minutes=1),
-        t0 + pd.Timedelta(minutes=1), # Future
+        t0 - timedelta(minutes=15),
+        t0 - timedelta(minutes=9),
+        t0 - timedelta(minutes=5),
+        t0 - timedelta(minutes=1),
+        t0 + timedelta(minutes=1), # Future
     ]
     prices = [100.0, 101.0, 102.0, 103.0, 104.0]
     valid_ts, valid_p, status = align_underlying_history_causal(ts, prices, as_of=t0, window_min=10.0)
@@ -452,11 +478,13 @@ def test_item_30_depth_separation():
     assert res_path.exists(), "Results file missing"
     with open(res_path, "r", encoding="utf-8") as f:
         data = json.load(f)
-    # Ensure artificial depth is not used for execution
+    # Ensure missing asks are treated as unfilled / BLOCKED_DATA
     c0_exec = data["item_26_multi_budget_execution"]["$1"].get("C0", {})
     assert c0_exec.get("full_fills", -1) == 0
     assert c0_exec.get("partial_fills", -1) == 0
-    assert c0_exec.get("unfilled", -1) == 0
+    assert c0_exec.get("unfilled", -1) == 2636
+    assert c0_exec.get("status") == "BLOCKED_DATA"
+    assert c0_exec.get("net_pnl_total") is None
 
 def test_item_30_bootstrap_manual_match():
     """Item 30: Bootstrap manual match on artificial data."""
@@ -495,7 +523,7 @@ async def test_item_30_integration_client_parser_db():
             return [{
                 "market_id": "m1", "yes_token_id": "y1", "no_token_id": "n1",
                 "question": "test", "asset": "BTC",
-                "end_date_iso": (datetime.now(timezone.utc) + pd.Timedelta(minutes=10)).isoformat(),
+                "end_date_iso": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
             }]
         async def get_market_prices(self, yes_token_id, no_token_id=None, market_id=""):
             return {
@@ -533,7 +561,7 @@ async def test_item_30_integration_client_parser_db():
         await engine.dispose()
 
 def test_item_30_missing_data_behavior():
-    """Item 30: Check behavior when data is missing."""
+    """Item 30: Check behavior when data is missing: verdict status is BLOCKED_DATA, net_pnl is None."""
     res_path = REPO_ROOT / "artifacts" / "research" / "stage2_comprehensive_study_results.json"
     assert res_path.exists(), "Results file missing"
     with open(res_path, "r", encoding="utf-8") as f:
@@ -542,9 +570,18 @@ def test_item_30_missing_data_behavior():
     assert sel["filled"]["n"] == 0
     assert sel["unfilled"]["n"] == 2636
 
+    # Verify q3 execution verdict is BLOCKED_DATA with null net_pnl_usdc
+    q3 = data["item_30_decision_verdict"]["three_core_answers"]["q3_does_result_survive_execution"]
+    assert q3["status"] == "BLOCKED_DATA"
+    assert q3["net_pnl_usdc"] is None
+    assert "missing historical asks/depth timestamps" in q3["reason"]
+
 @pytest.mark.asyncio
 async def test_item_30_integration_one_sided_orderbook_db():
-    """Explicit integration test for one-sided orderbook with DB read (P0 requirement)."""
+    """Explicit integration test for one-sided orderbook with DB read (P0 requirement).
+    Verifies that MarketSnapshot is saved even when current_yes_price=None and current_spread=None.
+    """
+    from datetime import timedelta
     from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
     from polyflip.db.models import Base, MarketSnapshot, OrderbookDepthSnapshot
     from polyflip.collector.parser import run_collector_cycle
@@ -562,17 +599,17 @@ async def test_item_30_integration_one_sided_orderbook_db():
             return [{
                 "market_id": "m1", "yes_token_id": "y1", "no_token_id": "n1",
                 "question": "test", "asset": "BTC",
-                "end_date_iso": (datetime.now(timezone.utc) + pd.Timedelta(minutes=10)).isoformat(),
+                "end_date_iso": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
             }]
         async def get_market_prices(self, yes_token_id, no_token_id=None, market_id=""):
             from polyflip.collector.orderbook_depth import validate_and_normalize_orderbook
-            # One-sided YES book (asks only, no bids)
+            # One-sided YES book (asks only, no bids) with missing current_yes_price and spread
             yes_ob = validate_and_normalize_orderbook([], [{"price": 0.33, "size": 100}], market_id="m1", token_id=yes_token_id, outcome_side="YES")
             no_ob = validate_and_normalize_orderbook([{"price": 0.65, "size": 50}], [{"price": 0.68, "size": 50}], market_id="m1", token_id=no_token_id, outcome_side="NO")
             return {
-                "current_yes_price": 0.30,
-                "current_no_price": 0.70,
-                "current_spread": 0.05,
+                "current_yes_price": None,
+                "current_no_price": None,
+                "current_spread": None,
                 "best_bid": None,
                 "best_ask": 0.33,
                 "yes_orderbook": yes_ob,
@@ -589,25 +626,36 @@ async def test_item_30_integration_one_sided_orderbook_db():
         async with SessionLocal() as session:
             await run_collector_cycle(session)
             
+            # Check MarketSnapshot exists and has mid_price=None, spread=None
+            res_snap = await session.execute(select(MarketSnapshot).where(MarketSnapshot.market_id == "m1"))
+            snap = res_snap.scalar_one_or_none()
+            assert snap is not None
+            assert snap.mid_price is None
+            assert snap.spread is None
+            
+            # Check YES OrderbookDepthSnapshot is linked to snapshot_id
             res_ob = await session.execute(select(OrderbookDepthSnapshot).where(OrderbookDepthSnapshot.market_id == "m1", OrderbookDepthSnapshot.outcome_side == "YES"))
             yes_snap = res_ob.scalar_one_or_none()
             assert yes_snap is not None
+            assert yes_snap.snapshot_id == snap.id
             assert yes_snap.best_bid_price is None
             assert yes_snap.best_bid_size is None
             assert yes_snap.depth_usdc_bid is None
             assert yes_snap.best_ask_price == 0.33
             assert yes_snap.best_ask_size == 100.0
             
+            # Check NO OrderbookDepthSnapshot is linked to snapshot_id
             res_no = await session.execute(select(OrderbookDepthSnapshot).where(OrderbookDepthSnapshot.market_id == "m1", OrderbookDepthSnapshot.outcome_side == "NO"))
             no_snap = res_no.scalar_one_or_none()
             assert no_snap is not None
+            assert no_snap.snapshot_id == snap.id
             assert no_snap.best_bid_price == 0.65
     finally:
         polyflip.collector.parser.PolymarketClient = original_client
         await engine.dispose()
 
 def test_item_30_additional_simulation_and_strike_checks():
-    """Explicitly verify price limit, book age, truncated book, and canonical strike."""
+    """Explicitly verify price limit, book age, unknown timestamp, truncated book, and canonical strike."""
     asks = [{"price": 0.05, "size": 100.0}]
     
     # 1. Price limit
@@ -617,11 +665,16 @@ def test_item_30_additional_simulation_and_strike_checks():
     # 2. Book age (staleness)
     res_stale = simulate_orderbook_execution(asks, budget_usdc=10.0, book_age_sec=30.0, max_staleness_sec=15.0)
     assert res_stale.fill_status == "STALE_BOOK"
+
+    # 3. Unknown book age (None) -> STALE_BOOK with UNKNOWN_TIMESTAMP
+    res_unknown = simulate_orderbook_execution(asks, budget_usdc=10.0, book_age_sec=None)
+    assert res_unknown.fill_status == "STALE_BOOK"
+    assert res_unknown.data_status == "UNKNOWN_TIMESTAMP"
     
-    # 3. Truncated book
+    # 4. Truncated book
     res_trunc = simulate_orderbook_execution(asks, budget_usdc=100.0, is_truncated=True)
     assert res_trunc.fill_status == "DEPTH_EXHAUSTED_UNKNOWN"
     
-    # 4. Canonical strike checks
+    # 5. Canonical strike checks
     ctx = compute_strike_context(spot=90.0, strike=105.0, sigma_min=0.5, time_left_min=10.0, local_mean=110.0, candidate_side="UP")
     assert ctx["reversion_helps_strike"] is True
