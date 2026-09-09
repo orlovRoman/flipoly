@@ -1,0 +1,175 @@
+{
+  "econ_by_entry_side_test_M1_M0": {
+    "M0": {
+      "entry_12_side_NO": {
+        "expectancy": 0.658281,
+        "gross": 712.9184,
+        "n": 1083,
+        "note": "NO ask = 1 - yes_bid is synthetic, never observed",
+        "synthetic_leg": true
+      },
+      "entry_12_side_YES": {
+        "expectancy": 0.51756,
+        "gross": 599.8518,
+        "n": 1159,
+        "note": "YES at observed ask",
+        "synthetic_leg": false
+      },
+      "entry_5_side_NO": {
+        "expectancy": 1.122713,
+        "gross": 1933.3118,
+        "n": 1722,
+        "note": "NO ask = 1 - yes_bid is synthetic, never observed",
+        "synthetic_leg": true
+      },
+      "entry_5_side_YES": {
+        "expectancy": 1.219515,
+        "gross": 2114.639,
+        "n": 1734,
+        "note": "YES at observed ask",
+        "synthetic_leg": false
+      },
+      "entry_8_side_NO": {
+        "expectancy": 1.114937,
+        "gross": 1743.7607,
+        "n": 1564,
+        "note": "NO ask = 1 - yes_bid is synthetic, never observed",
+        "synthetic_leg": true
+      },
+      "entry_8_side_YES": {
+        "expectancy": 0.635419,
+        "gross": 1064.9625,
+        "n": 1676,
+        "note": "YES at observed ask",
+        "synthetic_leg": false
+      }
+    },
+    "M1": {
+      "entry_12_side_NO": {
+        "expectancy": 0.788653,
+        "gross": 947.1723,
+        "n": 1201,
+        "note": "NO ask = 1 - yes_bid is synthetic, never observed",
+        "synthetic_leg": true
+      },
+      "entry_12_side_YES": {
+        "expectancy": 0.496773,
+        "gross": 630.9018,
+        "n": 1270,
+        "note": "YES at observed ask",
+        "synthetic_leg": false
+      },
+      "entry_5_side_NO": {
+        "expectancy": 1.283221,
+        "gross": 2322.6298,
+        "n": 1810,
+        "note": "NO ask = 1 - yes_bid is synthetic, never observed",
+        "synthetic_leg": true
+      },
+      "entry_5_side_YES": {
+        "expectancy": 1.247807,
+        "gross": 2167.4414,
+        "n": 1737,
+        "note": "YES at observed ask",
+        "synthetic_leg": false
+      },
+      "entry_8_side_NO": {
+        "expectancy": 1.109882,
+        "gross": 1880.1395,
+        "n": 1694,
+        "note": "NO ask = 1 - yes_bid is synthetic, never observed",
+        "synthetic_leg": true
+      },
+      "entry_8_side_YES": {
+        "expectancy": 0.668351,
+        "gross": 1133.5239,
+        "n": 1696,
+        "note": "YES at observed ask",
+        "synthetic_leg": false
+      }
+    }
+  },
+  "econ_split_note": "TEST split only; frozen rule p>=0.60 YES at observed ask / p<=0.40 NO at SYNTHETIC ask_no = 1 - yes_bid; stake 10; gross only",
+  "input_ledger": "sb_20260909_155039",
+  "input_splits": "sb2a_20260909_155329",
+  "market_control_yes_mid": {
+    "test": {
+      "brier": 0.193127,
+      "ece_10": 0.046068,
+      "log_loss": 0.56801,
+      "n": 12705,
+      "note": "diagnostic: price of the real contract vs proxy outcome"
+    },
+    "train": {
+      "brier": 0.188576,
+      "ece_10": 0.040632,
+      "log_loss": 0.555623,
+      "n": 37174,
+      "note": "diagnostic: price of the real contract vs proxy outcome"
+    },
+    "validation": {
+      "brier": 0.196403,
+      "ece_10": 0.045714,
+      "log_loss": 0.577266,
+      "n": 12190,
+      "note": "diagnostic: price of the real contract vs proxy outcome"
+    }
+  },
+  "outcome_flip_first_open": {
+    "flip_rate": 0.096667,
+    "flips": 6000,
+    "n": 62069,
+    "note": "settlement vs first-candle OPEN instead of first-candle CLOSE; task-definition sensitivity"
+  },
+  "paired_brier_ci_vs_M1_test": {
+    "C": {
+      "ci_hi": 0.078811,
+      "ci_lo": 0.066232,
+      "mean_diff": 0.072921,
+      "n_boot": 5000,
+      "n_days": 15,
+      "seed": 0
+    },
+    "M0": {
+      "ci_hi": 0.000993,
+      "ci_lo": 0.000554,
+      "mean_diff": 0.000769,
+      "n_boot": 5000,
+      "n_days": 15,
+      "seed": 0
+    },
+    "M2": {
+      "ci_hi": 0.000206,
+      "ci_lo": -9.6e-05,
+      "mean_diff": 5.1e-05,
+      "n_boot": 5000,
+      "n_days": 15,
+      "seed": 0
+    },
+    "M3": {
+      "ci_hi": 0.000133,
+      "ci_lo": -1.9e-05,
+      "mean_diff": 5.4e-05,
+      "n_boot": 5000,
+      "n_days": 15,
+      "seed": 0
+    },
+    "M4": {
+      "ci_hi": 0.000253,
+      "ci_lo": -1.6e-05,
+      "mean_diff": 0.000118,
+      "n_boot": 5000,
+      "n_days": 15,
+      "seed": 0
+    },
+    "M5": {
+      "ci_hi": 0.00161,
+      "ci_lo": 0.000327,
+      "mean_diff": 0.000965,
+      "n_boot": 5000,
+      "n_days": 15,
+      "seed": 0
+    }
+  },
+  "protocol_version": "1.4"
+}

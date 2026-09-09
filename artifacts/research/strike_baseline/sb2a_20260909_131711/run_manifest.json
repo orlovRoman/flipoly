@@ -1,0 +1,24 @@
+{
+  "artifacts": {
+    "phase2a_metrics.json": {
+      "bytes": 8889,
+      "sha256": "95bab2e4ba2bd0489feb70ff588faa74f1b0c9157c1f60cf8fc210a52df6bdf8"
+    },
+    "reliability.csv": {
+      "bytes": 3360,
+      "sha256": "92789f61be24fa0b63d61d290ff8588690791ef26af6a0e0929d10b3d51b04cc"
+    },
+    "splits.csv": {
+      "bytes": 1273106,
+      "sha256": "1f413031e1b81e3aeda0a91ff4fa6d235e9d876fcdd011256e202113eddd53a8"
+    }
+  },
+  "commit": "46e643cbcf5a9c5b0c61d9a24bbe28e5fea813d7",
+  "created_at": "2026-09-09T13:17:11.367310+00:00",
+  "input_ledger": "sb_20260909_131059",
+  "ledger_sha256": "ab981ff002c89831f2a6d4f3ccafd2cc689111a26679947e1cdf8f592ed56fab",
+  "manifest_file_sha256": "6b4cbee756fee4b6f1b47f9fd956116633fe1fed928cab88f5b539e932eb17ad",
+  "phase": "2a",
+  "protocol_sha256": "ebe979f19463401748f41d65d42e1088986bbb82a78484a3964c173542677078",
+  "run_id": "sb2a_20260909_131711"
+}

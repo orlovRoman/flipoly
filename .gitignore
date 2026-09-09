@@ -52,3 +52,7 @@ remote_eval.py
 # AI Agent Instructions (kept in local ~/.gemini/ only)
 AGENTS.md
 GEMINI.md
+
+# Heavy research data (reproducible; SHA-256 in manifests)
+artifacts/research/strike_baseline/data_export/*/raw/*.csv.gz
+artifacts/research/strike_baseline/data_export/*/fixture_1m/*.csv.gz

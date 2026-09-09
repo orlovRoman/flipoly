@@ -1,0 +1,18 @@
+{
+  "artifacts": {
+    "phase2c_metrics.json": {
+      "bytes": 4522,
+      "sha256": "221b6b97ace64931179d39a180e5d0d96deb45454656c7309acb89e685583b63"
+    }
+  },
+  "commit": "c3c867546f3b915440412bceab6673061a2c6545",
+  "created_at": "2026-09-09T16:46:00.500185+00:00",
+  "input_ledger": "sb_20260909_155039",
+  "input_splits": "sb2a_20260909_155329",
+  "ledger_sha256": "d87ff51b63d62f180e0202228d68f95bb748f76c9a0a25e996d874bec516cc83",
+  "manifest_file_sha256": "ffd36404d01f7551313f62e1fbeaae1bba08087d52523ab78321acefbd34cf83",
+  "phase": "2c",
+  "protocol_sha256": "948b53a321c696a48bddaf947b9287e66a3dd3636509a00afd7ada58848d2976",
+  "run_id": "sb2c_20260909_164600",
+  "splits_sha256": "1f413031e1b81e3aeda0a91ff4fa6d235e9d876fcdd011256e202113eddd53a8"
+}

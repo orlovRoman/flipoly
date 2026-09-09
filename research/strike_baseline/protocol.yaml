@@ -1,0 +1,205 @@
+# Strike Baseline Research — Protocol (Phase 1)
+# Frozen research protocol. Any parameter change requires a new protocol version + new run_id.
+# Self-check: this file is hashed at run start; no parameter is chosen using validation/test outcomes.
+
+protocol_version: "1.4"
+changelog_v1_4: >
+  Horizon fix: z/p0 use ACTUAL remaining time (wend - snapshot_at), stored as
+  time_left_min; entry_min_before_close stays the variant label. M1/M2-M5 time
+  feature switches from entry grid to time_left_min. Provenance renamed to
+  PROXY_BINANCE_1M_FIRST_CLOSE (strike = first 1m CLOSE in window). ADDITIVE
+  Phase 2c (diagnostics, no selection): market control (yes_mid prob metrics vs
+  the same proxy outcome), paired daily-block bootstrap CIs (B=5000, seed=0)
+  for test Brier differences vs M1, econ breakdown by entry x side with
+  synthetic-NO flag, outcome-flip rate for first-OPEN strike variant.
+changelog_v1_2: >
+  ADDITIVE Phase 2a (baselines + eval harness). Phase 1 params untouched.
+  Frozen: sequential 60/20/20 market splits by end_time_est; models M0 (p0, no
+  fit), M1 (logistic on [z, time_left, sigma], scaler fit on train, C=1.0,
+  max_iter=5000, no search), C (train YES rate); metrics brier/logloss(eps
+  1e-6)/ECE-10/reliability; economic rule p>=0.60 YES at ask / p<=0.40 NO at
+  1-bid, stake 10, gross only (fee unknown -> net null).
+changelog_v1_1: >
+  Midnight-crossover rule: a question window whose end wall-clock is earlier
+  than (or equal to) the start wall-clock (e.g. "11:45PM-12:00AM ET") ends on
+  the next calendar day. Previously such markets were wrongly rules_fail
+  (364 markets recovered). Text artifacts are LF-only on every platform so
+  manifest hashes verify after git normalization; manifest_file_sha256 is the
+  sha256 of the canonical JSON bytes WITHOUT the self-hash key.
+run_purpose: >
+  Check whether underlying position relative to strike, time remaining and past volatility
+  are sufficient for a useful forecast of 15m up/down market outcomes; then measure the
+  incremental contribution of CT, CS and LightGBM over simple baselines.
+  z = log_moneyness / (sigma * sqrt(time_left)) is a FEATURE, not a proven win probability.
+
+branch: "research/strike-baseline"
+worktree: "flipoly-worktrees/strike-baseline"
+
+# ---------- Universe ----------
+assets:
+  - BTC
+  - ETH
+  - SOL
+  - DOGE
+  - XRP
+binance_symbols:
+  BTC:  BTCUSDT
+  ETH:  ETHUSDT
+  SOL:  SOLUSDT
+  DOGE: DOGEUSDT
+  XRP:  XRPUSDT
+
+# Market universe: ALL available 15m Up/Down markets of the 5 assets,
+# independent of whether a funnel/decision entry exists.
+market_class: "poly_up_down_15m"
+
+# ---------- Period ----------
+# Initial export window. Anything outside is not used in this run.
+export_start_utc: "2026-06-25T00:00:00Z"
+export_end_utc:   "2026-09-09T23:59:59Z"
+source_period_note: "VM + Binance data present from 2026-06-25 onward"
+
+# ---------- Entry variants (grid) ----------
+# Each entry time is its own variant, evaluated separately.
+entry_grid_mins_before_close: [12, 8, 5]
+
+# Decision moment = first observation at or after (market_close - entry_minutes),
+# with observed delay <= allowed_max_delay_sec.
+allowed_max_delay_sec: 30
+
+# ---------- Underlying & vol ----------
+underlying_source: "BINANCE_1M"   # fetched candle snapshots; source of truth for reconstruction
+candle_interval: "1m"
+vol_est_window_min: 60            # rolling window of PAST CLOSED bars
+vol_est_min_bars: 30              # min closed bars required for a usable vol estimate
+vol_missing_rule: "EXCLUDE_WITH_REASON"  # do NOT invent small numbers silently
+time_unit: "minute"               # time_left in minutes; sigma in per-minute units
+
+strike_source: "PROXY_BINANCE_1M_OPEN"   # strike reconstructed from Binance 1m first close of window
+canonical_strike_available: false        # NOT stored in DB -> proxy only, never canonical
+note_missing_strike_reason: "strike_value/strike_source are NULL/UNKNOWN for all historical markets"
+
+# ---------- Contract settlement rules ----------
+settlement_rule: >
+  YES pays 1 if underlying price at window close > strike (proxy = first observed Binance 1m close
+  within the window). Approximation only: exact Polymarket final-averaging rule set is not fully
+  retrievable from available data. TWAP in documentation is NOT auto-applied to history.
+
+market_start_field: "question_text_window_start_utc"   # parsed from question "X:XXAM-X:XXPM ET"
+market_close_field: "end_time_est"                     # already stored in live_markets
+
+# ---------- Time split (Phase 2+; frozen now to prevent leakage) ----------
+time_split:
+  method: "sequential"
+  train_frac: 0.60
+  validation_frac: 0.20
+  test_frac: 0.20
+  split_key: "market_close"
+  rule: "entry variants of one market stay in one split; outcomes for train known before next block"
+
+# ---------- Metrics (Phase 2+) ----------
+metrics:
+  probability: [brier, log_loss, ece, reliability_bins]
+  economic:    [n_entries, gross, net, expectancy, pnl_per_opportunity, turnover, weekly, per_asset, concentration]
+  calibration_bins: 10
+
+# ---------- Budget / constraints ----------
+budget:
+  max_bet_usdc: 10.0
+  fee_rate_taker: "TO_BE_CONFIRMED_FROM_FEE_EVIDENCE"
+  exchange: "POLYMARKET_CTF"
+  quote_side_buy: "real_ask"
+  note: "unknown fees -> net = null, not estimated"
+
+# ---------- Materials for reproducibility ----------
+artifacts_root: "artifacts/research/strike_baseline"
+run_id_format: "sb_{YYYYMMDD}_{HHMMSS}"
+
+# ---------- Phase 1 self-checks (must pass) ----------
+phase1_self_checks:
+  - {id: "P1-01", text: "protocol has a hash; no parameter chosen from validation/test outcomes"}
+  - {id: "P1-02", text: "re-running on the same inputs reproduces ledger and metrics"}
+  - {id: "P1-03", text: "settlement rule confirmed for a concrete contract; TWAP not auto-applied to history"}
+  - {id: "P1-04", text: "a market without funnel entry can enter the study; skipped markets stay in coverage table"}
+  - {id: "P1-05", text: "proxy never becomes canonical; unknown source is never restored by assumption"}
+  - {id: "P1-06", text: "tables separately show available_at_decision / retrospective_only / unknown"}
+  - {id: "P1-07", text: "join does not mix BTC/USD with YES price; different underlying sources not glued without rule"}
+  - {id: "P1-08", text: "future ticks do not change features; stale price gives a missing-data status"}
+  - {id: "P1-09", text: "no best-price pick inside window; all actual entries within allowed interval"}
+  - {id: "P1-10", text: "opportunity_id unique; row shuffle does not change feature joins"}
+  - {id: "P1-11", text: "minute-versus-second example preserves z when vol rescaled consistently"}
+  - {id: "P1-12", text: "a candle that closed after decision is excluded; changing future prices does not change the estimate"}
+  - {id: "P1-13", text: "constant series, short history, long gap do not create infinite z or 100%% confidence"}
+  - {id: "P1-14", text: "underlying==strike -> z=0; price above strike -> positive z; higher vol -> smaller |z|"}
+  - {id: "P1-15", text: "approximate model not labeled as exact settlement; future part of average unavailable to features"}
+  - {id: "P1-16", text: "p0(0)=0.5, monotone, finite; computation does not use outcomes"}
+  - {id: "P1-17", text: "synthetic examples match manual calculation for ledger, sigma, z, statuses, p0"}
+
+# ---------- Phase 2a: baselines (frozen v1.2; no validation/test peeking) ----------
+phase2a:
+  version: "1.2-additive"
+  note: "Phase 1 frozen params untouched. Phase 2a establishes the eval harness + baselines."
+  input_ledger: "artifacts/research/strike_baseline/sb_20260909_131059/ledger.parquet"
+  rows: "status == ok only (coverage table stays the availability record)"
+  splits:
+    method: "sequential by market"
+    key: "end_time_est (market close proxy)"
+    fractions: {train: 0.60, validation: 0.20, test: 0.20}
+    rule: "unique markets sorted by end_time_est; entry variants follow their market"
+  models:
+    M0_formula: "p = p0 = Phi(z). No fitting. Pure position/time/vol control."
+    M1_logistic: "sklearn LogisticRegression(C=1.0, max_iter=5000) on [z, entry_min_before_close, sigma_min] with StandardScaler fit on TRAIN only. No hyperparameter search."
+    C_climatology: "p = train YES rate for every row. Reference only."
+  probability_metrics: [brier, log_loss_eps1e-6, ece_10bins, reliability_table, n, yes_rate]
+  economic_rule:
+    side: "YES if p>=0.60, NO if p<=0.40, else PASS"
+    stake_usdc: 10.0
+    yes_fill: "ask = yes_ask; pnl = (10/ask)*outcome - 10"
+    no_fill: "ask_no = 1 - yes_bid; pnl = (10/ask_no)*(1-outcome) - 10"
+    fee: "unknown -> gross only, net = null (per budget note)"
+    metrics: [n_entries, gross, expectancy, pnl_per_opportunity, turnover, weekly, per_asset, concentration_top_decile_share]
+  outputs: "artifacts/research/strike_baseline/sb2a_<ts>/{phase2a_metrics.json, reliability.csv, run_manifest.json}"
+  phase2b_planned: "DONE in v1.3 (see phase2b below)"
+
+# ---------- Phase 2b: CT/CS + LightGBM incremental contribution (frozen v1.3) ----------
+phase2b:
+  version: "1.3-additive"
+  note: "Phase 1 + 2a frozen params untouched. Splits REUSED from sb2a_20260909_131711/splits.csv (identical markets). Test never used for fitting or stopping."
+  input_ledger: "artifacts/research/strike_baseline/sb_20260909_131059/ledger.parquet"
+  input_splits: "artifacts/research/strike_baseline/sb2a_20260909_131711/splits.csv"
+  rows: "status == ok only"
+  ct_token_regime:
+    fn: "classify_local_regime (defaults: min_obs=4, er_trend=0.60, er_rev=0.40, sign=0.45, ac=-0.05)"
+    input: "last <=30 valid token mids of SAME market with recorded_at STRICTLY before snapshot_at; mid=(bid+ask)/2 under clean-quote rule"
+    states: [REVERSION, TREND, QUIET, UNCERTAIN]
+  cs_spot_regime:
+    fn: "classify_spot_regime_short with window_min=10.0, require_valid_autocorr=true"
+    input: "last <=30 closed BINANCE 1m closes with close_time <= snapshot_at (+timestamps); internal causal alignment, staleness<=120s"
+    states: [REVERSION, TREND, QUIET, UNCERTAIN]
+  models:
+    M2_ct: "logistic (same frozen spec as M1) on [z, time, sigma, ct_rev, ct_trend, ct_quiet]; UNCERTAIN = reference"
+    M3_cs: "logistic on [z, time, sigma, cs_rev, cs_trend, cs_quiet]"
+    M4_both: "logistic on [z, time, sigma, ct_rev, ct_trend, ct_quiet, cs_rev, cs_trend, cs_quiet]"
+    M5_gbm: "LightGBM on M4 feats + [ct_er, cs_er] (NaN native). Frozen: num_leaves=31, lr=0.05, n_estimators<=1000 with early_stopping(100) on VALIDATION only, min_child_samples=200, subsample=0.8, colsample_bytree=0.8, random_state=0, deterministic=true, verbose=-1. Train=train, stop=validation, report=test."
+  metrics: "same frozen probability + economic rule as Phase 2a (p>=0.60 YES at ask / p<=0.40 NO at 1-bid, stake 10, gross only)"
+  outputs: "artifacts/research/strike_baseline/sb2b_<ts>/{phase2b_metrics.json, reliability.csv, feature_coverage.json, run_manifest.json}"
+
+# ---------- Phase 2c: review diagnostics (frozen v1.4; no selection) ----------
+phase2c:
+  version: "1.4-additive"
+  note: "Addresses review: market control, paired uncertainty, econ split, label sensitivity. Nothing here selects models."
+  input_ledger: "new Phase-1 rerun ledger (v1.4 horizon), status == ok"
+  input_splits: "new Phase-2a rerun splits.csv (same frozen rule)"
+  input_probs: "rerun M0/M1/C + M2/M3/M4/M5 probabilities on the new ledger"
+  market_control: "yes_mid as probability on the same ok rows; brier/logloss/ECE vs the SAME proxy outcome. Diagnostic only: market price refers to the real contract, proxy outcome to Binance."
+  paired_ci:
+    target: "test Brier difference (model minus M1); negative = better than M1"
+    blocks: "UTC calendar day of decision_at; paired by day (same rows both models)"
+    method: "bootstrap over days with replacement, B=5000, seed=0; 95% percentile CI of mean daily diff"
+  econ_split: "same frozen rule as 2a, grouped by entry_min_before_close x side; NO leg flagged synthetic (ask_no = 1 - yes_bid, never observed)"
+  outcome_flip: "alt strike = OPEN of first 1m candle in window; alt outcome = settlement vs alt strike; report label-flip rate vs main outcome. Sensitivity of the task definition, not a strategy."
+  outputs: "artifacts/research/strike_baseline/sb2c_<ts>/{phase2c_metrics.json, run_manifest.json}"
+
+phase1_exit_condition: >
+  Contract rules and data provenance traceable; causality verified; coverage limitations published.
+  Absence of canonical data permits a separate proxy study but never a mixed conclusion.

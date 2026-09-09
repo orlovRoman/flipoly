@@ -1,0 +1,1 @@
+"""Strike-baseline research package (Phase 1: protocol, causal dataset, features)."""
