@@ -95,9 +95,12 @@ def validate_and_normalize_orderbook(
 
     for item in raw_bids:
         try:
-            p = float(item.get("price"))
-            s = float(item.get("size") if item.get("size") is not None else item.get("quantity", 0.0))
-        except (AttributeError, TypeError, ValueError):
+            p = float(item["price"])
+            raw_s = item.get("size") if item.get("size") is not None else item.get("quantity")
+            if raw_s is None:
+                raise ValueError("Missing size")
+            s = float(raw_s)
+        except (AttributeError, TypeError, ValueError, KeyError):
             issues.append("INVALID_NUMERIC_FORMAT_IN_BIDS")
             status = "CORRUPTED"
             continue
@@ -131,9 +134,12 @@ def validate_and_normalize_orderbook(
 
     for item in raw_asks:
         try:
-            p = float(item.get("price"))
-            s = float(item.get("size") if item.get("size") is not None else item.get("quantity", 0.0))
-        except (AttributeError, TypeError, ValueError):
+            p = float(item["price"])
+            raw_s = item.get("size") if item.get("size") is not None else item.get("quantity")
+            if raw_s is None:
+                raise ValueError("Missing size")
+            s = float(raw_s)
+        except (AttributeError, TypeError, ValueError, KeyError):
             issues.append("INVALID_NUMERIC_FORMAT_IN_ASKS")
             status = "CORRUPTED"
             continue

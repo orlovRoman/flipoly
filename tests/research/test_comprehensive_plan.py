@@ -65,12 +65,12 @@ def test_item_02_report_corrections_and_stress_tables():
     """Item 2: 9.6% is Neither and 25.7% is CT-only (not C0 and CT)."""
     # Verify from results
     res_path = REPO_ROOT / "artifacts" / "research" / "stage2_comprehensive_study_results.json"
-    if res_path.exists():
-        with open(res_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        ch = data["item_22_cohort_decomposition"]
-        assert math.isclose(ch["Neither"]["win_rate"], 0.0960, abs_tol=1e-3)
-        assert math.isclose(ch["CT-only"]["win_rate"], 0.2574, abs_tol=1e-3)
+    assert res_path.exists(), "Results file missing"
+    with open(res_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    ch = data["item_22_cohort_decomposition"]
+    assert math.isclose(ch["Neither"]["win_rate"], 0.0960, abs_tol=1e-3)
+    assert math.isclose(ch["CT-only"]["win_rate"], 0.2574, abs_tol=1e-3)
 
 
 def test_item_03_three_major_wins_evidence():
@@ -304,105 +304,105 @@ def test_item_17_volume_reuse_prevention():
 def test_item_18_common_opportunity_ledger():
     """Item 18: Common opportunity ledger preserves identical candidates."""
     res_path = REPO_ROOT / "artifacts" / "research" / "stage2_comprehensive_study_results.json"
-    if res_path.exists():
-        with open(res_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        assert data["item_18_common_opportunity_ledger_summary"]["all_variants_evaluated_on_identical_ledger"] is True
+    assert res_path.exists(), "Results file missing"
+    with open(res_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    assert data["item_18_common_opportunity_ledger_summary"]["all_variants_evaluated_on_identical_ledger"] is True
 
 
 def test_item_19_and_20_former_favorite_mechanism():
     """Item 19 & 20: 4 mutually exclusive groups, former favorites evaluated with losers."""
     res_path = REPO_ROOT / "artifacts" / "research" / "stage2_comprehensive_study_results.json"
-    if res_path.exists():
-        with open(res_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        ff = data["item_19_and_20_former_favorite_mechanism"]
-        for grp in ["FORMER_FAVORITE", "PERSISTENT_CHEAP", "OTHER_TRAJECTORY", "INSUFFICIENT_HISTORY"]:
-            assert grp in ff
-            assert "n_trades" in ff[grp]
-            assert "net_pnl_usdc" in ff[grp]
+    assert res_path.exists(), "Results file missing"
+    with open(res_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    ff = data["item_19_and_20_former_favorite_mechanism"]
+    for grp in ["FORMER_FAVORITE", "PERSISTENT_CHEAP", "OTHER_TRAJECTORY", "INSUFFICIENT_HISTORY"]:
+        assert grp in ff
+        assert "n_trades" in ff[grp]
+        assert "net_pnl_usdc" in ff[grp]
 
 
 def test_item_21_price_bucket_separation():
     """Item 21: Mechanism separated from price inside 0.05 buckets."""
     res_path = REPO_ROOT / "artifacts" / "research" / "stage2_comprehensive_study_results.json"
-    if res_path.exists():
-        with open(res_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        pb = data["item_21_price_bucket_separation"]
-        assert len(pb) >= 5
+    assert res_path.exists(), "Results file missing"
+    with open(res_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    pb = data["item_21_price_bucket_separation"]
+    assert len(pb) >= 5
 
 
 def test_item_22_cohort_decomposition():
     """Item 22: Cohort decomposition (CT-only, CS-only, Both, Neither) and additive invariants."""
     res_path = REPO_ROOT / "artifacts" / "research" / "stage2_comprehensive_study_results.json"
-    if res_path.exists():
-        with open(res_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        ch = data["item_22_cohort_decomposition"]
-        for c in ["CT-only", "CS-only", "Both", "Neither"]:
-            assert c in ch
-        assert "sub_combinations" in ch["Neither"]
+    assert res_path.exists(), "Results file missing"
+    with open(res_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    ch = data["item_22_cohort_decomposition"]
+    for c in ["CT-only", "CS-only", "Both", "Neither"]:
+        assert c in ch
+    assert "sub_combinations" in ch["Neither"]
 
 
 def test_item_25_and_28_core_variants_paired_bootstrap():
     """Item 25 & 28: Core variants comparison and paired daily block bootstrap."""
     res_path = REPO_ROOT / "artifacts" / "research" / "stage2_comprehensive_study_results.json"
-    if res_path.exists():
-        with open(res_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        v = data["item_25_and_28_core_variants"]
-        for k in ["C0", "CT", "CS", "CS_short", "CT_plus_canonical_strike"]:
-            assert k in v
-            assert "paired_bootstrap_ci_95" in v[k]
+    assert res_path.exists(), "Results file missing"
+    with open(res_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    v = data["item_25_and_28_core_variants"]
+    for k in ["C0", "CT", "CS", "CS_short", "CT_plus_canonical_strike"]:
+        assert k in v
+        assert "paired_bootstrap_ci_95" in v[k]
 
 
 def test_item_26_multi_budget_execution():
     """Item 26: Recalculation for budgets $1, $5, and $10."""
     res_path = REPO_ROOT / "artifacts" / "research" / "stage2_comprehensive_study_results.json"
-    if res_path.exists():
-        with open(res_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        mb = data["item_26_multi_budget_execution"]
-        for b in ["$1", "$5", "$10"]:
-            assert b in mb
-            assert "executed_trade_count" in mb[b]
-            assert "avg_vwap" in mb[b]
+    assert res_path.exists(), "Results file missing"
+    with open(res_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    mb = data["item_26_multi_budget_execution"]
+    for b in ["$1", "$5", "$10"]:
+        assert b in mb
+        assert "executed_trade_count" in mb[b]
+        assert "avg_vwap" in mb[b]
 
 
 def test_item_27_execution_selection_effect():
     """Item 27: Execution selection effect metrics."""
     res_path = REPO_ROOT / "artifacts" / "research" / "stage2_comprehensive_study_results.json"
-    if res_path.exists():
-        with open(res_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        sel = data["item_27_execution_selection_effect"]
-        assert "filled_count" in sel
-        assert "unfilled_count" in sel
-        assert "filled_win_rate" in sel
-        assert sel["filled_count"] == 2636
-        assert sel["unfilled_count"] == 0
+    assert res_path.exists(), "Results file missing"
+    with open(res_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    sel = data["item_27_execution_selection_effect"]
+    assert "filled_count" in sel
+    assert "unfilled_count" in sel
+    assert "filled_win_rate" in sel
+    assert sel["filled_count"] == 2636
+    assert sel["unfilled_count"] == 0
 
 
 def test_item_29_holdout_evaluation():
     """Item 29: Subsequent period holdout evaluation."""
     res_path = REPO_ROOT / "artifacts" / "research" / "stage2_comprehensive_study_results.json"
-    if res_path.exists():
-        with open(res_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        h = data["item_29_holdout_results"]
-        assert "CT" in h
-        assert "C0" in h
+    assert res_path.exists(), "Results file missing"
+    with open(res_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    h = data["item_29_holdout_results"]
+    assert "CT" in h
+    assert "C0" in h
 
 
 def test_item_30_verdict_criteria_synthesis():
     """Item 30: 5-way decision rule matrix and 3 core question answers."""
     res_path = REPO_ROOT / "artifacts" / "research" / "stage2_comprehensive_study_results.json"
-    if res_path.exists():
-        with open(res_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        dec = data["item_30_decision_verdict"]
-        assert "verdict_status" in dec
-        assert "action_required" in dec
-        assert "three_core_answers" in dec
-        assert dec["deploy_to_production"] is False
+    assert res_path.exists(), "Results file missing"
+    with open(res_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    dec = data["item_30_decision_verdict"]
+    assert "verdict_status" in dec
+    assert "action_required" in dec
+    assert "three_core_answers" in dec
+    assert dec["deploy_to_production"] is False

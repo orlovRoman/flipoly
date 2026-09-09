@@ -25,6 +25,8 @@ from pathlib import Path
 from typing import Any, Sequence
 import numpy as np
 import pandas as pd
+import subprocess
+import hashlib
 
 from polyflip.research.regime_features import (
     compute_efficiency_ratio,
@@ -55,6 +57,24 @@ def run_stage2_study(
     Executes all Stage 2 analysis requirements strictly on a unified common opportunity ledger.
     """
     np.random.seed(seed)
+
+    try:
+        git_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], stderr=subprocess.DEVNULL).decode().strip()
+        git_dirty = bool(subprocess.check_output(['git', 'status', '--porcelain'], stderr=subprocess.DEVNULL).decode().strip())
+    except Exception:
+        git_commit = "UNKNOWN"
+        git_dirty = False
+
+    def hash_file(filepath):
+        try:
+            with open(filepath, 'rb') as f_in:
+                return hashlib.sha256(f_in.read()).hexdigest()
+        except:
+            return "UNKNOWN"
+            
+    snaps_hash = hash_file(snapshots_csv_path)
+    candles_hash = hash_file(candles_csv_path)
+    exp_hash = hash_file(expirations_json_path)
 
     # 1. Load data
     try:
@@ -114,30 +134,49 @@ def run_stage2_study(
         yes_bid = float(dec_row["best_bid"]) if pd.notna(dec_row["best_bid"]) else np.nan
 
         # Observed quotes only: outsider is UP (yes_mid <= 0.5)
-        if yes_mid > 0.5 or not np.isfinite(yes_ask):
-            continue
-
         ask = yes_ask
         bid = yes_bid
         mid_p = yes_mid
         spread = float(dec_row["spread"]) if pd.notna(dec_row["spread"]) else (ask - (bid if np.isfinite(bid) else 0.0))
         final_outcome = str(dec_row["final_outcome"]).upper()
-
+        
+        exclusion_reason = None
+        if not np.isfinite(yes_ask):
+            exclusion_reason = "MISSING_QUOTE"
+        elif yes_mid > 0.5:
+            exclusion_reason = "PRICE_FILTER" # Outsider is UP
+        
         # Primary rule: ask <= 0.40 and ask >= 0.01
-        is_candidate_price = (ask <= 0.40) and (ask >= 0.01)
-        if not is_candidate_price:
-            continue
+        is_candidate_price = False
+        if exclusion_reason == None:
+            is_candidate_price = (ask <= 0.40) and (ask >= 0.01)
+            if not is_candidate_price:
+                exclusion_reason = "PRICE_FILTER"
 
         # Item 19: Formal definition of Former Favorite (4 mutually exclusive groups)
         # Lookback window: up to 10 minutes prior to decision
         lb_cutoff = decision_at - pd.Timedelta(minutes=10)
-        lb_snaps = group[(group["recorded_at"] >= lb_cutoff) & (group["recorded_at"] <= decision_at)]
-        lb_prices = lb_snaps["mid_price"].dropna().tolist()
+        lb_snaps = group[(group["recorded_at"] >= lb_cutoff) & (group["recorded_at"] <= decision_at)].copy()
+        
+        former_favorite_group = "INSUFFICIENT_HISTORY"
+        if len(lb_snaps) >= 3:
+            lb_times = lb_snaps["recorded_at"].tolist()
+            duration = (lb_times[-1] - lb_times[0]).total_seconds()
+            gaps = [ (lb_times[i] - lb_times[i-1]).total_seconds() for i in range(1, len(lb_times)) ]
+            max_gap = max(gaps) if gaps else 0
+            
+            # minimal requirements (P17)
+            if duration >= 300 and max_gap <= 300:
+                lb_prices = lb_snaps["mid_price"].dropna().tolist()
+                if len(lb_prices) >= 3:
+                    max_lb = max(lb_prices)
+                    if max_lb >= 0.55 and ask <= 0.40:
+                        former_favorite_group = "FORMER_FAVORITE"
+                    elif max_lb <= 0.40:
+                        former_favorite_group = "PERSISTENT_CHEAP"
+                    else:
+                        former_favorite_group = "OTHER_TRAJECTORY"
 
-        if len(lb_prices) < 3:
-            former_favorite_group = "INSUFFICIENT_HISTORY"
-        else:
-            max_lb = max(lb_prices)
             if max_lb >= 0.55 and ask <= 0.40:
                 former_favorite_group = "FORMER_FAVORITE"
             elif max_lb <= 0.40:
@@ -158,16 +197,17 @@ def run_stage2_study(
         cs_short_reason = "INSUFFICIENT_DATA"
         spot_price_at_decision = np.nan
         sub_c_closes = []
-        cs_res: dict[str, Any] = {"state": "UNCERTAIN", "efficiency_ratio": None}
+        cs_res: dict[str, Any] = {"state": "UNCERTAIN", "efficiency_ratio": None, "local_mean": None}
         if len(causal_candles) >= 6:
             last_candle_close = causal_candles["open_time"].iloc[-1] + pd.Timedelta(minutes=5)
             if (decision_at - last_candle_close) <= pd.Timedelta(minutes=15):
                 spot_closes = causal_candles["close"].tail(6).to_numpy()
+                spot_times = causal_candles["open_time"].tail(6).to_numpy()
                 sub_c_closes = spot_closes.tolist()
                 spot_price_at_decision = float(spot_closes[-1])
                 cs_res = classify_local_regime(spot_closes, min_observations=4)
                 spot_regime = cs_res["state"]
-                cs_short_res = classify_spot_regime_short(spot_closes, window_min=10.0, require_valid_autocorr=True)
+                cs_short_res = classify_spot_regime_short(spot_closes, timestamps=spot_times, as_of=decision_at, window_min=10.0, require_valid_autocorr=True)
                 spot_regime_short = cs_short_res["state"]
                 cs_short_reason = cs_short_res.get("classification_reason")
             else:
@@ -202,7 +242,7 @@ def run_stage2_study(
             strike=proxy_strike if proxy_strike else np.nan,
             sigma_min=sigma_min,
             time_left_min=time_left_min,
-            local_mean=ct_res.get("local_mean"),
+            local_mean=cs_res.get("local_mean"),
             candidate_side="UP",
         )
         proxy_reversion_helps = ctx_proxy.get("reversion_helps_strike", False)
@@ -216,20 +256,14 @@ def run_stage2_study(
         net_pnl = gross_pnl - fee
 
         # Synthesize orderbook depth for this snapshot (Point 14 & 26)
-        # If real ladder is not in historic CSV, use conservative CLOB top ladder:
-        # level 1: best_ask, size = 15 shares
-        # level 2: best_ask + 0.01, size = 25 shares
-        # level 3: best_ask + 0.02, size = 50 shares
-        sim_asks = [
-            {"price": round(ask, 4), "size": 15.0},
-            {"price": round(min(0.99, ask + 0.01), 4), "size": 25.0},
-            {"price": round(min(0.99, ask + 0.02), 4), "size": 50.0},
-        ]
+        # Historical depth is missing in CSV, use BLOCKED_DATA
+        sim_asks = None
 
         # Multi-budget simulations ($1, $5, $10) (Item 26)
-        exec_1 = simulate_orderbook_execution(sim_asks, budget_usdc=1.0, price_limit=0.40, taker_fee_rate=taker_fee_rate)
-        exec_5 = simulate_orderbook_execution(sim_asks, budget_usdc=5.0, price_limit=0.40, taker_fee_rate=taker_fee_rate)
-        exec_10 = simulate_orderbook_execution(sim_asks, budget_usdc=10.0, price_limit=0.40, taker_fee_rate=taker_fee_rate)
+        # Marked as BLOCKED_DATA since true depth is unavailable
+        exec_1 = "BLOCKED_DATA"
+        exec_5 = "BLOCKED_DATA"
+        exec_10 = "BLOCKED_DATA"
 
         # Variant inclusion flags
         v_c0 = is_candidate_price
@@ -296,29 +330,8 @@ def run_stage2_study(
                 "CT_plus_canonical_strike": v_ct_strike_canon,
                 "CT_plus_proxy_strike": v_ct_strike_proxy,
             },
-            "execution_sim": {
-                "b1": {
-                    "filled_shares": exec_1.filled_shares,
-                    "spent_usdc": exec_1.spent_usdc,
-                    "vwap": exec_1.vwap,
-                    "fill_status": exec_1.fill_status,
-                    "net_pnl": calculate_trade_payout_and_pnl(exec_1.filled_shares, exec_1.spent_usdc, 1.0, target, exec_1.fee).net_pnl,
-                },
-                "b5": {
-                    "filled_shares": exec_5.filled_shares,
-                    "spent_usdc": exec_5.spent_usdc,
-                    "vwap": exec_5.vwap,
-                    "fill_status": exec_5.fill_status,
-                    "net_pnl": calculate_trade_payout_and_pnl(exec_5.filled_shares, exec_5.spent_usdc, 5.0, target, exec_5.fee).net_pnl,
-                },
-                "b10": {
-                    "filled_shares": exec_10.filled_shares,
-                    "spent_usdc": exec_10.spent_usdc,
-                    "vwap": exec_10.vwap,
-                    "fill_status": exec_10.fill_status,
-                    "net_pnl": calculate_trade_payout_and_pnl(exec_10.filled_shares, exec_10.spent_usdc, 10.0, target, exec_10.fee).net_pnl,
-                },
-            },
+            "execution_sim": "BLOCKED_DATA",
+            "exclusion_reason": exclusion_reason,
         })
 
     ledger_df = pd.DataFrame(ledger_rows)
@@ -374,7 +387,10 @@ def run_stage2_study(
     price_bucket_analysis: dict[str, Any] = {}
     for p_low, p_high in price_buckets:
         b_key = f"[{p_low:.2f}, {p_high:.2f}]"
-        mask_b = (c0_sub["executable_ask"] >= p_low) & (c0_sub["executable_ask"] < p_high)
+        if p_high == 0.40:
+            mask_b = (c0_sub["executable_ask"] >= p_low) & (c0_sub["executable_ask"] <= p_high)
+        else:
+            mask_b = (c0_sub["executable_ask"] >= p_low) & (c0_sub["executable_ask"] < p_high)
         sub_b = c0_sub[mask_b]
         b_stats: dict[str, Any] = {"total_trades": len(sub_b), "by_group": {}}
         for grp in ff_groups:
@@ -512,19 +528,22 @@ def run_stage2_study(
         v_daily = np.array([daily_pnls[v_key][d] for d in all_days])
         paired_daily_deltas = v_daily - c0_daily
 
+        # Daily trade counts for variant
+        d_counts = sub_v.groupby("calendar_date").size().to_dict() if n_v > 0 else {}
+        v_daily_counts = np.array([d_counts.get(d, 0) for d in all_days])
+
         # Bootstrap paired delta and standalone expectancy
         boot_deltas = []
         boot_standalones = []
-        v_mask = c0_sub["variants"].apply(lambda d: d.get(v_key, False))
-        sub_v = c0_sub[v_mask]
-
-        if len(sub_v) > 0:
+        if n_v > 0:
             for _ in range(n_bootstrap):
                 sampled_day_indices = np.random.randint(0, n_days, size=n_days)
                 b_delta = float(np.sum(paired_daily_deltas[sampled_day_indices]))
                 b_standalone = float(np.sum(v_daily[sampled_day_indices]))
+                b_counts = float(np.sum(v_daily_counts[sampled_day_indices]))
                 boot_deltas.append(b_delta)
-                boot_standalones.append(b_standalone / len(sub_v))
+                # Avoid division by zero if all sampled days had 0 trades
+                boot_standalones.append(b_standalone / b_counts if b_counts > 0 else 0.0)
 
             ci_delta_low = float(np.percentile(boot_deltas, 2.5))
             ci_delta_high = float(np.percentile(boot_deltas, 97.5))
@@ -534,64 +553,55 @@ def run_stage2_study(
             ci_delta_low, ci_delta_high = 0.0, 0.0
             ci_stand_low, ci_stand_high = 0.0, 0.0
 
-        variant_results[v_key]["paired_delta_vs_c0"] = round(float(variant_results[v_key]["net_pnl_usdc"] - variant_results["C0"]["net_pnl_usdc"]), 2)
-        variant_results[v_key]["paired_bootstrap_ci_95"] = [round(ci_delta_low, 2), round(ci_delta_high, 2)]
-        variant_results[v_key]["standalone_expectancy_ci_95"] = [round(ci_stand_low, 4), round(ci_stand_high, 4)]
+        if n_v > 0:
+            variant_results[v_key]["status"] = "COMPUTED"
+            variant_results[v_key]["paired_delta_vs_c0"] = round(float(variant_results[v_key]["net_pnl_usdc"] - variant_results["C0"]["net_pnl_usdc"]), 2)
+            variant_results[v_key]["paired_bootstrap_ci_95"] = [round(ci_delta_low, 2), round(ci_delta_high, 2)]
+            variant_results[v_key]["standalone_expectancy_ci_95"] = [round(ci_stand_low, 4), round(ci_stand_high, 4)]
+        else:
+            variant_results[v_key]["status"] = "BLOCKED_DATA"
+            variant_results[v_key]["net_pnl_usdc"] = None
+            variant_results[v_key]["expectancy"] = None
+            variant_results[v_key]["paired_delta_vs_c0"] = None
+            variant_results[v_key]["paired_bootstrap_ci_95"] = None
+            variant_results[v_key]["standalone_expectancy_ci_95"] = None
 
     # 9. Item 26: Multi-budget execution recalculation ($1, $5, $10)
-    budget_tables: dict[str, Any] = {}
-    for b_label, b_key in [("$1", "b1"), ("$5", "b5"), ("$10", "b10")]:
-        b_pnl_opp = float(c0_sub["execution_sim"].apply(lambda x: x[b_key]["net_pnl"]).sum())
-        filled_trades = c0_sub["execution_sim"].apply(lambda x: x[b_key]["fill_status"] in ("FULL", "PARTIAL"))
-        n_filled = int(filled_trades.sum())
-        b_pnl_filled = float(c0_sub.loc[filled_trades, "execution_sim"].apply(lambda x: x[b_key]["net_pnl"]).sum()) if n_filled > 0 else 0.0
-        total_spent = float(c0_sub["execution_sim"].apply(lambda x: x[b_key]["spent_usdc"]).sum())
-        vwap_arr = c0_sub.loc[filled_trades, "execution_sim"].apply(lambda x: x[b_key]["vwap"])
-        avg_vwap = float(vwap_arr.mean()) if len(vwap_arr) > 0 else 0.0
-
-        full_fills = int(c0_sub["execution_sim"].apply(lambda x: x[b_key]["fill_status"] == "FULL").sum())
-        partial_fills = int(c0_sub["execution_sim"].apply(lambda x: x[b_key]["fill_status"] == "PARTIAL").sum())
-        unfilled = int(c0_sub["execution_sim"].apply(lambda x: x[b_key]["fill_status"] in ("UNFILLED", "LIMIT_EXCEEDED")).sum())
-
-        budget_tables[b_label] = {
-            "total_opportunities": len(c0_sub),
-            "full_fills": full_fills,
-            "partial_fills": partial_fills,
-            "unfilled": unfilled,
-            "executed_trade_count": n_filled,
-            "executed_fraction": round(n_filled / len(c0_sub), 4),
-            "total_spent_usdc": round(total_spent, 2),
-            "avg_vwap": round(avg_vwap, 4),
-            "vwap_drift_vs_decision_price": round(avg_vwap - float(c0_sub["executable_ask"].mean()), 4),
-            "net_pnl_total": round(b_pnl_opp, 2),
-            "net_pnl_per_opportunity": round(b_pnl_opp / len(c0_sub), 4),
-            "net_pnl_per_filled_trade": round(b_pnl_filled / n_filled, 4) if n_filled > 0 else 0.0,
-            "return_on_spent_pct": round((b_pnl_filled / total_spent * 100.0), 2) if total_spent > 0 else 0.0,
-        }
+    # Replaced with BLOCKED_DATA per plan (missing historical depth)
+    budget_tables: dict[str, Any] = {
+        "$1": "BLOCKED_DATA",
+        "$5": "BLOCKED_DATA",
+        "$10": "BLOCKED_DATA",
+    }
 
     # 10. Item 27: Selection effect of execution
     # Compare filled vs unfilled opportunities on price, mechanism, outcome
-    b10_fills = c0_sub["execution_sim"].apply(lambda x: x["b10"]["fill_status"] in ("FULL", "PARTIAL"))
-    filled_sub = c0_sub[b10_fills]
-    unfilled_sub = c0_sub[~b10_fills]
-    selection_effect = {
-        "filled_count": len(filled_sub),
-        "unfilled_count": len(unfilled_sub),
-        "filled_avg_ask": round(float(filled_sub["executable_ask"].mean()), 4) if len(filled_sub) > 0 else None,
-        "unfilled_avg_ask": round(float(unfilled_sub["executable_ask"].mean()), 4) if len(unfilled_sub) > 0 else None,
-        "filled_win_rate": round(float(filled_sub["target"].mean()), 4) if len(filled_sub) > 0 else None,
-        "unfilled_win_rate": round(float(unfilled_sub["target"].mean()), 4) if len(unfilled_sub) > 0 else None,
-        "filled_former_favorite_share": round(float((filled_sub["former_favorite_group"] == "FORMER_FAVORITE").mean()), 4) if len(filled_sub) > 0 else None,
-        "unfilled_former_favorite_share": round(float((unfilled_sub["former_favorite_group"] == "FORMER_FAVORITE").mean()), 4) if len(unfilled_sub) > 0 else None,
-    }
+    selection_effect = "BLOCKED_DATA"
 
-    # 11. Item 29: Subsequent unviewed holdout check (dates >= 2026-09-02)
-    holdout_mask = c0_sub["calendar_date"] >= "2026-09-02"
+    # 11. Item 29: Subsequent unviewed holdout check & Exploratory Period
+    exploratory_mask = (c0_sub["calendar_date"] >= "2026-09-02") & (c0_sub["calendar_date"] <= "2026-09-08")
+    holdout_mask = c0_sub["calendar_date"] > "2026-09-08"
+    exploratory_sub = c0_sub[exploratory_mask]
     holdout_sub = c0_sub[holdout_mask]
-    dev_sub = c0_sub[~holdout_mask]
 
+    exploratory_results: dict[str, Any] = {}
     holdout_results: dict[str, Any] = {}
     for label, v_key in core_variant_keys:
+        # Exploratory
+        e_mask = exploratory_sub["variants"].apply(lambda d: d.get(v_key, False))
+        sub_e = exploratory_sub[e_mask]
+        n_e = len(sub_e)
+        pnl_e = float(sub_e["net_pnl"].sum()) if n_e > 0 else 0.0
+        exp_e = (pnl_e / n_e) if n_e > 0 else 0.0
+        wr_e = float(sub_e["target"].mean()) if n_e > 0 else 0.0
+        exploratory_results[v_key] = {
+            "n_trades": n_e,
+            "win_rate": round(wr_e, 4),
+            "net_pnl_usdc": round(pnl_e, 2),
+            "expectancy": round(exp_e, 4),
+        }
+        
+        # Holdout
         h_mask = holdout_sub["variants"].apply(lambda d: d.get(v_key, False))
         sub_h = holdout_sub[h_mask]
         n_h = len(sub_h)
@@ -618,34 +628,34 @@ def run_stage2_study(
     improves_control = delta_ct > 0 and ci_delta_ct[0] > 0
     # Is standalone expectancy positive?
     standalone_positive = ci_stand_ct[0] > 0
-    # Does effect persist in holdout?
-    holdout_positive = holdout_results["CT"]["net_pnl_usdc"] > 0
-
+    # Does effect persist in exploratory/holdout?
+    exploratory_positive = exploratory_results["CT"]["net_pnl_usdc"] > 0
+    
     if not improves_control:
         decision_verdict = "SIMPLIFY_RULE_DO_NOT_ADD_ML"
         decision_action = "Фильтр не улучшает ценовой контроль -> Упростить правило; не добавлять ML поверх него"
     elif not standalone_positive:
         decision_verdict = "LOSS_REDUCTION_ONLY_NO_STANDALONE_PROFITABILITY"
         decision_action = "Фильтр сокращает убыток, но собственная expectancy отрицательна -> Зафиксировать улучшение отбора без заявления о прибыльности"
-    elif not holdout_positive:
+    elif not exploratory_positive:
         decision_verdict = "UNCERTAIN_PRESERVE_AND_COLLECT"
-        decision_action = "Результат положительный на dev, но неопределённость велика на holdout -> Сохранить конфигурацию и продолжить сбор"
+        decision_action = "Результат положительный на dev, но неопределённость велика на exploratory -> Сохранить конфигурацию и продолжить сбор"
     else:
         decision_verdict = "GROUNDS_TO_TEST_ML"
         decision_action = "Есть положительная собственная expectancy и дополнительная польза на последующих данных -> Проверить вклад логистической регрессии, затем LightGBM"
 
     three_core_answers = {
         "q1_is_there_a_mechanism": {
-            "verdict": False,
-            "evidence": "Бывшие фавориты (FORMER_FAVORITE) глубоко убыточны (-146.43 USDC, win rate 11.2%). Механизм возврата цены после падения токена НЕ порождает положительного матожидания, а 3 случайных отскока концентрируют 100% прибыли стратегии.",
+            "verdict": bool(ff_stats["FORMER_FAVORITE"]["expectancy"] > 0.0),
+            "evidence": f"Проверено на общих данных. Expectancy бывших фаворитов: {ff_stats['FORMER_FAVORITE']['expectancy']} USDC."
         },
         "q2_does_filter_add_value": {
-            "verdict": True,
-            "evidence": f"Фильтр CT статистически надежно отсекает глубоко убыточные сделки контроля C0 (дельта {delta_ct:+.2f} USDC, 95% CI {ci_delta_ct}), но является исключительно фильтром сокращения потерь, а не источником прибыли.",
+            "verdict": bool(improves_control),
+            "evidence": f"Delta {delta_ct:+.2f} USDC, 95% CI {ci_delta_ct}. Улучшение относительно контроля {improves_control}."
         },
         "q3_does_result_survive_execution": {
-            "verdict": False,
-            "evidence": "При пересчете на реальные бюджеты $5 и $10 с учетом уровней стакана и проскальзывания VWAP сдвигается вверх, и на отложенном периоде holdout стратегия приносит чистый убыток.",
+            "verdict": None,
+            "evidence": "BLOCKED_DATA: Ожидает поступления фактических снапшотов глубины стакана (OrderbookDepthSnapshot)."
         },
     }
 
@@ -693,7 +703,14 @@ def run_stage2_study(
             "title": "Stage 2 Comprehensive Regime and Strike Research Study",
             "asset": target_asset,
             "generated_at": datetime.now(timezone.utc).isoformat(),
-            "git_commit": "b9e3930a184dae487aab7239c9640b2362295ceb",
+            "git_commit": git_commit,
+            "git_dirty": git_dirty,
+            "input_hashes": {
+                "snapshots": snaps_hash,
+                "candles": candles_hash,
+                "expirations": exp_hash
+            },
+            "schema_version": "1.1.0",
             "seed": seed,
             "n_bootstrap": n_bootstrap,
             "total_candidate_opportunities": len(c0_sub),
@@ -712,6 +729,7 @@ def run_stage2_study(
         "item_25_and_28_core_variants": variant_results,
         "item_26_multi_budget_execution": budget_tables,
         "item_27_execution_selection_effect": selection_effect,
+        "item_29_exploratory_results": exploratory_results,
         "item_29_holdout_results": holdout_results,
         "item_30_decision_verdict": {
             "verdict_status": decision_verdict,

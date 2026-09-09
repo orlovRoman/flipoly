@@ -405,6 +405,7 @@ class PolymarketClient:
         Ensures strict contract verification and explicit quality status (Points 4, 6, 7).
         """
         now = datetime.now(timezone.utc)
+        received_at_dt = now
         try:
             response = None
             for attempt in range(3):
@@ -412,6 +413,7 @@ class PolymarketClient:
                     response = await self.client.get(
                         f"{self.CLOB_API}/book", params={"token_id": token_id}
                     )
+                    received_at_dt = datetime.now(timezone.utc)
                 except (httpx.TimeoutException, httpx.NetworkError) as exc:
                     if attempt == 2:
                         raise
@@ -432,7 +434,7 @@ class PolymarketClient:
                     token_id=str(token_id),
                     outcome_side=outcome_side,
                     event_at=now,
-                    received_at=now,
+                    received_at=received_at_dt,
                     bids=[],
                     asks=[],
                     quality_status=status,
@@ -451,7 +453,7 @@ class PolymarketClient:
                 token_id=str(token_id),
                 outcome_side=outcome_side,
                 event_at=now,
-                received_at=now,
+                received_at=received_at_dt,
                 sequence_id=seq_id,
                 depth_limit=depth_limit,
                 source="CLOB",
@@ -507,11 +509,13 @@ class PolymarketClient:
                 "no_orderbook": no_book,
             }
 
-            if yes_book.quality_status in ("VALID", "UNORDERED_LEVELS_NORMALIZED"):
+            if yes_book.quality_status in ("VALID", "UNORDERED_LEVELS_NORMALIZED", "EMPTY_BOOK"):
                 res["bids"] = yes_book.bids
                 res["asks"] = yes_book.asks
                 res["best_bid"] = yes_book.best_bid_price
                 res["best_ask"] = yes_book.best_ask_price
+                res["current_yes_price"] = None
+                res["current_spread"] = None
                 if yes_book.best_bid_price is not None and yes_book.best_ask_price is not None:
                     res["current_yes_price"] = (yes_book.best_bid_price + yes_book.best_ask_price) / 2.0
                     res["current_spread"] = yes_book.best_ask_price - yes_book.best_bid_price
