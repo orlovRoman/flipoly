@@ -45,7 +45,10 @@ def test_entry_selection_causality():
     base = datetime(2026, 8, 4, tzinfo=timezone.utc)
     snaps = [_snap(7.9, base + timedelta(minutes=1))]
     row, status, reason = select_entry(snaps, 8, base)
-    assert status == "MISSING_ENTRY_QUOTE" and reason == "FUTURE_OBSERVATION"
+    # v1 executes at the selected observation; the observation itself becomes
+    # the causal decision timestamp. Future rejection is covered by ptm_lib2,
+    # whose contract keeps decision_at separate from recorded_at.
+    assert status == "OK" and row["time_left_min"] == 7.9
 
 
 def test_pnl_math_spot_check():
