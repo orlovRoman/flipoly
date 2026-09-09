@@ -68,36 +68,36 @@
     }
   },
   "CS": {
-    "n_trades": 738,
-    "base_net_pnl": -50.99,
-    "base_expectancy": -0.0691,
+    "n_trades": 815,
+    "base_net_pnl": -21.97,
+    "base_expectancy": -0.027,
     "absolute_shifts": {
       "+0.005_usdc_per_share": {
-        "net_pnl_usdc": -80.34,
-        "expectancy": -0.1089,
-        "pnl_drop_usdc": 29.35
+        "net_pnl_usdc": -63.95,
+        "expectancy": -0.0785,
+        "pnl_drop_usdc": 41.98
       },
       "+0.010_usdc_per_share": {
-        "net_pnl_usdc": -105.93,
-        "expectancy": -0.1435,
-        "pnl_drop_usdc": 54.94
+        "net_pnl_usdc": -98.25,
+        "expectancy": -0.1206,
+        "pnl_drop_usdc": 76.28
       },
       "+0.020_usdc_per_share": {
-        "net_pnl_usdc": -149.05,
-        "expectancy": -0.202,
-        "pnl_drop_usdc": 98.06
+        "net_pnl_usdc": -152.92,
+        "expectancy": -0.1876,
+        "pnl_drop_usdc": 130.95
       }
     },
     "relative_shifts": {
       "+2%": {
-        "net_pnl_usdc": -64.49,
-        "expectancy": -0.0874,
-        "pnl_drop_usdc": 13.5
+        "net_pnl_usdc": -37.55,
+        "expectancy": -0.0461,
+        "pnl_drop_usdc": 15.58
       },
       "+5%": {
-        "net_pnl_usdc": -83.78,
-        "expectancy": -0.1135,
-        "pnl_drop_usdc": 32.79
+        "net_pnl_usdc": -59.81,
+        "expectancy": -0.0734,
+        "pnl_drop_usdc": 37.84
       }
     }
   },
@@ -136,70 +136,70 @@
     }
   },
   "CT_plus_proxy_strike": {
-    "n_trades": 204,
-    "base_net_pnl": 85.83,
-    "base_expectancy": 0.4207,
+    "n_trades": 220,
+    "base_net_pnl": 78.88,
+    "base_expectancy": 0.3586,
     "absolute_shifts": {
       "+0.005_usdc_per_share": {
-        "net_pnl_usdc": 73.4,
-        "expectancy": 0.3598,
-        "pnl_drop_usdc": 12.43
+        "net_pnl_usdc": 66.31,
+        "expectancy": 0.3014,
+        "pnl_drop_usdc": 12.57
       },
       "+0.010_usdc_per_share": {
-        "net_pnl_usdc": 62.75,
-        "expectancy": 0.3076,
-        "pnl_drop_usdc": 23.08
+        "net_pnl_usdc": 55.54,
+        "expectancy": 0.2524,
+        "pnl_drop_usdc": 23.35
       },
       "+0.020_usdc_per_share": {
-        "net_pnl_usdc": 45.08,
-        "expectancy": 0.221,
-        "pnl_drop_usdc": 40.75
+        "net_pnl_usdc": 37.61,
+        "expectancy": 0.171,
+        "pnl_drop_usdc": 41.27
       }
     },
     "relative_shifts": {
       "+2%": {
-        "net_pnl_usdc": 80.14,
-        "expectancy": 0.3928,
-        "pnl_drop_usdc": 5.69
+        "net_pnl_usdc": 73.02,
+        "expectancy": 0.3319,
+        "pnl_drop_usdc": 5.87
       },
       "+5%": {
-        "net_pnl_usdc": 72.01,
-        "expectancy": 0.353,
-        "pnl_drop_usdc": 13.82
+        "net_pnl_usdc": 64.63,
+        "expectancy": 0.2938,
+        "pnl_drop_usdc": 14.25
       }
     }
   },
   "C1": {
-    "n_trades": 1177,
-    "base_net_pnl": 66.98,
-    "base_expectancy": 0.0569,
+    "n_trades": 1230,
+    "base_net_pnl": 93.36,
+    "base_expectancy": 0.0759,
     "absolute_shifts": {
       "+0.005_usdc_per_share": {
-        "net_pnl_usdc": 15.82,
-        "expectancy": 0.0134,
-        "pnl_drop_usdc": 51.16
+        "net_pnl_usdc": 30.46,
+        "expectancy": 0.0248,
+        "pnl_drop_usdc": 62.9
       },
       "+0.010_usdc_per_share": {
-        "net_pnl_usdc": -28.79,
-        "expectancy": -0.0245,
-        "pnl_drop_usdc": 95.77
+        "net_pnl_usdc": -22.05,
+        "expectancy": -0.0179,
+        "pnl_drop_usdc": 115.4
       },
       "+0.020_usdc_per_share": {
-        "net_pnl_usdc": -104.08,
-        "expectancy": -0.0884,
-        "pnl_drop_usdc": 171.06
+        "net_pnl_usdc": -107.43,
+        "expectancy": -0.0873,
+        "pnl_drop_usdc": 200.79
       }
     },
     "relative_shifts": {
       "+2%": {
-        "net_pnl_usdc": 42.54,
-        "expectancy": 0.0361,
-        "pnl_drop_usdc": 24.44
+        "net_pnl_usdc": 67.36,
+        "expectancy": 0.0548,
+        "pnl_drop_usdc": 26.0
       },
       "+5%": {
-        "net_pnl_usdc": 7.63,
-        "expectancy": 0.0065,
-        "pnl_drop_usdc": 59.35
+        "net_pnl_usdc": 30.22,
+        "expectancy": 0.0246,
+        "pnl_drop_usdc": 63.14
       }
     }
   }

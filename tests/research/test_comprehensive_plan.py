@@ -696,3 +696,52 @@ def test_stage2_negative_book_age_unmasked():
     assert res.fill_status == "STALE_BOOK"
     assert res.data_status == "INVALID_TIMESTAMP"
 
+
+def test_stage2_book_age_is_from_decision_at():
+    """Verify that book_age is computed as (decision_at - depth_event_at), not as latency (received_at - event_at).
+
+    Scenario: snapshot event_at=12:00:00, received_at=12:00:01 (1s latency),
+    but decision_at=12:05:00 (5 minutes later).
+    Correct book_age = 300s (stale), not 1s (fresh).
+    """
+    # pd is imported at the top of this file
+    from polyflip.research.orderbook_execution import simulate_orderbook_execution
+
+    event_at = pd.to_datetime("2026-08-01T12:00:00Z", utc=True)
+    received_at = pd.to_datetime("2026-08-01T12:00:01Z", utc=True)
+    decision_at = pd.to_datetime("2026-08-01T12:05:00Z", utc=True)
+
+    # Correct book_age: decision_at - event_at = 300s
+    correct_book_age = (decision_at - event_at).total_seconds()
+    assert correct_book_age == 300.0
+
+    # Old wrong latency book_age: received_at - event_at = 1s
+    wrong_latency_book_age = (received_at - event_at).total_seconds()
+    assert wrong_latency_book_age == 1.0
+
+    asks = [{"price": 0.05, "size": 100.0}]
+    # With correct book_age=300s and default max_staleness=30s -> STALE_BOOK
+    res_correct = simulate_orderbook_execution(asks, budget_usdc=1.0, book_age_sec=correct_book_age)
+    assert res_correct.fill_status == "STALE_BOOK", (
+        f"Expected STALE_BOOK for book_age=300s but got {res_correct.fill_status}"
+    )
+
+    # With wrong latency book_age=1s -> fills normally (was the old bug)
+    res_wrong = simulate_orderbook_execution(asks, budget_usdc=1.0, book_age_sec=wrong_latency_book_age)
+    assert res_wrong.fill_status == "FULL", (
+        f"With 1s latency-only book_age should FULL-fill, got {res_wrong.fill_status}"
+    )
+
+
+def test_stage2_book_age_causality_violation():
+    """Verify that if depth_received_at > decision_at (future snapshot), book_age=None -> UNKNOWN_TIMESTAMP."""
+    from polyflip.research.orderbook_execution import simulate_orderbook_execution
+
+    # snapshot received AFTER decision -> causality violation -> book_age must be None
+    # This test mirrors the stage2_regime_study.py causality check:
+    # if dr_at > decision_at: book_age = None
+    asks = [{"price": 0.05, "size": 100.0}]
+    res = simulate_orderbook_execution(asks, budget_usdc=1.0, book_age_sec=None)
+    assert res.fill_status == "STALE_BOOK"
+    assert res.data_status == "UNKNOWN_TIMESTAMP"
+

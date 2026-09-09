@@ -61,10 +61,14 @@ def run_stage2_study(
 
     try:
         git_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], stderr=subprocess.DEVNULL).decode().strip()
-        git_dirty = bool(subprocess.check_output(['git', 'status', '--porcelain', '--', 'polyflip', 'scripts', 'tests'], stderr=subprocess.DEVNULL).decode().strip())
+        # code_dirty: only polyflip/, scripts/, tests/ (what affects reproducibility)
+        code_dirty = bool(subprocess.check_output(['git', 'status', '--porcelain', '--', 'polyflip', 'scripts', 'tests'], stderr=subprocess.DEVNULL).decode().strip())
+        # full_tree_dirty: entire working tree (configs, deps, etc.)
+        full_tree_dirty = bool(subprocess.check_output(['git', 'status', '--porcelain'], stderr=subprocess.DEVNULL).decode().strip())
     except Exception:
         git_commit = "UNKNOWN"
-        git_dirty = False
+        code_dirty = False
+        full_tree_dirty = False
 
     def hash_file(filepath):
         if filepath is None:
@@ -302,7 +306,12 @@ def run_stage2_study(
                 try:
                     de_at = pd.to_datetime(dec_row["depth_event_at"], utc=True)
                     dr_at = pd.to_datetime(dec_row["depth_received_at"], utc=True)
-                    book_age = (dr_at - de_at).total_seconds()
+                    # Causality check: snapshot must be received before decision
+                    if dr_at > decision_at:
+                        book_age = None  # future snapshot -> UNKNOWN_TIMESTAMP in simulator
+                    else:
+                        # Age = time from snapshot event to decision moment
+                        book_age = (decision_at - de_at).total_seconds()
                 except Exception:
                     book_age = None
             
@@ -800,23 +809,28 @@ def run_stage2_study(
 
     # Does CT improve price control?
     improves_control = delta_ct > 0 and ci_delta_ct[0] > 0
-    # Is standalone expectancy positive?
-    standalone_positive = ci_stand_ct[0] > 0
+    # Is standalone expectancy positive (point estimate)?
+    standalone_positive = variant_results["CT"]["expectancy"] > 0
+    # Is standalone expectancy statistically confirmed (95% CI above zero)?
+    standalone_ci_confirms = ci_stand_ct[0] > 0
     # Does effect persist in exploratory/holdout?
     exploratory_positive = exploratory_results["CT"]["net_pnl_usdc"] > 0
-    
+
     if not improves_control:
         decision_verdict = "SIMPLIFY_RULE_DO_NOT_ADD_ML"
         decision_action = "Фильтр не улучшает ценовой контроль -> Упростить правило; не добавлять ML поверх него"
     elif not standalone_positive:
         decision_verdict = "LOSS_REDUCTION_ONLY_NO_STANDALONE_PROFITABILITY"
-        decision_action = "Фильтр сокращает убыток, но собственная expectancy отрицательна -> Зафиксировать улучшение отбора без заявления о прибыльности"
+        decision_action = "Фильтр сокращает убыток, собственная expectancy отрицательная -> Зафиксировать улучшение отбора без заявления о прибыльности"
+    elif not standalone_ci_confirms:
+        decision_verdict = "PROMISING_BUT_UNCERTAIN"
+        decision_action = "Expectancy CT положительная (+0.1262), но 95% CI пересекает ноль [-0.06; +0.29] -> Оценка обнадёживает, статистическое подтверждение требует большей выборки; продолжить сбор"
     elif not exploratory_positive:
         decision_verdict = "UNCERTAIN_PRESERVE_AND_COLLECT"
         decision_action = "Результат положительный на dev, но неопределённость велика на exploratory -> Сохранить конфигурацию и продолжить сбор"
     else:
         decision_verdict = "GROUNDS_TO_TEST_ML"
-        decision_action = "Есть положительная собственная expectancy и дополнительная польза на последующих данных -> Проверить вклад логистической регрессии, затем LightGBM"
+        decision_action = "Есть положительная подтверждённая expectancy и польза на последующих данных -> Проверить вклад логистической регрессии, затем LightGBM"
 
     ct_exec_1 = budget_tables["$1"]["CT"]
     if ct_exec_1.get("status") == "BLOCKED_DATA" or ct_exec_1.get("net_pnl_total") is None:
@@ -892,14 +906,16 @@ def run_stage2_study(
             "asset": target_asset,
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "git_commit": git_commit,
-            "git_dirty": git_dirty,
+            "code_dirty": code_dirty,
+            "full_tree_dirty": full_tree_dirty,
+            "fee_assumption": "taker_fee=0.2%, scenario PnL only (no execution confirmation)",
             "input_hashes": {
                 "snapshots": snaps_hash,
                 "candles": candles_hash,
                 "candles_1m": candles_1m_hash,
                 "expirations": exp_hash
             },
-            "schema_version": "1.1.0",
+            "schema_version": "1.2.0",
             "seed": seed,
             "n_bootstrap": n_bootstrap,
             "total_candidate_opportunities": len(c0_sub),

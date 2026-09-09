@@ -55,7 +55,9 @@ def main() -> None:
     print("=" * 80)
 
     snaps_csv = REPO_ROOT / "artifacts" / "research" / "btc_snapshots_4_15m.csv"
-    candles_csv = REPO_ROOT / "artifacts" / "research" / "crypto_candles_5m.csv"
+    # Use resampled 5m bars (derived from 1m, all closed) for reproducible CS computation.
+    # Legacy original CSV preserved as crypto_candles_5m_legacy.csv (historical control).
+    candles_csv = REPO_ROOT / "artifacts" / "research" / "crypto_candles_5m_resampled.csv"
     candles_1m_csv = REPO_ROOT / "artifacts" / "research" / "crypto_candles_1m.csv"
     exp_json = REPO_ROOT / "artifacts" / "research" / "market_expirations.json"
 
