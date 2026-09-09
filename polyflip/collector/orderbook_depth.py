@@ -308,7 +308,6 @@ def compute_orderbook_completeness_report(
 
     target_markets = set(decision_market_ids) if decision_market_ids else set(market_sides.keys())
     
-    # Causal search for pairing: group by market, sort by received_at, find YES/NO within 5 seconds
     both_count = 0
     total_decision_snaps = 0
     
@@ -322,7 +321,7 @@ def compute_orderbook_completeness_report(
         
         for yb in yes_books:
             total_decision_snaps += 1
-            # Causal search: find any NO book within 5 seconds before or after
+            # Causal search: find any NO book within 5 seconds
             paired = any(abs((nb.received_at - yb.received_at).total_seconds()) <= 5.0 for nb in no_books)
             if paired:
                 both_count += 1

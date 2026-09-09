@@ -2,8 +2,8 @@
   "metadata": {
     "title": "Stage 2 Comprehensive Regime and Strike Research Study",
     "asset": "BTC",
-    "generated_at": "2026-09-09T06:59:18.663581+00:00",
-    "git_commit": "926fb5771c6b7c7d913880b32ac61230049a4cfe",
+    "generated_at": "2026-09-09T07:17:49.842704+00:00",
+    "git_commit": "692c19e27f29cc870601f92ce8a5df6079e0be97",
     "git_dirty": true,
     "input_hashes": {
       "snapshots": "31b18ee191d2fa82a0cc0fa85ecd8a612577d5b54108f7a19078e3a2f037b3b0",
@@ -722,31 +722,199 @@
   },
   "item_26_multi_budget_execution": {
     "$1": {
-      "full_fills": 0,
-      "partial_fills": 0,
-      "unfilled": 0,
-      "total_spent_usdc": 0.0,
-      "vwap_drift_vs_decision_price": 0.0,
-      "net_pnl_total": 0.0,
-      "return_on_spent_pct": 0.0
+      "C0": {
+        "full_fills": 0,
+        "partial_fills": 0,
+        "unfilled": 0,
+        "total_spent_usdc": 0.0,
+        "vwap_drift_vs_decision_price": 0.0,
+        "net_pnl_total": 0.0,
+        "return_on_spent_pct": 0.0
+      },
+      "CT": {
+        "full_fills": 0,
+        "partial_fills": 0,
+        "unfilled": 0,
+        "total_spent_usdc": 0.0,
+        "vwap_drift_vs_decision_price": 0.0,
+        "net_pnl_total": 0.0,
+        "return_on_spent_pct": 0.0
+      },
+      "CS": {
+        "full_fills": 0,
+        "partial_fills": 0,
+        "unfilled": 0,
+        "total_spent_usdc": 0.0,
+        "vwap_drift_vs_decision_price": 0.0,
+        "net_pnl_total": 0.0,
+        "return_on_spent_pct": 0.0
+      },
+      "CS_short": {
+        "full_fills": 0,
+        "partial_fills": 0,
+        "unfilled": 0,
+        "total_spent_usdc": 0.0,
+        "vwap_drift_vs_decision_price": 0.0,
+        "net_pnl_total": 0.0,
+        "return_on_spent_pct": 0.0
+      },
+      "CT_plus_canonical_strike": {
+        "full_fills": 0,
+        "partial_fills": 0,
+        "unfilled": 0,
+        "total_spent_usdc": 0.0,
+        "vwap_drift_vs_decision_price": 0.0,
+        "net_pnl_total": 0.0,
+        "return_on_spent_pct": 0.0
+      },
+      "CT_plus_proxy_strike": {
+        "full_fills": 0,
+        "partial_fills": 0,
+        "unfilled": 0,
+        "total_spent_usdc": 0.0,
+        "vwap_drift_vs_decision_price": 0.0,
+        "net_pnl_total": 0.0,
+        "return_on_spent_pct": 0.0
+      },
+      "C1": {
+        "full_fills": 0,
+        "partial_fills": 0,
+        "unfilled": 0,
+        "total_spent_usdc": 0.0,
+        "vwap_drift_vs_decision_price": 0.0,
+        "net_pnl_total": 0.0,
+        "return_on_spent_pct": 0.0
+      }
     },
     "$5": {
-      "full_fills": 0,
-      "partial_fills": 0,
-      "unfilled": 0,
-      "total_spent_usdc": 0.0,
-      "vwap_drift_vs_decision_price": 0.0,
-      "net_pnl_total": 0.0,
-      "return_on_spent_pct": 0.0
+      "C0": {
+        "full_fills": 0,
+        "partial_fills": 0,
+        "unfilled": 0,
+        "total_spent_usdc": 0.0,
+        "vwap_drift_vs_decision_price": 0.0,
+        "net_pnl_total": 0.0,
+        "return_on_spent_pct": 0.0
+      },
+      "CT": {
+        "full_fills": 0,
+        "partial_fills": 0,
+        "unfilled": 0,
+        "total_spent_usdc": 0.0,
+        "vwap_drift_vs_decision_price": 0.0,
+        "net_pnl_total": 0.0,
+        "return_on_spent_pct": 0.0
+      },
+      "CS": {
+        "full_fills": 0,
+        "partial_fills": 0,
+        "unfilled": 0,
+        "total_spent_usdc": 0.0,
+        "vwap_drift_vs_decision_price": 0.0,
+        "net_pnl_total": 0.0,
+        "return_on_spent_pct": 0.0
+      },
+      "CS_short": {
+        "full_fills": 0,
+        "partial_fills": 0,
+        "unfilled": 0,
+        "total_spent_usdc": 0.0,
+        "vwap_drift_vs_decision_price": 0.0,
+        "net_pnl_total": 0.0,
+        "return_on_spent_pct": 0.0
+      },
+      "CT_plus_canonical_strike": {
+        "full_fills": 0,
+        "partial_fills": 0,
+        "unfilled": 0,
+        "total_spent_usdc": 0.0,
+        "vwap_drift_vs_decision_price": 0.0,
+        "net_pnl_total": 0.0,
+        "return_on_spent_pct": 0.0
+      },
+      "CT_plus_proxy_strike": {
+        "full_fills": 0,
+        "partial_fills": 0,
+        "unfilled": 0,
+        "total_spent_usdc": 0.0,
+        "vwap_drift_vs_decision_price": 0.0,
+        "net_pnl_total": 0.0,
+        "return_on_spent_pct": 0.0
+      },
+      "C1": {
+        "full_fills": 0,
+        "partial_fills": 0,
+        "unfilled": 0,
+        "total_spent_usdc": 0.0,
+        "vwap_drift_vs_decision_price": 0.0,
+        "net_pnl_total": 0.0,
+        "return_on_spent_pct": 0.0
+      }
     },
     "$10": {
-      "full_fills": 0,
-      "partial_fills": 0,
-      "unfilled": 0,
-      "total_spent_usdc": 0.0,
-      "vwap_drift_vs_decision_price": 0.0,
-      "net_pnl_total": 0.0,
-      "return_on_spent_pct": 0.0
+      "C0": {
+        "full_fills": 0,
+        "partial_fills": 0,
+        "unfilled": 0,
+        "total_spent_usdc": 0.0,
+        "vwap_drift_vs_decision_price": 0.0,
+        "net_pnl_total": 0.0,
+        "return_on_spent_pct": 0.0
+      },
+      "CT": {
+        "full_fills": 0,
+        "partial_fills": 0,
+        "unfilled": 0,
+        "total_spent_usdc": 0.0,
+        "vwap_drift_vs_decision_price": 0.0,
+        "net_pnl_total": 0.0,
+        "return_on_spent_pct": 0.0
+      },
+      "CS": {
+        "full_fills": 0,
+        "partial_fills": 0,
+        "unfilled": 0,
+        "total_spent_usdc": 0.0,
+        "vwap_drift_vs_decision_price": 0.0,
+        "net_pnl_total": 0.0,
+        "return_on_spent_pct": 0.0
+      },
+      "CS_short": {
+        "full_fills": 0,
+        "partial_fills": 0,
+        "unfilled": 0,
+        "total_spent_usdc": 0.0,
+        "vwap_drift_vs_decision_price": 0.0,
+        "net_pnl_total": 0.0,
+        "return_on_spent_pct": 0.0
+      },
+      "CT_plus_canonical_strike": {
+        "full_fills": 0,
+        "partial_fills": 0,
+        "unfilled": 0,
+        "total_spent_usdc": 0.0,
+        "vwap_drift_vs_decision_price": 0.0,
+        "net_pnl_total": 0.0,
+        "return_on_spent_pct": 0.0
+      },
+      "CT_plus_proxy_strike": {
+        "full_fills": 0,
+        "partial_fills": 0,
+        "unfilled": 0,
+        "total_spent_usdc": 0.0,
+        "vwap_drift_vs_decision_price": 0.0,
+        "net_pnl_total": 0.0,
+        "return_on_spent_pct": 0.0
+      },
+      "C1": {
+        "full_fills": 0,
+        "partial_fills": 0,
+        "unfilled": 0,
+        "total_spent_usdc": 0.0,
+        "vwap_drift_vs_decision_price": 0.0,
+        "net_pnl_total": 0.0,
+        "return_on_spent_pct": 0.0
+      }
     }
   },
   "item_27_execution_selection_effect": {
@@ -862,8 +1030,8 @@
         "evidence": "Delta +425.40 USDC, 95% CI [213.42, 656.75]. Улучшение относительно контроля True."
       },
       "q3_does_result_survive_execution": {
-        "verdict": null,
-        "evidence": "BLOCKED_DATA: Ожидает поступления фактических снапшотов глубины стакана (OrderbookDepthSnapshot)."
+        "verdict": false,
+        "evidence": "Executed CT $1 net PnL: 0.0 USDC (vs C0: 0.0). VWAP drift: 0.00%"
       }
     },
     "deploy_to_production": false

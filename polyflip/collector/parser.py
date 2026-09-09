@@ -117,13 +117,19 @@ async def run_collector_cycle(db_session: AsyncSession):
                     price_velocity = mid_price - live_m.current_yes_price
                 
                 # Обновляем LiveMarket
-                live_m.current_yes_price = mid_price
-                live_m.current_no_price = prices.get("current_no_price")
-                live_m.current_spread = spread
-                live_m.price_velocity = price_velocity
+                if mid_price is not None:
+                    live_m.current_yes_price = mid_price
+                    live_m.current_no_price = prices.get("current_no_price")
+                    live_m.current_spread = spread
+                    live_m.price_velocity = price_velocity
+                    live_m.last_updated = current_time
+
                 live_m.volume_5min = vol_val
                 live_m.volume_status = vol_status
-                live_m.last_updated = current_time
+                if live_m.last_updated is None or (mid_price is None and live_m.last_updated < current_time):
+                    # update last_updated even if no price, to reflect recent activity poll? 
+                    # The user said "пропускается обновление цены", volume can still be updated
+                    live_m.last_updated = current_time
                 live_m.yes_token_id = yes_token_id
                 live_m.no_token_id = m_data["no_token_id"]
                 if getattr(live_m, "underlying_price", None) is None:
@@ -144,7 +150,7 @@ async def run_collector_cycle(db_session: AsyncSession):
                     live_m.binance_price = binance_price
                 if oracle_price is not None:
                     live_m.oracle_price = oracle_price
-            else:
+            elif mid_price is not None:
                 # Создаем новую запись в LiveMarket
                 live_m = LiveMarket(
                     market_id=market_id,
@@ -175,41 +181,43 @@ async def run_collector_cycle(db_session: AsyncSession):
                 db_session.add(live_m)
 
             # 4. Сохраняем Snapshot
-            snapshot = MarketSnapshot(
-                asset=m_data["asset"],
-                market_id=market_id,
-                time_left_min=time_left_min,
-                mid_price=mid_price,
-                spread=spread,
-                best_bid=prices.get("best_bid"),
-                best_ask=prices.get("best_ask"),
-                volume_5min=vol_val,
-                volume_status=vol_status,
-                price_velocity=price_velocity,
-                hour_of_day=current_time.hour,
-                final_outcome="PENDING",
-                flip_vs_final=False,
-                recorded_at=current_time,
-                strike_value=strike_val,
-                strike_source=strike_src,
-                strike_effective_at=strike_eff,
-                strike_received_at=strike_rec,
-                strike_observed_at=strike_rec,
-                market_start_at=start_date,
-                market_end_at=end_date,
-                settlement_price_source=settlement_src,
-                binance_price=binance_price,
-                oracle_price=oracle_price,
-            )
-            db_session.add(snapshot)
-            await db_session.flush()
+            snapshot = None
+            if mid_price is not None and spread is not None:
+                snapshot = MarketSnapshot(
+                    asset=m_data["asset"],
+                    market_id=market_id,
+                    time_left_min=time_left_min,
+                    mid_price=mid_price,
+                    spread=spread,
+                    best_bid=prices.get("best_bid"),
+                    best_ask=prices.get("best_ask"),
+                    volume_5min=vol_val,
+                    volume_status=vol_status,
+                    price_velocity=price_velocity,
+                    hour_of_day=current_time.hour,
+                    final_outcome="PENDING",
+                    flip_vs_final=False,
+                    recorded_at=current_time,
+                    strike_value=strike_val,
+                    strike_source=strike_src,
+                    strike_effective_at=strike_eff,
+                    strike_received_at=strike_rec,
+                    strike_observed_at=strike_rec,
+                    market_start_at=start_date,
+                    market_end_at=end_date,
+                    settlement_price_source=settlement_src,
+                    binance_price=binance_price,
+                    oracle_price=oracle_price,
+                )
+                db_session.add(snapshot)
+                await db_session.flush()
 
             # 5. Сохраняем OrderbookDepthSnapshot для YES и NO (Point 6)
             yb = prices.get("yes_orderbook")
             if yb:
                 db_session.add(
                     OrderbookDepthSnapshot(
-                        snapshot_id=snapshot.id,
+                        snapshot_id=snapshot.id if snapshot else None,
                         market_id=market_id,
                         token_id=yes_token_id,
                         outcome_side="YES",
@@ -236,7 +244,7 @@ async def run_collector_cycle(db_session: AsyncSession):
             if nb and no_token_id:
                 db_session.add(
                     OrderbookDepthSnapshot(
-                        snapshot_id=snapshot.id,
+                        snapshot_id=snapshot.id if snapshot else None,
                         market_id=market_id,
                         token_id=no_token_id,
                         outcome_side="NO",

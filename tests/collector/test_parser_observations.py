@@ -115,7 +115,7 @@ async def test_run_collector_cycle_records_and_flushes_strike(db_session: AsyncS
 
 @pytest.mark.asyncio
 async def test_run_collector_cycle_one_sided_orderbook(db_session: AsyncSession):
-    """One-sided orderbook correctly saves depth in database instead of rejecting it."""
+    """One-sided orderbook correctly saves depth in database without MarketSnapshot and skips price update."""
     now = datetime.now(timezone.utc)
     mock_market = {
         "market_id": "test_m_oneside",
@@ -126,6 +126,26 @@ async def test_run_collector_cycle_one_sided_orderbook(db_session: AsyncSession)
         "end_date_iso": (now + timedelta(minutes=15)).isoformat(),
     }
     
+    # Mocking orderbook structure
+    class MockOrderbook:
+        def __init__(self, side):
+            self.event_at = now
+            self.received_at = now
+            self.bids = [] if side == "NO" else [{"price": 0.05, "size": 100}]
+            self.asks = [{"price": 0.05, "size": 100}] if side == "NO" else []
+            self.sequence_id = "1"
+            self.is_truncated = False
+            self.depth_limit = 100
+            self.source = "CLOB"
+            self.quality_status = "VALID"
+            self.quality_notes = None
+            self.best_bid_price = None if side == "NO" else 0.05
+            self.best_bid_size = None if side == "NO" else 100
+            self.best_ask_price = 0.05 if side == "NO" else None
+            self.best_ask_size = 100 if side == "NO" else None
+            self.depth_usdc_bid = 0.0 if side == "NO" else 5.0
+            self.depth_usdc_ask = 5.0 if side == "NO" else 0.0
+
     # Missing mid_price/spread due to empty side (e.g. YES has no bids, NO has no asks)
     mock_prices = {
         "current_yes_price": None,
@@ -133,6 +153,8 @@ async def test_run_collector_cycle_one_sided_orderbook(db_session: AsyncSession)
         "current_spread": None,
         "best_bid": None,
         "best_ask": 0.05,
+        "yes_orderbook": MockOrderbook("YES"),
+        "no_orderbook": MockOrderbook("NO"),
     }
 
     with patch("polyflip.collector.parser.PolymarketClient") as MockClient:
@@ -140,16 +162,19 @@ async def test_run_collector_cycle_one_sided_orderbook(db_session: AsyncSession)
         instance.get_active_15m_markets.return_value = [mock_market]
         instance.get_market_prices.return_value = mock_prices
         instance.get_recent_trades_volume.return_value = 100.0
-        
-        # We need the parser to also call get_both_orderbooks probably, but it's not mocked here
-        # Actually parser just processes it
         MockClient.return_value = instance
 
         await run_collector_cycle(db_session)
 
-    # Verify MarketSnapshot allows nullable mid_price
-    res = await db_session.execute(select(MarketSnapshot).where(MarketSnapshot.market_id == "test_m_oneside").order_by(MarketSnapshot.id.desc()).limit(1))
+    # Verify MarketSnapshot is NOT created
+    from polyflip.db.models import MarketSnapshot, OrderbookDepthSnapshot
+    res = await db_session.execute(select(MarketSnapshot).where(MarketSnapshot.market_id == "test_m_oneside"))
     snapshot = res.scalar_one_or_none()
-    assert snapshot is not None
-    assert snapshot.mid_price is None
-    assert snapshot.spread is None
+    assert snapshot is None
+
+    # Verify OrderbookDepthSnapshot is created and snapshot_id is None
+    res = await db_session.execute(select(OrderbookDepthSnapshot).where(OrderbookDepthSnapshot.market_id == "test_m_oneside"))
+    depths = res.scalars().all()
+    assert len(depths) == 2
+    assert depths[0].snapshot_id is None
+    assert depths[1].snapshot_id is None

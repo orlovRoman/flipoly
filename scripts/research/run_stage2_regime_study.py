@@ -108,11 +108,15 @@ def main() -> None:
     print("MULTI-BUDGET EXECUTION SIMULATION (Item 26)")
     print("=" * 80)
     mb = res["item_26_multi_budget_execution"]
-    print(f"{'Budget':<8s} | {'Fills (Full/Part/Unfill)':<25s} | {'Spent USDC':<11s} | {'VWAP Drift':<10s} | {'Net PnL':<10s} | {'ROIC %':<8s}")
-    print("-" * 80)
+    print(f"{'Budget':<8s} | {'Variant':<10s} | {'Fills (Full/Part/Unfill)':<25s} | {'Spent USDC':<11s} | {'VWAP Drift':<10s} | {'Net PnL':<10s} | {'ROIC %':<8s}")
+    print("-" * 95)
     for b_lbl, b_data in mb.items():
-        fills_str = f"{b_data['full_fills']}/{b_data['partial_fills']}/{b_data['unfilled']}"
-        print(f"{b_lbl:<8s} | {fills_str:<25s} | {b_data['total_spent_usdc']:<11.2f} | {b_data['vwap_drift_vs_decision_price']:+9.4f} | {b_data['net_pnl_total']:+9.2f}  | {b_data['return_on_spent_pct']:+6.2f}%")
+        if isinstance(b_data, dict):
+            for v_key in ["C0", "CT"]:
+                if v_key in b_data:
+                    v_data = b_data[v_key]
+                    fills_str = f"{v_data['full_fills']}/{v_data['partial_fills']}/{v_data['unfilled']}"
+                    print(f"{b_lbl:<8s} | {v_key:<10s} | {fills_str:<25s} | {v_data['total_spent_usdc']:<11.2f} | {v_data['vwap_drift_vs_decision_price']:+9.4f} | {v_data['net_pnl_total']:+9.2f}  | {v_data['return_on_spent_pct']:+6.2f}%")
 
     print("\n" + "=" * 80)
     print(f"VERDICT: {res['item_30_decision_verdict']['verdict_status']}")
