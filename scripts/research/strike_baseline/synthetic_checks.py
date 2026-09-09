@@ -168,6 +168,49 @@ def test_proxy_vs_canonical():
     print("P1-05 proxy provenance design OK")
 
 
+def _load_phase2a():
+    import importlib.util
+    path = Path(__file__).resolve().parent / "run_phase2a.py"
+    spec = importlib.util.spec_from_file_location("sb_phase2a", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_phase2a_metrics_unit():
+    import numpy as np
+    m = _load_phase2a()
+    y = np.array([1.0, 0.0, 1.0, 0.0])
+    # perfect forecast -> brier 0, ece 0
+    p = np.array([1.0, 0.0, 1.0, 0.0])
+    assert m.brier(y, p) == 0.0
+    rel = m.reliability(y, p)
+    assert m.ece_from_table(rel, len(y)) == 0.0
+    assert int(rel["n"].sum()) == len(y)
+    # constant 0.5 on balanced -> brier 0.25
+    assert abs(m.brier(y, np.full(4, 0.5)) - 0.25) < 1e-12
+    # logloss finite even at p=0/1 (eps clip)
+    assert math.isfinite(m.logloss(y, p))
+    print("P2a metrics unit OK")
+
+
+def test_phase2a_split_rule():
+    import pandas as pd
+    mk = pd.DataFrame({
+        "market_id": [f"m{i}" for i in range(10)],
+        "close": pd.to_datetime([f"2026-07-{d:02d}" for d in range(1, 11)], utc=True),
+    }).sort_values("close").reset_index(drop=True)
+    n = len(mk)
+    i1, i2 = int(n * 0.60), int(n * 0.80)
+    import numpy as np
+    mk["split"] = np.where(mk.index < i1, "train", np.where(mk.index < i2, "validation", "test"))
+    assert (mk["split"] == "train").sum() == 6
+    assert (mk["split"] == "validation").sum() == 2
+    assert (mk["split"] == "test").sum() == 2
+    assert mk["close"].iloc[5] < mk["close"].iloc[6]  # sequential, no time leak
+    print("P2a split rule OK")
+
+
 def main() -> None:
     test_question_parse()
     test_question_mismatch()
@@ -178,6 +221,8 @@ def main() -> None:
     test_opportunity_id_unique()
     test_no_future_leak()
     test_proxy_vs_canonical()
+    test_phase2a_metrics_unit()
+    test_phase2a_split_rule()
     print("\nALL SYNTHETIC CHECKS PASSED")
 
 

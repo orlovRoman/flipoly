@@ -2,7 +2,14 @@
 # Frozen research protocol. Any parameter change requires a new protocol version + new run_id.
 # Self-check: this file is hashed at run start; no parameter is chosen using validation/test outcomes.
 
-protocol_version: "1.1"
+protocol_version: "1.2"
+changelog_v1_2: >
+  ADDITIVE Phase 2a (baselines + eval harness). Phase 1 params untouched.
+  Frozen: sequential 60/20/20 market splits by end_time_est; models M0 (p0, no
+  fit), M1 (logistic on [z, time_left, sigma], scaler fit on train, C=1.0,
+  max_iter=5000, no search), C (train YES rate); metrics brier/logloss(eps
+  1e-6)/ECE-10/reliability; economic rule p>=0.60 YES at ask / p<=0.40 NO at
+  1-bid, stake 10, gross only (fee unknown -> net null).
 changelog_v1_1: >
   Midnight-crossover rule: a question window whose end wall-clock is earlier
   than (or equal to) the start wall-clock (e.g. "11:45PM-12:00AM ET") ends on
@@ -118,6 +125,32 @@ phase1_self_checks:
   - {id: "P1-15", text: "approximate model not labeled as exact settlement; future part of average unavailable to features"}
   - {id: "P1-16", text: "p0(0)=0.5, monotone, finite; computation does not use outcomes"}
   - {id: "P1-17", text: "synthetic examples match manual calculation for ledger, sigma, z, statuses, p0"}
+
+# ---------- Phase 2a: baselines (frozen v1.2; no validation/test peeking) ----------
+phase2a:
+  version: "1.2-additive"
+  note: "Phase 1 frozen params untouched. Phase 2a establishes the eval harness + baselines."
+  input_ledger: "artifacts/research/strike_baseline/sb_20260909_131059/ledger.parquet"
+  rows: "status == ok only (coverage table stays the availability record)"
+  splits:
+    method: "sequential by market"
+    key: "end_time_est (market close proxy)"
+    fractions: {train: 0.60, validation: 0.20, test: 0.20}
+    rule: "unique markets sorted by end_time_est; entry variants follow their market"
+  models:
+    M0_formula: "p = p0 = Phi(z). No fitting. Pure position/time/vol control."
+    M1_logistic: "sklearn LogisticRegression(C=1.0, max_iter=5000) on [z, entry_min_before_close, sigma_min] with StandardScaler fit on TRAIN only. No hyperparameter search."
+    C_climatology: "p = train YES rate for every row. Reference only."
+  probability_metrics: [brier, log_loss_eps1e-6, ece_10bins, reliability_table, n, yes_rate]
+  economic_rule:
+    side: "YES if p>=0.60, NO if p<=0.40, else PASS"
+    stake_usdc: 10.0
+    yes_fill: "ask = yes_ask; pnl = (10/ask)*outcome - 10"
+    no_fill: "ask_no = 1 - yes_bid; pnl = (10/ask_no)*(1-outcome) - 10"
+    fee: "unknown -> gross only, net = null (per budget note)"
+    metrics: [n_entries, gross, expectancy, pnl_per_opportunity, turnover, weekly, per_asset, concentration_top_decile_share]
+  outputs: "artifacts/research/strike_baseline/sb2a_<ts>/{phase2a_metrics.json, reliability.csv, run_manifest.json}"
+  phase2b_planned: "CT/CS causal features + M2/M3/M4 + M5 LightGBM with train/val discipline (separate protocol bump)"
 
 phase1_exit_condition: >
   Contract rules and data provenance traceable; causality verified; coverage limitations published.
