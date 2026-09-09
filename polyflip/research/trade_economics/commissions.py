@@ -1,12 +1,36 @@
 import math
 from typing import Dict, Any, Optional
+import datetime
+
+def _parse_date(d: Any) -> Optional[datetime.date]:
+    if d is None:
+        return None
+    if isinstance(d, float) and math.isnan(d):
+        return None
+    if isinstance(d, str):
+        if d.lower() == 'nan' or d.strip() == '':
+            return None
+        try:
+            s = d[:10]
+            if len(s) == 10 and s[2] == '.' and s[5] == '.':
+                return datetime.datetime.strptime(s, "%d.%m.%Y").date()
+            if len(s) == 10 and s[2] == '-' and s[5] == '-':
+                return datetime.datetime.strptime(s, "%d-%m-%Y").date()
+            return datetime.datetime.fromisoformat(s).date()
+        except ValueError:
+            pass
+    if hasattr(d, 'date') and callable(d.date):
+        return d.date()
+    if isinstance(d, datetime.date):
+        return d
+    return None
 
 def calculate_commission(
     scheme: Optional[Dict[str, Any]], 
     role: str, 
     price: float, 
     shares: float,
-    transaction_date: Optional[str] = None
+    transaction_date: Optional[Any] = None
 ) -> Optional[float]:
     """
     Calculate commission based on the applicable scheme.
@@ -17,21 +41,22 @@ def calculate_commission(
         return None
         
     evidence_status = scheme.get('evidence_status')
-    valid_from = scheme.get('valid_from')
-    valid_to = scheme.get('valid_to')
+    valid_from = _parse_date(scheme.get('valid_from'))
+    valid_to = _parse_date(scheme.get('valid_to'))
     
     if evidence_status == 'CURRENT_ONLY':
         return None
         
-    if transaction_date:
-        tx_date_str = str(transaction_date)[:10]
-        if valid_from and tx_date_str < str(valid_from)[:10]:
+    tx_date = _parse_date(transaction_date)
+    if tx_date is not None:
+        if valid_from and tx_date < valid_from:
             return None
-        if valid_to and tx_date_str > str(valid_to)[:10]:
+        if valid_to and tx_date > valid_to:
             return None
     else:
         if valid_from or valid_to:
             return None
+
         
     formula_id = scheme.get('formula_id')
     params = scheme.get('parameters', {})

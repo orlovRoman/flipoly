@@ -20,6 +20,31 @@ def test_calculate_commission_current_only():
     assert calculate_commission(scheme, 'taker', 0.5, 100, transaction_date='2020-01-01') is None
     # No historical date
     assert calculate_commission(scheme, 'taker', 0.5, 100) is None
+    # Various valid string formats
+    assert calculate_commission(scheme, 'taker', 0.5, 100, transaction_date='01.01.2020') is None
+    # Invalid strings
+    assert calculate_commission(scheme, 'taker', 0.5, 100, transaction_date='nan') is None
+    assert calculate_commission(scheme, 'taker', 0.5, 100, transaction_date=' ') is None
+    
+def test_calculate_commission_historical_dates():
+    scheme = {
+        'evidence_status': 'HISTORICAL',
+        'formula_id': 'ZERO_FEE',
+        'valid_from': '2020-01-01',
+        'valid_to': '2020-12-31'
+    }
+    # Within range
+    assert calculate_commission(scheme, 'taker', 0.5, 100, transaction_date='2020-06-01') == 0.0
+    # Before range
+    assert calculate_commission(scheme, 'taker', 0.5, 100, transaction_date='2019-12-31') is None
+    # After range
+    assert calculate_commission(scheme, 'taker', 0.5, 100, transaction_date='2021-01-01') is None
+    # Different formats
+    assert calculate_commission(scheme, 'taker', 0.5, 100, transaction_date='01.06.2020') == 0.0
+    assert calculate_commission(scheme, 'taker', 0.5, 100, transaction_date='2020-06-01T15:00:00Z') == 0.0
+    # Float nan
+    import math
+    assert calculate_commission(scheme, 'taker', 0.5, 100, transaction_date=float('nan')) is None
     
 def test_calculate_commission_maker_taker():
     scheme = {
