@@ -142,11 +142,12 @@ def main() -> None:
                                    np.asarray(probs[name])[te.to_numpy()], dayste)
     out["paired_brier_ci_vs_M1_test"] = ci
 
-    # ---- (c) econ by entry x side (M1; M0 reference) ----
+    # ---- (c) econ by entry x side, TEST split only; NO leg is SYNTHETIC ----
     econ_split = {}
+    te_idx = (feat["split"] == "test").to_numpy()
     for name in ("M0", "M1"):
-        p = np.asarray(probs[name])
-        d = feat.copy()
+        p = np.asarray(probs[name])[te_idx]
+        d = feat[feat["split"] == "test"].copy()
         d["p"] = p
         d["side"] = np.where(d["p"] >= p2a.P_YES, "YES", np.where(d["p"] <= p2a.P_NO, "NO", "PASS"))
         ent = d[d["side"] != "PASS"].copy()
@@ -164,6 +165,8 @@ def main() -> None:
                 "note": "NO ask = 1 - yes_bid is synthetic, never observed" if side == "NO" else "YES at observed ask"}
         econ_split[name] = grp
     out["econ_by_entry_side_test_M1_M0"] = econ_split
+    out["econ_split_note"] = ("TEST split only; frozen rule p>=0.60 YES at observed ask / "
+                              "p<=0.40 NO at SYNTHETIC ask_no = 1 - yes_bid; stake 10; gross only")
 
     # ---- (d) outcome-flip sensitivity (first-OPEN strike variant) ----
     mk = pd.read_csv(export_dir / "raw" / "markets.csv.gz", compression="gzip", low_memory=False)
