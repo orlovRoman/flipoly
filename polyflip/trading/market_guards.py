@@ -86,7 +86,9 @@ async def check_market_guards(
     else:
         trade_check = select(TradeHistory).where(
             TradeHistory.market_id == market.market_id,
-            TradeHistory.status.in_(["SUCCESS", "LIVE", "FAILED", "PAPER", "SHADOW", "PENDING"])
+            TradeHistory.status.in_(["SUCCESS", "LIVE", "FAILED", "PAPER", "SHADOW", "PENDING"]),
+            (TradeHistory.strategy_type != "CT_OUTSIDER") | (TradeHistory.strategy_type.is_(None)),
+            (TradeHistory.strategy_name != "BTC_CT_T5_V1") | (TradeHistory.strategy_name.is_(None)),
         )
     result = await db_session.execute(trade_check)
     already_traded = result.scalars().first() is not None

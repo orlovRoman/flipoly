@@ -154,6 +154,8 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                     if guard_res.skip_reason and guard_res.skip_reason not in (
                         "guard: Time left <= 0",
                         "guard: Trade already exists",
+                        "guard: Decision already recorded in window (SKIP)",
+                        "guard: Decision already recorded in window",
                     ):
                         await save_or_update_skipped_trade(
                             db_session,

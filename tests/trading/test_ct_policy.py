@@ -522,3 +522,83 @@ def test_quote_timing_received_vs_event_precedence():
     )
     assert math.isclose(q_rec_only.compute_age_sec(dec_at), 2.0, abs_tol=1e-6)
 
+
+def test_quote_with_future_received_at_rejected():
+    """Item 11: Quote with received_at > decision_at must be rejected as FUTURE_QUOTE_RECEIVED."""
+    spec = get_btc_ct_t5_v1_spec()
+    dec_at = datetime(2026, 7, 1, 12, 0, 0, tzinfo=timezone.utc)
+    mapping = MarketTokenMapping("mkt", "BTC", dec_at + timedelta(seconds=240), "u", "d")
+    q_up = SideQuote("UP", "u", 0.19, 0.21, 0.20, event_at=dec_at - timedelta(seconds=1), received_at=dec_at + timedelta(seconds=1))
+    q_down = SideQuote("DOWN", "d", 0.79, 0.81, 0.80, event_at=dec_at - timedelta(seconds=1), received_at=dec_at - timedelta(seconds=1))
+
+    dec = evaluate_ct_policy(spec, dec_at, mapping, q_up, q_down, [])
+    assert dec.action == "SKIP"
+    assert "FUTURE_QUOTE_RECEIVED" in dec.reason
+
+
+def test_quote_with_crossed_book_rejected():
+    """Item 9: Quote with best_bid > best_ask must be rejected as CROSSED_BOOK_QUOTE."""
+    spec = get_btc_ct_t5_v1_spec()
+    dec_at = datetime(2026, 7, 1, 12, 0, 0, tzinfo=timezone.utc)
+    mapping = MarketTokenMapping("mkt", "BTC", dec_at + timedelta(seconds=240), "u", "d")
+    # Crossed book: bid 0.25 > ask 0.20
+    q_up = SideQuote("UP", "u", 0.25, 0.20, 0.22, event_at=dec_at - timedelta(seconds=1))
+    q_down = SideQuote("DOWN", "d", 0.79, 0.81, 0.80, event_at=dec_at - timedelta(seconds=1))
+
+    dec = evaluate_ct_policy(spec, dec_at, mapping, q_up, q_down, [])
+    assert dec.action == "SKIP"
+    assert "CROSSED_BOOK_QUOTE" in dec.reason
+
+
+def test_asset_mismatch_rejected():
+    """Item 8: Asset mismatch against specification must return ASSET_MISMATCH skip."""
+    spec = get_btc_ct_t5_v1_spec()  # asset is BTC
+    dec_at = datetime(2026, 7, 1, 12, 0, 0, tzinfo=timezone.utc)
+    mapping = MarketTokenMapping("mkt", "ETH", dec_at + timedelta(seconds=240), "u", "d")
+    q_up = SideQuote("UP", "u", 0.19, 0.21, 0.20, event_at=dec_at - timedelta(seconds=1))
+    q_down = SideQuote("DOWN", "d", 0.79, 0.81, 0.80, event_at=dec_at - timedelta(seconds=1))
+
+    dec = evaluate_ct_policy(spec, dec_at, mapping, q_up, q_down, [])
+    assert dec.action == "SKIP"
+    assert "ASSET_MISMATCH" in dec.reason
+
+
+def test_causality_and_audit_metadata_in_data_ids(valid_market_setup):
+    """Item 11 & 25: Decision must contain opportunity_id, decision_id, and quote age/receipt timestamps."""
+    spec, dec_at, mapping, up_quote, down_quote, up_history = valid_market_setup
+    decision = evaluate_ct_policy(spec, dec_at, mapping, up_quote, down_quote, up_history)
+
+    assert decision.action == "BUY"
+    d = decision.data_ids
+    assert d["opportunity_id"] == f"{mapping.market_id}_{dec_at.isoformat()}"
+    assert d["decision_id"] == f"CT:{spec.spec_id}:{mapping.market_id}"
+    assert "up_quote_age_sec" in d
+    assert "down_quote_age_sec" in d
+    assert d["up_quote_age_sec"] is not None and d["up_quote_age_sec"] >= 0.0
+
+
+def test_compute_token_ct_regime_matches_classify_local_regime_directly():
+    """Item 3 Self-check: Direct classify_local_regime and compute_token_ct_regime yield identical states."""
+    from polyflip.research.regime_features import classify_local_regime
+    dec_at = datetime(2026, 7, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+    # 1. Sawtooth reversion
+    rev_prices = [0.20, 0.26, 0.19, 0.25, 0.20, 0.26, 0.19, 0.25]
+    obs_rev = [{"recorded_at": dec_at - timedelta(minutes=10 - i), "mid_price": p} for i, p in enumerate(rev_prices)]
+    res_rev = compute_token_ct_regime(obs_rev, decision_at=dec_at, min_observations=3)
+    clf_rev = classify_local_regime(rev_prices, min_observations=3)
+    assert res_rev.state == clf_rev["state"] == "REVERSION"
+
+    # 2. Monotonic trend
+    trend_prices = [0.10, 0.14, 0.18, 0.22, 0.26, 0.30]
+    obs_tr = [{"recorded_at": dec_at - timedelta(minutes=10 - i), "mid_price": p} for i, p in enumerate(trend_prices)]
+    res_tr = compute_token_ct_regime(obs_tr, decision_at=dec_at, min_observations=3)
+    clf_tr = classify_local_regime(trend_prices, min_observations=3)
+    assert res_tr.state == clf_tr["state"] == "TREND"
+
+    # 3. Flat quiet
+    quiet_prices = [0.25, 0.25, 0.25, 0.25, 0.25]
+    obs_q = [{"recorded_at": dec_at - timedelta(minutes=10 - i), "mid_price": p} for i, p in enumerate(quiet_prices)]
+    res_q = compute_token_ct_regime(obs_q, decision_at=dec_at, min_observations=3)
+    clf_q = classify_local_regime(quiet_prices, min_observations=3)
+    assert res_q.state == clf_q["state"] == "QUIET"

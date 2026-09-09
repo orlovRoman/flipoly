@@ -1490,48 +1490,122 @@ async def decide_ct_outsider_mode(
     down_event_at: datetime | None = None
     down_received_at: datetime | None = None
 
+    both_fetched = False
     try:
-        prices_yes = await api_client.get_market_prices(market.yes_token_id)
-        if prices_yes:
-            if prices_yes.get("best_ask") is not None:
-                up_ask = float(prices_yes["best_ask"])
-                up_bid = float(prices_yes["best_bid"]) if prices_yes.get("best_bid") is not None else None
-                up_mid = (up_bid + up_ask) / 2.0 if up_bid is not None else up_ask
-            book_yes = prices_yes.get("yes_orderbook")
-            if book_yes is not None:
-                up_event_at = getattr(book_yes, "event_at", None)
-                up_received_at = getattr(book_yes, "received_at", None)
-            if up_event_at is None:
-                up_event_at = prices_yes.get("event_at")
-            if up_received_at is None:
-                up_received_at = prices_yes.get("received_at")
-    except Exception as q_err:
-        logger.debug("api_client_yes_prices_fetch_error", error=str(q_err))
+        prices = await api_client.get_market_prices(
+            market.yes_token_id,
+            no_token_id=market.no_token_id,
+            market_id=str(market.market_id),
+        )
+        if prices and ("yes_orderbook" in prices or "best_ask" in prices or "current_yes_price" in prices):
+            if prices.get("best_ask") is not None:
+                up_ask = float(prices["best_ask"])
+            if prices.get("best_bid") is not None:
+                up_bid = float(prices["best_bid"])
+            if prices.get("current_yes_price") is not None:
+                up_mid = float(prices["current_yes_price"])
+            elif up_bid is not None and up_ask is not None:
+                up_mid = (up_bid + up_ask) / 2.0
+            else:
+                up_mid = None
 
-    try:
-        prices_no = await api_client.get_market_prices(market.no_token_id)
-        if prices_no:
-            if prices_no.get("best_ask") is not None:
-                down_ask = float(prices_no["best_ask"])
-                down_bid = float(prices_no["best_bid"]) if prices_no.get("best_bid") is not None else None
-                down_mid = (down_bid + down_ask) / 2.0 if down_bid is not None else down_ask
-            book_no = prices_no.get("no_orderbook")
-            if book_no is not None:
-                down_event_at = getattr(book_no, "event_at", None)
-                down_received_at = getattr(book_no, "received_at", None)
+            if prices.get("best_ask_no") is not None:
+                down_ask = float(prices["best_ask_no"])
+            elif prices.get("best_ask") is not None and "current_no_price" in prices:
+                pass
+            if prices.get("best_bid_no") is not None:
+                down_bid = float(prices["best_bid_no"])
+            if prices.get("current_no_price") is not None:
+                down_mid = float(prices["current_no_price"])
+            elif down_bid is not None and down_ask is not None:
+                down_mid = (down_bid + down_ask) / 2.0
+            else:
+                down_mid = None
+
+            yes_bk = prices.get("yes_orderbook")
+            if yes_bk is not None:
+                up_event_at = getattr(yes_bk, "event_at", None)
+                up_received_at = getattr(yes_bk, "received_at", None)
+            if up_event_at is None:
+                up_event_at = prices.get("event_at")
+            if up_received_at is None:
+                up_received_at = prices.get("received_at")
+
+            no_bk = prices.get("no_orderbook")
+            if no_bk is not None:
+                down_event_at = getattr(no_bk, "event_at", None)
+                down_received_at = getattr(no_bk, "received_at", None)
             if down_event_at is None:
-                down_event_at = prices_no.get("event_at")
+                down_event_at = prices.get("event_at_no") or prices.get("event_at")
             if down_received_at is None:
-                down_received_at = prices_no.get("received_at")
+                down_received_at = prices.get("received_at_no") or prices.get("received_at")
+
+            both_fetched = (up_ask is not None and down_ask is not None)
+    except TypeError:
+        both_fetched = False
     except Exception as q_err:
-        logger.debug("api_client_no_prices_fetch_error", error=str(q_err))
+        logger.debug("api_client_both_prices_fetch_error", error=str(q_err))
+
+    if not both_fetched:
+        try:
+            prices_yes = await api_client.get_market_prices(market.yes_token_id)
+            if prices_yes:
+                if prices_yes.get("best_ask") is not None:
+                    up_ask = float(prices_yes["best_ask"])
+                if prices_yes.get("best_bid") is not None:
+                    up_bid = float(prices_yes["best_bid"])
+                if prices_yes.get("current_yes_price") is not None:
+                    up_mid = float(prices_yes["current_yes_price"])
+                elif up_bid is not None and up_ask is not None:
+                    up_mid = (up_bid + up_ask) / 2.0
+                else:
+                    up_mid = None
+                book_yes = prices_yes.get("yes_orderbook")
+                if book_yes is not None:
+                    up_event_at = getattr(book_yes, "event_at", None)
+                    up_received_at = getattr(book_yes, "received_at", None)
+                if up_event_at is None:
+                    up_event_at = prices_yes.get("event_at")
+                if up_received_at is None:
+                    up_received_at = prices_yes.get("received_at")
+        except Exception as q_err:
+            logger.debug("api_client_yes_prices_fetch_error", error=str(q_err))
+
+        try:
+            prices_no = await api_client.get_market_prices(market.no_token_id)
+            if prices_no:
+                if prices_no.get("best_ask") is not None:
+                    down_ask = float(prices_no["best_ask"])
+                if prices_no.get("best_bid") is not None:
+                    down_bid = float(prices_no["best_bid"])
+                if prices_no.get("current_no_price") is not None:
+                    down_mid = float(prices_no["current_no_price"])
+                elif down_bid is not None and down_ask is not None:
+                    down_mid = (down_bid + down_ask) / 2.0
+                else:
+                    down_mid = None
+                book_no = prices_no.get("no_orderbook") or prices_no.get("yes_orderbook")
+                if book_no is not None:
+                    down_event_at = getattr(book_no, "event_at", None)
+                    down_received_at = getattr(book_no, "received_at", None)
+                if down_event_at is None:
+                    down_event_at = prices_no.get("event_at")
+                if down_received_at is None:
+                    down_received_at = prices_no.get("received_at")
+        except Exception as q_err:
+            logger.debug("api_client_no_prices_fetch_error", error=str(q_err))
 
     # Fallback to market snapshot attributes only if API client is offline/mock
     # DO NOT fabricate start_time if timestamps are missing!
     if up_ask is None and hasattr(market, "best_ask") and market.best_ask is not None:
         up_ask = float(market.best_ask)
         up_bid = float(market.best_bid) if getattr(market, "best_bid", None) is not None else None
-        up_mid = float(market.mid_price) if getattr(market, "mid_price", None) is not None else up_ask
+        if getattr(market, "mid_price", None) is not None:
+            up_mid = float(market.mid_price)
+        elif up_bid is not None and up_ask is not None:
+            up_mid = (up_bid + up_ask) / 2.0
+        else:
+            up_mid = None
         up_event_at = getattr(market, "market_timestamp", None) or getattr(market, "updated_at", None)
         up_received_at = getattr(market, "recorded_at", None)
 
@@ -1556,7 +1630,6 @@ async def decide_ct_outsider_mode(
         down_token_id=str(market.no_token_id or ""),
     )
 
-    # Build SideQuotes with authentic timestamps
     up_quote = SideQuote(
         side="UP",
         token_id=str(market.yes_token_id or ""),
@@ -1685,9 +1758,14 @@ async def decide_ct_outsider_mode(
         bet_size = 0.0
         reason = symm_ct.reason
 
+    opportunity_id = f"{market.market_id}_{start_time.isoformat()}"
+    decision_id = f"CT:{spec.spec_id}:{market.market_id}"
     details = {
+        "opportunity_id": opportunity_id,
+        "decision_id": decision_id,
         "spec_id": spec.spec_id,
         "spec_hash": spec.spec_hash,
+        "effective_specification": spec.canonical_dict(),
         "chosen_side": symm_ct.side,
         "token_id": symm_ct.token_id,
         "market_role": "OUTSIDER",
@@ -1709,6 +1787,7 @@ async def decide_ct_outsider_mode(
             "skip_reason": reason if action == "SKIP" else None,
         }),
         "decision_run_id": res_key,
+        "max_acceptable_price": symm_ct.limit_price,
         "cycle_started_at": cycle_started_at.isoformat(),
         "decision_at": eff_decision_at.isoformat(),
     }

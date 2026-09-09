@@ -375,8 +375,13 @@ class SideQuote:
     def is_valid_for_decision(self, decision_at: datetime, max_staleness_sec: float = 15.0) -> tuple[bool, str | None]:
         if self.mid_price is None or not math.isfinite(self.mid_price) or self.mid_price <= 0.0 or self.mid_price >= 1.0:
             return False, "INVALID_MID_QUOTE"
-        if self.best_ask is None or not math.isfinite(self.best_ask) or self.best_ask <= 0.0:
+        if self.best_ask is None or not math.isfinite(self.best_ask) or self.best_ask <= 0.0 or self.best_ask >= 1.0:
             return False, "INVALID_ASK_QUOTE"
+        if self.best_bid is not None:
+            if not math.isfinite(self.best_bid) or self.best_bid <= 0.0 or self.best_bid >= 1.0:
+                return False, "INVALID_BID_QUOTE"
+            if self.best_bid > self.best_ask:
+                return False, "CROSSED_BOOK_QUOTE"
 
         # Explicit timestamp contract: at least one timing mark (event_at or received_at) is required.
         if self.event_at is None and self.received_at is None:
@@ -388,7 +393,7 @@ class SideQuote:
         if self.received_at is not None:
             rec = self.received_at if self.received_at.tzinfo is not None else self.received_at.replace(tzinfo=timezone.utc)
             if rec > dec:
-                return False, "FUTURE_QUOTE_DETECTED: RECEIVED_IN_FUTURE"
+                return False, "FUTURE_QUOTE_DETECTED: FUTURE_QUOTE_RECEIVED: RECEIVED_IN_FUTURE"
 
         # 2. Event timestamp must not be later than decision_at
         if self.event_at is not None:
@@ -408,7 +413,6 @@ class SideQuote:
         # Staleness boundary: age_sec <= max_staleness_sec is accepted, > max_staleness_sec is stale.
         if age_sec > max_staleness_sec:
             return False, "STALE_QUOTE"
-
         return True, None
 
 
@@ -472,7 +476,7 @@ def evaluate_ct_policy(
     if decision_at.tzinfo is None:
         decision_at = decision_at.replace(tzinfo=timezone.utc)
 
-    # 1. Validate token mapping
+    # 1. Validate token mapping and asset alignment
     map_ok, map_err = market_mapping.validate()
     if not map_ok:
         return _make_skip(
@@ -480,6 +484,15 @@ def evaluate_ct_policy(
             decision_at=decision_at,
             market_mapping=market_mapping,
             reason=f"MAPPING_ERROR: {map_err}",
+            time_left_sec=0.0,
+        )
+
+    if market_mapping.asset.strip().upper() != spec.asset.strip().upper():
+        return _make_skip(
+            spec=spec,
+            decision_at=decision_at,
+            market_mapping=market_mapping,
+            reason=f"ASSET_MISMATCH: {market_mapping.asset} != {spec.asset}",
             time_left_sec=0.0,
         )
 
@@ -674,11 +687,26 @@ def evaluate_ct_policy(
         )
 
     # 9. All criteria satisfied: BUY decision
+    dec_dt = decision_at if decision_at.tzinfo is not None else decision_at.replace(tzinfo=timezone.utc)
+    up_evt = up_quote.event_at if (up_quote.event_at and up_quote.event_at.tzinfo is not None) else (up_quote.event_at.replace(tzinfo=timezone.utc) if up_quote.event_at else None)
+    down_evt = down_quote.event_at if (down_quote.event_at and down_quote.event_at.tzinfo is not None) else (down_quote.event_at.replace(tzinfo=timezone.utc) if down_quote.event_at else None)
+    up_rcv = up_quote.received_at if (up_quote.received_at and up_quote.received_at.tzinfo is not None) else (up_quote.received_at.replace(tzinfo=timezone.utc) if up_quote.received_at else None)
+    down_rcv = down_quote.received_at if (down_quote.received_at and down_quote.received_at.tzinfo is not None) else (down_quote.received_at.replace(tzinfo=timezone.utc) if down_quote.received_at else None)
+
+    up_age_sec = (dec_dt - up_evt).total_seconds() if up_evt else None
+    down_age_sec = (dec_dt - down_evt).total_seconds() if down_evt else None
+
     data_ids = {
+        "opportunity_id": f"{market_mapping.market_id}_{dec_dt.isoformat()}",
+        "decision_id": f"CT:{spec.spec_id}:{market_mapping.market_id}",
         "up_snapshot_id": up_quote.snapshot_id,
         "down_snapshot_id": down_quote.snapshot_id,
-        "up_quote_at": up_quote.event_at.isoformat() if up_quote.event_at else None,
-        "down_quote_at": down_quote.event_at.isoformat() if down_quote.event_at else None,
+        "up_quote_at": up_evt.isoformat() if up_evt else None,
+        "down_quote_at": down_evt.isoformat() if down_evt else None,
+        "up_received_at": up_rcv.isoformat() if up_rcv else None,
+        "down_received_at": down_rcv.isoformat() if down_rcv else None,
+        "up_quote_age_sec": round(up_age_sec, 3) if up_age_sec is not None else None,
+        "down_quote_age_sec": round(down_age_sec, 3) if down_age_sec is not None else None,
         "history_count": ct_res.observations_count,
         "first_obs_at": ct_res.first_obs_at.isoformat() if ct_res.first_obs_at else None,
         "last_obs_at": ct_res.last_obs_at.isoformat() if ct_res.last_obs_at else None,
@@ -949,6 +977,13 @@ def _make_skip(
     ct_features: dict[str, Any] | None = None,
     data_ids: dict[str, Any] | None = None,
 ) -> CTDecision:
+    dec_dt = decision_at if decision_at.tzinfo is not None else decision_at.replace(tzinfo=timezone.utc)
+    out_data_ids = dict(data_ids or {})
+    if "opportunity_id" not in out_data_ids:
+        out_data_ids["opportunity_id"] = f"{market_mapping.market_id}_{dec_dt.isoformat()}"
+    if "decision_id" not in out_data_ids:
+        out_data_ids["decision_id"] = f"CT:{spec.spec_id}:{market_mapping.market_id}"
+
     return CTDecision(
         action="SKIP",
         side=side,
@@ -969,7 +1004,7 @@ def _make_skip(
         outsider_margin=outsider_margin,
         ct_regime=ct_regime,
         ct_features=ct_features or {},
-        data_ids=data_ids or {},
+        data_ids=out_data_ids,
         is_executable=False,
     )
 

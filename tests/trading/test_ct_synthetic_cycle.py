@@ -903,3 +903,110 @@ async def test_16_full_audit_chain_traceability_from_real_db_rows(db_session, ba
     assert attempt_db.request_id == req_db.id
     assert fill_db.attempt_id == attempt_db.id
     assert trade.position_status == "CLOSED"
+
+
+def test_17_unassigned_parity_skips_do_not_pollute_down_side():
+    """Item 28: Market-level skips (PARITY) are recorded under UNASSIGNED and do NOT inflate DOWN skips."""
+    records = [
+        {"side": "UP", "action": "BUY", "ct_regime": "REVERSION", "fill_status": "FULL", "spent_usdc": 1.0, "fee_usdc": 0.002, "filled_shares": 5.0, "is_settled": True, "settlement_outcome": "WIN", "realized_pnl_usdc": 3.998, "scenario_net_pnl": 3.998},
+        {"side": None, "action": "SKIP", "ct_regime": "NOT_EVALUATED", "reason": "PARITY"},
+        {"side": "DOWN", "action": "BUY", "ct_regime": "REVERSION", "fill_status": "FULL", "spent_usdc": 1.0, "fee_usdc": 0.002, "filled_shares": 4.0, "is_settled": True, "settlement_outcome": "WIN", "realized_pnl_usdc": 2.998, "scenario_net_pnl": 2.998},
+    ]
+    rep = build_profile_report(records)
+    assert rep.invariant_passed is True
+    assert rep.up_report.opportunities == 1
+    assert rep.down_report.opportunities == 1
+    assert rep.unassigned_report.opportunities == 1
+    assert rep.total_report.opportunities == 3
+    assert "PARITY" in rep.unassigned_report.skip_reasons
+    assert "PARITY" not in rep.down_report.skip_reasons
+
+
+@pytest.mark.asyncio
+async def test_18_decision_runners_never_substitutes_ask_for_mid_when_bid_none():
+    """Item 9 Self-check: Mid price is never substituted by ask when bid is missing."""
+    from unittest.mock import AsyncMock
+    from polyflip.trading.decision_runners import decide_ct_outsider_mode
+    from polyflip.trading.trading_config import parse_trading_settings
+
+    mock_db = AsyncMock()
+    mock_api = AsyncMock()
+    # Mock client returns ask 0.20, but NO bid!
+    mock_api.get_market_prices = AsyncMock(return_value={
+        "best_ask": 0.20,
+        "best_bid": None,
+        "best_ask_no": 0.80,
+        "best_bid_no": 0.78,
+        "current_no_price": 0.79,
+    })
+
+    class DummyMarket:
+        market_id = "mkt_no_bid"
+        asset = "BTC"
+        yes_token_id = "tok_yes"
+        no_token_id = "tok_no"
+        end_time_est = datetime.now(timezone.utc) + timedelta(seconds=250)
+
+    cfg = parse_trading_settings({"TRADING_MODE": "ct_outsider"})
+    res = await decide_ct_outsider_mode(
+        db_session=mock_db,
+        api_client=mock_api,
+        market=DummyMarket(),
+        cfg=cfg,
+        raw_settings={},
+        models_cache=None,
+        crypto_predictor=None,
+        start_time=datetime.now(timezone.utc),
+        time_left_sec=250.0,
+    )
+
+    assert res.decision_obj.action == "SKIP"
+    assert "INVALID_MID_QUOTE" in res.decision_obj.reason
+
+
+@pytest.mark.asyncio
+async def test_19_market_guards_immutability_and_skip_reason_preservation():
+    """Item 17: Repeated cycles in window with existing_skipped do not overwrite error_msg."""
+    from unittest.mock import AsyncMock, MagicMock
+    from polyflip.trading.market_guards import check_market_guards
+    from polyflip.trading.trading_config import parse_trading_settings
+    from polyflip.db.models import TradeHistory
+
+    mock_db = AsyncMock()
+    cfg = parse_trading_settings({"TRADING_MODE": "ct_outsider"})
+
+    class DummyMarket:
+        market_id = "mkt_immutable"
+        asset = "BTC"
+        yes_token_id = "tok_yes"
+        no_token_id = "tok_no"
+
+    # Simulate existing skipped trade in window
+    existing_skip = TradeHistory(
+        market_id="mkt_immutable",
+        asset="BTC",
+        status="SKIPPED",
+        error_msg="REGIME_NOT_REVERSION: TREND",
+        strategy_name="BTC_CT_T5_V1",
+        strategy_type="CT_OUTSIDER",
+    )
+
+    # Mock DB query returning existing_skip
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = existing_skip
+    mock_db.execute = AsyncMock(return_value=mock_result)
+
+    guard_res = await check_market_guards(
+        db_session=mock_db,
+        market=DummyMarket(),
+        cfg=cfg,
+        asset_mode="ct_outsider",
+        time_left_sec=240.0,
+        start_time=datetime.now(timezone.utc),
+    )
+
+    assert guard_res.passed is False
+    assert guard_res.skip_reason == "guard: Decision already recorded in window (SKIP)"
+    assert guard_res.existing_skipped == existing_skip
+    # Original error_msg on the record is untouched
+    assert existing_skip.error_msg == "REGIME_NOT_REVERSION: TREND"
