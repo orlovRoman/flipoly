@@ -105,7 +105,9 @@ async def resolve_pending_markets(db_session: AsyncSession):
                             snap.final_outcome = final_outcome
                             
                             if final_outcome in ("YES", "NO"):
-                                if snap.mid_price == 0.5:
+                                # One-sided books legitimately have no midpoint.  Resolve the
+                                # outcome but leave the derived flip undefined for such rows.
+                                if snap.mid_price is None or snap.mid_price == 0.5:
                                     # At mid_price == 0.5, neither side is favourite; flip is undefined
                                     snap.flip_vs_final = None
                                 else:
