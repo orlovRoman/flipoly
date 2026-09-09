@@ -113,8 +113,59 @@ class MarketSnapshot(Base):
     strike_source = Column(String(64), nullable=True)
     strike_effective_at = Column(DateTime(timezone=True), nullable=True)
     strike_received_at = Column(DateTime(timezone=True), nullable=True)
+    strike_observed_at = Column(DateTime(timezone=True), nullable=True)
     oracle_price = Column(Float, nullable=True)
     binance_price = Column(Float, nullable=True)
+    market_start_at = Column(DateTime(timezone=True), nullable=True)
+    market_end_at = Column(DateTime(timezone=True), nullable=True)
+    settlement_price_source = Column(String(64), nullable=True)
+
+
+class OrderbookDepthSnapshot(Base):
+    """
+    Orderbook depth snapshot storing full bid/ask ladders for YES and NO tokens.
+    Separate entity linked to MarketSnapshot to keep MarketSnapshot reads lean.
+    Units: size in shares (акции), price * size in USDC.
+    Quality status tracks corruption, crosses, gaps, and missing updates.
+    """
+
+    __tablename__ = "orderbook_depth_snapshots"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    snapshot_id = Column(Integer, ForeignKey("market_snapshots.id"), nullable=True, index=True)
+    market_id = Column(String(128), nullable=False, index=True)
+    token_id = Column(String(128), nullable=False, index=True)
+    outcome_side = Column(String(16), nullable=False)  # "YES" or "NO"
+    event_at = Column(DateTime(timezone=True), nullable=False)
+    received_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    # Full depth ladders: list of {"price": float, "size": float}
+    bids = Column("bids", JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    asks = Column("asks", JSON().with_variant(JSONB, "postgresql"), nullable=False)
+
+    # Sequence and metadata
+    sequence_id = Column(String(64), nullable=True)
+    is_truncated = Column(Boolean, nullable=False, default=False)
+    depth_limit = Column(Integer, nullable=True)
+    source = Column(String(32), nullable=False, default="CLOB")
+
+    # Quality validation status (Item 7)
+    # "VALID", "CROSSED_BOOK", "NEGATIVE_SIZE", "UNORDERED_LEVELS", "DUPLICATE_PRICES", "EMPTY_BOOK", "CORRUPTED"
+    quality_status = Column(String(32), nullable=False, default="VALID")
+    quality_notes = Column(String(256), nullable=True)
+
+    # Precalculated top-of-book metrics (size in shares, depth in USDC)
+    best_bid_price = Column(Float, nullable=True)
+    best_bid_size = Column(Float, nullable=True)    # shares
+    best_ask_price = Column(Float, nullable=True)
+    best_ask_size = Column(Float, nullable=True)    # shares
+    depth_usdc_bid = Column(Float, nullable=True)   # sum(price * size) in USDC
+    depth_usdc_ask = Column(Float, nullable=True)   # sum(price * size) in USDC
+
+    __table_args__ = (
+        Index("idx_orderbook_market_token", "market_id", "token_id", "received_at"),
+        Index("idx_orderbook_received_side", "market_id", "outcome_side", "received_at"),
+    )
 
 
 class TradeHistory(Base):
@@ -423,8 +474,12 @@ class LiveMarket(Base):
     strike_source = Column(String(64), nullable=True)
     strike_effective_at = Column(DateTime(timezone=True), nullable=True)
     strike_received_at = Column(DateTime(timezone=True), nullable=True)
+    strike_observed_at = Column(DateTime(timezone=True), nullable=True)
     oracle_price = Column(Float, nullable=True)
     binance_price = Column(Float, nullable=True)
+    market_start_at = Column(DateTime(timezone=True), nullable=True)
+    market_end_at = Column(DateTime(timezone=True), nullable=True)
+    settlement_price_source = Column(String(64), nullable=True)
 
 
 class OpenPosition(Base):

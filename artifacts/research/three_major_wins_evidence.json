@@ -1,0 +1,1107 @@
+{
+  "metadata": {
+    "title": "Evidence Chronology for Three Major Winning Markets",
+    "item": "3",
+    "generated_at": "2026-09-09T04:50:21.044347+00:00",
+    "target_markets": [
+      "3987711",
+      "3478125",
+      "3925291"
+    ]
+  },
+  "markets": {
+    "3987711": {
+      "market_id": "3987711",
+      "asset": "BTC",
+      "market_start_at": "2026-08-31T00:00:00+00:00",
+      "market_end_at": "2026-08-31T00:15:00+00:00",
+      "decision_at": "2026-08-31T00:09:57.519835+00:00",
+      "time_left_at_decision_min": 5.041336083333333,
+      "entry_quote": {
+        "token_best_ask": 0.04,
+        "token_best_bid": 0.03,
+        "token_mid_price": 0.035,
+        "candidate_side": "YES",
+        "final_outcome": "YES",
+        "stake_usdc": 1.0,
+        "purchased_shares": 25.0,
+        "payout_usdc": 25.0,
+        "pnl_pre_fee": 24.0,
+        "taker_fee": 0.002,
+        "net_pnl_usdc": 23.998
+      },
+      "strike_info": {
+        "canonical_strike_value": null,
+        "canonical_strike_source": "UNKNOWN",
+        "canonical_strike_status": "HISTORICALLY_UNRECORDED_IN_GAMMA_CLOB_API",
+        "proxy_strike_value": 77682.0,
+        "proxy_strike_source": "BINANCE_5M_OPEN_AT_MARKET_START"
+      },
+      "underlying_spot_prices": {
+        "spot_source": "BINANCE_5M_CANDLES",
+        "spot_near_decision": {
+          "price": 77437.58,
+          "as_of": "2026-08-31T00:05:00+00:00"
+        },
+        "spot_near_expiration": {
+          "price": 77867.51,
+          "as_of": "2026-08-31T00:15:00+00:00"
+        },
+        "spot_delta_entry_to_expiration": 429.93
+      },
+      "regime_features_at_decision": {
+        "token_regime_CT": {
+          "state": "UNCERTAIN",
+          "efficiency_ratio": 0.4,
+          "sign_change_freq": 0.3636,
+          "autocorr_lag1": 0.6064,
+          "n_snapshots_prior": 14
+        },
+        "spot_regime_CS": {
+          "state": "REVERSION",
+          "efficiency_ratio": 0.3432,
+          "sign_change_freq": 0.5,
+          "autocorr_lag1": -0.1575,
+          "n_candles_prior": 10
+        },
+        "spot_regime_CS_short": {
+          "state": "REVERSION",
+          "efficiency_ratio": 0.3432,
+          "sign_change_freq": 0.5,
+          "autocorr_lag1": -0.1575,
+          "classification_reason": "CONFIRMED_REVERSION_WITH_AUTOCORR"
+        }
+      },
+      "data_partitions": {
+        "phase1_before_decision": {
+          "description": "Historical context prior to trade decision",
+          "n_token_snapshots": 13,
+          "token_snapshots": [
+            {
+              "recorded_at": "2026-08-31T00:00:10.500561+00:00",
+              "time_left_min": 14.82499065,
+              "mid_price": 0.395,
+              "best_bid": 0.39,
+              "best_ask": 0.4
+            },
+            {
+              "recorded_at": "2026-08-31T00:00:55.692470+00:00",
+              "time_left_min": 14.071792166666668,
+              "mid_price": 0.385,
+              "best_bid": 0.38,
+              "best_ask": 0.39
+            },
+            {
+              "recorded_at": "2026-08-31T00:01:43.273373+00:00",
+              "time_left_min": 13.278777116666667,
+              "mid_price": 0.385,
+              "best_bid": 0.38,
+              "best_ask": 0.39
+            },
+            {
+              "recorded_at": "2026-08-31T00:02:28.791737+00:00",
+              "time_left_min": 12.520137716666666,
+              "mid_price": 0.425,
+              "best_bid": 0.42,
+              "best_ask": 0.43
+            },
+            {
+              "recorded_at": "2026-08-31T00:03:13.056608+00:00",
+              "time_left_min": 11.782389866666668,
+              "mid_price": 0.535,
+              "best_bid": 0.53,
+              "best_ask": 0.54
+            },
+            {
+              "recorded_at": "2026-08-31T00:03:56.801221+00:00",
+              "time_left_min": 11.053312983333331,
+              "mid_price": 0.625,
+              "best_bid": 0.62,
+              "best_ask": 0.63
+            },
+            {
+              "recorded_at": "2026-08-31T00:04:44.027013+00:00",
+              "time_left_min": 10.26621645,
+              "mid_price": 0.605,
+              "best_bid": 0.6,
+              "best_ask": 0.61
+            },
+            {
+              "recorded_at": "2026-08-31T00:05:28.541519+00:00",
+              "time_left_min": 9.524308016666668,
+              "mid_price": 0.635,
+              "best_bid": 0.63,
+              "best_ask": 0.64
+            },
+            {
+              "recorded_at": "2026-08-31T00:06:13.518205+00:00",
+              "time_left_min": 8.774696583333334,
+              "mid_price": 0.565,
+              "best_bid": 0.56,
+              "best_ask": 0.57
+            },
+            {
+              "recorded_at": "2026-08-31T00:06:58.543162+00:00",
+              "time_left_min": 8.024280633333333,
+              "mid_price": 0.315,
+              "best_bid": 0.31,
+              "best_ask": 0.32
+            },
+            {
+              "recorded_at": "2026-08-31T00:07:42.541662+00:00",
+              "time_left_min": 7.290972300000001,
+              "mid_price": 0.145,
+              "best_bid": 0.14,
+              "best_ask": 0.15
+            },
+            {
+              "recorded_at": "2026-08-31T00:08:27.769573+00:00",
+              "time_left_min": 6.537173783333333,
+              "mid_price": 0.105,
+              "best_bid": 0.1,
+              "best_ask": 0.11
+            },
+            {
+              "recorded_at": "2026-08-31T00:09:12.270037+00:00",
+              "time_left_min": 5.7954993833333335,
+              "mid_price": 0.075,
+              "best_bid": 0.07,
+              "best_ask": 0.08
+            }
+          ],
+          "n_5m_candles": 8,
+          "candles_5m_raw": [
+            {
+              "open_time": "2026-08-30T23:30:00+00:00",
+              "open": 77678.1,
+              "high": 77882.16,
+              "low": 77618.0,
+              "close": 77759.37,
+              "volume": 117.23662,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-30T23:35:00+00:00",
+              "open": 77759.37,
+              "high": 77759.37,
+              "low": 77492.0,
+              "close": 77530.0,
+              "volume": 170.2232,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-30T23:40:00+00:00",
+              "open": 77529.99,
+              "high": 77582.0,
+              "low": 77350.0,
+              "close": 77476.77,
+              "volume": 175.5987,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-30T23:45:00+00:00",
+              "open": 77476.78,
+              "high": 77532.0,
+              "low": 77000.0,
+              "close": 77367.99,
+              "volume": 364.52271,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-30T23:50:00+00:00",
+              "open": 77368.0,
+              "high": 77606.0,
+              "low": 77368.0,
+              "close": 77571.54,
+              "volume": 99.92845,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-30T23:55:00+00:00",
+              "open": 77571.54,
+              "high": 77734.61,
+              "low": 77556.41,
+              "close": 77682.0,
+              "volume": 103.23115,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-31T00:00:00+00:00",
+              "open": 77682.0,
+              "high": 77827.99,
+              "low": 77572.0,
+              "close": 77808.05,
+              "volume": 106.56499,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-31T00:05:00+00:00",
+              "open": 77808.06,
+              "high": 77808.07,
+              "low": 77436.4,
+              "close": 77437.58,
+              "volume": 136.77537,
+              "candle_interval": "5m"
+            }
+          ]
+        },
+        "phase2_decision_to_expiration": {
+          "description": "Trajectory while holding position until contract expiration",
+          "n_token_snapshots": 2,
+          "token_snapshots": [
+            {
+              "recorded_at": "2026-08-31T00:09:57.519835+00:00",
+              "time_left_min": 5.041336083333333,
+              "mid_price": 0.035,
+              "best_bid": 0.03,
+              "best_ask": 0.04
+            },
+            {
+              "recorded_at": "2026-08-31T00:10:42.065216+00:00",
+              "time_left_min": 4.298913066666667,
+              "mid_price": 0.025,
+              "best_bid": 0.02,
+              "best_ask": 0.03
+            }
+          ],
+          "n_5m_candles": 3,
+          "candles_5m_raw": [
+            {
+              "open_time": "2026-08-31T00:05:00+00:00",
+              "open": 77808.06,
+              "high": 77808.07,
+              "low": 77436.4,
+              "close": 77437.58,
+              "volume": 136.77537,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-31T00:10:00+00:00",
+              "open": 77437.57,
+              "high": 77763.22,
+              "low": 77436.41,
+              "close": 77754.7,
+              "volume": 71.76046,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-31T00:15:00+00:00",
+              "open": 77754.71,
+              "high": 77896.0,
+              "low": 77720.88,
+              "close": 77867.51,
+              "volume": 57.94489,
+              "candle_interval": "5m"
+            }
+          ]
+        },
+        "phase3_post_expiration": {
+          "description": "Post-settlement observations",
+          "n_token_snapshots": 0,
+          "token_snapshots": [],
+          "n_5m_candles": 6,
+          "candles_5m_raw": [
+            {
+              "open_time": "2026-08-31T00:20:00+00:00",
+              "open": 77867.5,
+              "high": 77970.01,
+              "low": 77862.0,
+              "close": 77967.75,
+              "volume": 41.90222,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-31T00:25:00+00:00",
+              "open": 77967.74,
+              "high": 77971.47,
+              "low": 77888.0,
+              "close": 77901.33,
+              "volume": 48.7963,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-31T00:30:00+00:00",
+              "open": 77901.34,
+              "high": 77958.0,
+              "low": 77892.0,
+              "close": 77952.26,
+              "volume": 46.69296,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-31T00:35:00+00:00",
+              "open": 77952.26,
+              "high": 78185.89,
+              "low": 77952.25,
+              "close": 78012.48,
+              "volume": 91.30295,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-31T00:40:00+00:00",
+              "open": 78013.42,
+              "high": 78070.0,
+              "low": 78006.0,
+              "close": 78032.01,
+              "volume": 18.07343,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-31T00:45:00+00:00",
+              "open": 78032.02,
+              "high": 78032.02,
+              "low": 77947.93,
+              "close": 77978.0,
+              "volume": 39.67961,
+              "candle_interval": "5m"
+            }
+          ]
+        }
+      },
+      "self_checks": {
+        "arithmetic_adds_up": true,
+        "candle_high_not_called_close": true,
+        "five_min_candles_not_called_minute_trajectory": true,
+        "unknown_strike_preserved_as_unknown": true
+      }
+    },
+    "3478125": {
+      "market_id": "3478125",
+      "asset": "BTC",
+      "market_start_at": "2026-08-11T06:45:00+00:00",
+      "market_end_at": "2026-08-11T07:00:00+00:00",
+      "decision_at": "2026-08-11T06:55:02.004563+00:00",
+      "time_left_at_decision_min": 4.966590616666666,
+      "entry_quote": {
+        "token_best_ask": 0.04,
+        "token_best_bid": 0.03,
+        "token_mid_price": 0.035,
+        "candidate_side": "YES",
+        "final_outcome": "YES",
+        "stake_usdc": 1.0,
+        "purchased_shares": 25.0,
+        "payout_usdc": 25.0,
+        "pnl_pre_fee": 24.0,
+        "taker_fee": 0.002,
+        "net_pnl_usdc": 23.998
+      },
+      "strike_info": {
+        "canonical_strike_value": null,
+        "canonical_strike_source": "UNKNOWN",
+        "canonical_strike_status": "HISTORICALLY_UNRECORDED_IN_GAMMA_CLOB_API",
+        "proxy_strike_value": 63919.99,
+        "proxy_strike_source": "BINANCE_5M_OPEN_AT_MARKET_START"
+      },
+      "underlying_spot_prices": {
+        "spot_source": "BINANCE_5M_CANDLES",
+        "spot_near_decision": {
+          "price": 63969.28,
+          "as_of": "2026-08-11T06:55:00+00:00"
+        },
+        "spot_near_expiration": {
+          "price": 63994.7,
+          "as_of": "2026-08-11T07:00:00+00:00"
+        },
+        "spot_delta_entry_to_expiration": 25.42
+      },
+      "regime_features_at_decision": {
+        "token_regime_CT": {
+          "state": "TREND",
+          "efficiency_ratio": 0.6533,
+          "sign_change_freq": 0.2143,
+          "autocorr_lag1": 0.2981,
+          "n_snapshots_prior": 18
+        },
+        "spot_regime_CS": {
+          "state": "REVERSION",
+          "efficiency_ratio": 0.1547,
+          "sign_change_freq": 0.625,
+          "autocorr_lag1": -0.4434,
+          "n_candles_prior": 10
+        },
+        "spot_regime_CS_short": {
+          "state": "REVERSION",
+          "efficiency_ratio": 0.1547,
+          "sign_change_freq": 0.625,
+          "autocorr_lag1": -0.4434,
+          "classification_reason": "CONFIRMED_REVERSION_WITH_AUTOCORR"
+        }
+      },
+      "data_partitions": {
+        "phase1_before_decision": {
+          "description": "Historical context prior to trade decision",
+          "n_token_snapshots": 17,
+          "token_snapshots": [
+            {
+              "recorded_at": "2026-08-11T06:45:08.362453+00:00",
+              "time_left_min": 14.860625783333337,
+              "mid_price": 0.525,
+              "best_bid": 0.52,
+              "best_ask": 0.53
+            },
+            {
+              "recorded_at": "2026-08-11T06:45:43.234760+00:00",
+              "time_left_min": 14.279420666666663,
+              "mid_price": 0.565,
+              "best_bid": 0.56,
+              "best_ask": 0.57
+            },
+            {
+              "recorded_at": "2026-08-11T06:46:18.504197+00:00",
+              "time_left_min": 13.691596716666668,
+              "mid_price": 0.515,
+              "best_bid": 0.51,
+              "best_ask": 0.52
+            },
+            {
+              "recorded_at": "2026-08-11T06:46:53.318093+00:00",
+              "time_left_min": 13.111365116666668,
+              "mid_price": 0.505,
+              "best_bid": 0.5,
+              "best_ask": 0.51
+            },
+            {
+              "recorded_at": "2026-08-11T06:47:28.298298+00:00",
+              "time_left_min": 12.5283617,
+              "mid_price": 0.505,
+              "best_bid": 0.5,
+              "best_ask": 0.51
+            },
+            {
+              "recorded_at": "2026-08-11T06:48:03.214890+00:00",
+              "time_left_min": 11.9464185,
+              "mid_price": 0.515,
+              "best_bid": 0.51,
+              "best_ask": 0.52
+            },
+            {
+              "recorded_at": "2026-08-11T06:48:37.196711+00:00",
+              "time_left_min": 11.380054816666666,
+              "mid_price": 0.595,
+              "best_bid": 0.59,
+              "best_ask": 0.6
+            },
+            {
+              "recorded_at": "2026-08-11T06:49:12.028942+00:00",
+              "time_left_min": 10.799517633333332,
+              "mid_price": 0.585,
+              "best_bid": 0.58,
+              "best_ask": 0.59
+            },
+            {
+              "recorded_at": "2026-08-11T06:49:47.061523+00:00",
+              "time_left_min": 10.215641283333332,
+              "mid_price": 0.545,
+              "best_bid": 0.54,
+              "best_ask": 0.55
+            },
+            {
+              "recorded_at": "2026-08-11T06:50:22.179106+00:00",
+              "time_left_min": 9.630348233333333,
+              "mid_price": 0.495,
+              "best_bid": 0.49,
+              "best_ask": 0.5
+            },
+            {
+              "recorded_at": "2026-08-11T06:50:57.062851+00:00",
+              "time_left_min": 9.048952483333332,
+              "mid_price": 0.455,
+              "best_bid": 0.45,
+              "best_ask": 0.46
+            },
+            {
+              "recorded_at": "2026-08-11T06:51:32.070202+00:00",
+              "time_left_min": 8.465496633333334,
+              "mid_price": 0.445,
+              "best_bid": 0.44,
+              "best_ask": 0.45
+            },
+            {
+              "recorded_at": "2026-08-11T06:52:07.063417+00:00",
+              "time_left_min": 7.882276383333333,
+              "mid_price": 0.345,
+              "best_bid": 0.34,
+              "best_ask": 0.35
+            },
+            {
+              "recorded_at": "2026-08-11T06:52:42.224703+00:00",
+              "time_left_min": 7.296254950000001,
+              "mid_price": 0.1149999999999999,
+              "best_bid": 0.11,
+              "best_ask": 0.12
+            },
+            {
+              "recorded_at": "2026-08-11T06:53:17.455609+00:00",
+              "time_left_min": 6.7090731833333335,
+              "mid_price": 0.075,
+              "best_bid": 0.07,
+              "best_ask": 0.08
+            },
+            {
+              "recorded_at": "2026-08-11T06:53:52.030039+00:00",
+              "time_left_min": 6.1328326833333335,
+              "mid_price": 0.065,
+              "best_bid": 0.06,
+              "best_ask": 0.07
+            },
+            {
+              "recorded_at": "2026-08-11T06:54:27.038040+00:00",
+              "time_left_min": 5.549366,
+              "mid_price": 0.035,
+              "best_bid": 0.03,
+              "best_ask": 0.04
+            }
+          ],
+          "n_5m_candles": 9,
+          "candles_5m_raw": [
+            {
+              "open_time": "2026-08-11T06:15:00+00:00",
+              "open": 64034.72,
+              "high": 64034.72,
+              "low": 64011.99,
+              "close": 64011.99,
+              "volume": 14.33997,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-11T06:20:00+00:00",
+              "open": 64011.99,
+              "high": 64012.0,
+              "low": 63985.59,
+              "close": 63985.59,
+              "volume": 22.23871,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-11T06:25:00+00:00",
+              "open": 63985.59,
+              "high": 63985.59,
+              "low": 63936.0,
+              "close": 63936.0,
+              "volume": 28.84355,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-11T06:30:00+00:00",
+              "open": 63936.0,
+              "high": 63936.01,
+              "low": 63910.0,
+              "close": 63910.01,
+              "volume": 17.66697,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-11T06:35:00+00:00",
+              "open": 63910.01,
+              "high": 63968.41,
+              "low": 63910.0,
+              "close": 63968.41,
+              "volume": 36.31418,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-11T06:40:00+00:00",
+              "open": 63968.4,
+              "high": 63968.41,
+              "low": 63919.99,
+              "close": 63920.0,
+              "volume": 224.20452,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-11T06:45:00+00:00",
+              "open": 63919.99,
+              "high": 63934.78,
+              "low": 63919.99,
+              "close": 63934.78,
+              "volume": 16.83914,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-11T06:50:00+00:00",
+              "open": 63934.78,
+              "high": 63934.78,
+              "low": 63852.0,
+              "close": 63863.7,
+              "volume": 104.82462,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-11T06:55:00+00:00",
+              "open": 63863.71,
+              "high": 63969.29,
+              "low": 63863.71,
+              "close": 63969.28,
+              "volume": 159.09594,
+              "candle_interval": "5m"
+            }
+          ]
+        },
+        "phase2_decision_to_expiration": {
+          "description": "Trajectory while holding position until contract expiration",
+          "n_token_snapshots": 2,
+          "token_snapshots": [
+            {
+              "recorded_at": "2026-08-11T06:55:02.004563+00:00",
+              "time_left_min": 4.966590616666666,
+              "mid_price": 0.035,
+              "best_bid": 0.03,
+              "best_ask": 0.04
+            },
+            {
+              "recorded_at": "2026-08-11T06:55:37.088364+00:00",
+              "time_left_min": 4.3818606,
+              "mid_price": 0.155,
+              "best_bid": 0.15,
+              "best_ask": 0.16
+            }
+          ],
+          "n_5m_candles": 2,
+          "candles_5m_raw": [
+            {
+              "open_time": "2026-08-11T06:55:00+00:00",
+              "open": 63863.71,
+              "high": 63969.29,
+              "low": 63863.71,
+              "close": 63969.28,
+              "volume": 159.09594,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-11T07:00:00+00:00",
+              "open": 63969.29,
+              "high": 63994.71,
+              "low": 63969.28,
+              "close": 63994.7,
+              "volume": 17.86939,
+              "candle_interval": "5m"
+            }
+          ]
+        },
+        "phase3_post_expiration": {
+          "description": "Post-settlement observations",
+          "n_token_snapshots": 0,
+          "token_snapshots": [],
+          "n_5m_candles": 6,
+          "candles_5m_raw": [
+            {
+              "open_time": "2026-08-11T07:05:00+00:00",
+              "open": 63994.7,
+              "high": 64010.73,
+              "low": 63982.38,
+              "close": 63984.01,
+              "volume": 15.53411,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-11T07:10:00+00:00",
+              "open": 63984.0,
+              "high": 63984.01,
+              "low": 63970.22,
+              "close": 63970.22,
+              "volume": 25.69919,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-11T07:15:00+00:00",
+              "open": 63970.22,
+              "high": 63970.23,
+              "low": 63928.77,
+              "close": 63928.78,
+              "volume": 28.8394,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-11T07:20:00+00:00",
+              "open": 63928.77,
+              "high": 63928.78,
+              "low": 63911.09,
+              "close": 63923.69,
+              "volume": 18.02947,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-11T07:25:00+00:00",
+              "open": 63923.69,
+              "high": 63932.0,
+              "low": 63913.09,
+              "close": 63913.1,
+              "volume": 25.7391,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-11T07:30:00+00:00",
+              "open": 63913.1,
+              "high": 63995.11,
+              "low": 63913.09,
+              "close": 63995.11,
+              "volume": 63.3208,
+              "candle_interval": "5m"
+            }
+          ]
+        }
+      },
+      "self_checks": {
+        "arithmetic_adds_up": true,
+        "candle_high_not_called_close": true,
+        "five_min_candles_not_called_minute_trajectory": true,
+        "unknown_strike_preserved_as_unknown": true
+      }
+    },
+    "3925291": {
+      "market_id": "3925291",
+      "asset": "BTC",
+      "market_start_at": "2026-08-28T04:00:00+00:00",
+      "market_end_at": "2026-08-28T04:15:00+00:00",
+      "decision_at": "2026-08-28T04:10:07.859774+00:00",
+      "time_left_at_decision_min": 4.869003766666666,
+      "entry_quote": {
+        "token_best_ask": 0.04,
+        "token_best_bid": 0.03,
+        "token_mid_price": 0.035,
+        "candidate_side": "YES",
+        "final_outcome": "YES",
+        "stake_usdc": 1.0,
+        "purchased_shares": 25.0,
+        "payout_usdc": 25.0,
+        "pnl_pre_fee": 24.0,
+        "taker_fee": 0.002,
+        "net_pnl_usdc": 23.998
+      },
+      "strike_info": {
+        "canonical_strike_value": null,
+        "canonical_strike_source": "UNKNOWN",
+        "canonical_strike_status": "HISTORICALLY_UNRECORDED_IN_GAMMA_CLOB_API",
+        "proxy_strike_value": 79810.48,
+        "proxy_strike_source": "BINANCE_5M_OPEN_AT_MARKET_START"
+      },
+      "underlying_spot_prices": {
+        "spot_source": "BINANCE_5M_CANDLES",
+        "spot_near_decision": {
+          "price": 79844.69,
+          "as_of": "2026-08-28T04:10:00+00:00"
+        },
+        "spot_near_expiration": {
+          "price": 79903.26,
+          "as_of": "2026-08-28T04:15:00+00:00"
+        },
+        "spot_delta_entry_to_expiration": 58.57
+      },
+      "regime_features_at_decision": {
+        "token_regime_CT": {
+          "state": "REVERSION",
+          "efficiency_ratio": 0.3565,
+          "sign_change_freq": 0.5833,
+          "autocorr_lag1": -0.4115,
+          "n_snapshots_prior": 14
+        },
+        "spot_regime_CS": {
+          "state": "REVERSION",
+          "efficiency_ratio": 0.1153,
+          "sign_change_freq": 0.5,
+          "autocorr_lag1": -0.3293,
+          "n_candles_prior": 10
+        },
+        "spot_regime_CS_short": {
+          "state": "REVERSION",
+          "efficiency_ratio": 0.1153,
+          "sign_change_freq": 0.5,
+          "autocorr_lag1": -0.3293,
+          "classification_reason": "CONFIRMED_REVERSION_WITH_AUTOCORR"
+        }
+      },
+      "data_partitions": {
+        "phase1_before_decision": {
+          "description": "Historical context prior to trade decision",
+          "n_token_snapshots": 13,
+          "token_snapshots": [
+            {
+              "recorded_at": "2026-08-28T04:00:23.014329+00:00",
+              "time_left_min": 14.61642785,
+              "mid_price": 0.445,
+              "best_bid": 0.44,
+              "best_ask": 0.45
+            },
+            {
+              "recorded_at": "2026-08-28T04:01:08.031880+00:00",
+              "time_left_min": 13.866135333333334,
+              "mid_price": 0.565,
+              "best_bid": 0.56,
+              "best_ask": 0.57
+            },
+            {
+              "recorded_at": "2026-08-28T04:01:53.023736+00:00",
+              "time_left_min": 13.116271066666666,
+              "mid_price": 0.615,
+              "best_bid": 0.61,
+              "best_ask": 0.62
+            },
+            {
+              "recorded_at": "2026-08-28T04:02:38.041028+00:00",
+              "time_left_min": 12.365982866666666,
+              "mid_price": 0.605,
+              "best_bid": 0.6,
+              "best_ask": 0.61
+            },
+            {
+              "recorded_at": "2026-08-28T04:03:23.319696+00:00",
+              "time_left_min": 11.6113384,
+              "mid_price": 0.385,
+              "best_bid": 0.38,
+              "best_ask": 0.39
+            },
+            {
+              "recorded_at": "2026-08-28T04:04:07.847887+00:00",
+              "time_left_min": 10.869201883333334,
+              "mid_price": 0.495,
+              "best_bid": 0.49,
+              "best_ask": 0.5
+            },
+            {
+              "recorded_at": "2026-08-28T04:04:52.923744+00:00",
+              "time_left_min": 10.1179376,
+              "mid_price": 0.335,
+              "best_bid": 0.33,
+              "best_ask": 0.34
+            },
+            {
+              "recorded_at": "2026-08-28T04:05:38.819213+00:00",
+              "time_left_min": 9.353013116666666,
+              "mid_price": 0.395,
+              "best_bid": 0.39,
+              "best_ask": 0.4
+            },
+            {
+              "recorded_at": "2026-08-28T04:06:22.774495+00:00",
+              "time_left_min": 8.620425083333334,
+              "mid_price": 0.27,
+              "best_bid": 0.26,
+              "best_ask": 0.28
+            },
+            {
+              "recorded_at": "2026-08-28T04:07:07.817668+00:00",
+              "time_left_min": 7.869705533333333,
+              "mid_price": 0.175,
+              "best_bid": 0.17,
+              "best_ask": 0.18
+            },
+            {
+              "recorded_at": "2026-08-28T04:07:52.855700+00:00",
+              "time_left_min": 7.119071666666667,
+              "mid_price": 0.135,
+              "best_bid": 0.12,
+              "best_ask": 0.15
+            },
+            {
+              "recorded_at": "2026-08-28T04:08:37.788119+00:00",
+              "time_left_min": 6.3701980166666665,
+              "mid_price": 0.165,
+              "best_bid": 0.16,
+              "best_ask": 0.17
+            },
+            {
+              "recorded_at": "2026-08-28T04:09:22.801415+00:00",
+              "time_left_min": 5.619976416666666,
+              "mid_price": 0.055,
+              "best_bid": 0.05,
+              "best_ask": 0.06
+            }
+          ],
+          "n_5m_candles": 9,
+          "candles_5m_raw": [
+            {
+              "open_time": "2026-08-28T03:30:00+00:00",
+              "open": 79910.01,
+              "high": 79991.32,
+              "low": 79900.0,
+              "close": 79925.0,
+              "volume": 28.84714,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-28T03:35:00+00:00",
+              "open": 79924.99,
+              "high": 79934.0,
+              "low": 79836.0,
+              "close": 79866.0,
+              "volume": 74.9065,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-28T03:40:00+00:00",
+              "open": 79866.0,
+              "high": 79888.72,
+              "low": 79812.0,
+              "close": 79814.57,
+              "volume": 26.73778,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-28T03:45:00+00:00",
+              "open": 79814.56,
+              "high": 79851.98,
+              "low": 79778.66,
+              "close": 79826.07,
+              "volume": 52.06005,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-28T03:50:00+00:00",
+              "open": 79826.08,
+              "high": 79863.04,
+              "low": 79786.0,
+              "close": 79844.69,
+              "volume": 37.50675,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-28T03:55:00+00:00",
+              "open": 79844.69,
+              "high": 79844.69,
+              "low": 79790.12,
+              "close": 79810.49,
+              "volume": 21.24536,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-28T04:00:00+00:00",
+              "open": 79810.48,
+              "high": 79844.69,
+              "low": 79775.06,
+              "close": 79775.07,
+              "volume": 31.89591,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-28T04:05:00+00:00",
+              "open": 79775.06,
+              "high": 79815.0,
+              "low": 79606.0,
+              "close": 79639.3,
+              "volume": 113.92464,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-28T04:10:00+00:00",
+              "open": 79639.3,
+              "high": 79844.69,
+              "low": 79603.81,
+              "close": 79844.69,
+              "volume": 78.72937,
+              "candle_interval": "5m"
+            }
+          ]
+        },
+        "phase2_decision_to_expiration": {
+          "description": "Trajectory while holding position until contract expiration",
+          "n_token_snapshots": 2,
+          "token_snapshots": [
+            {
+              "recorded_at": "2026-08-28T04:10:07.859774+00:00",
+              "time_left_min": 4.869003766666666,
+              "mid_price": 0.035,
+              "best_bid": 0.03,
+              "best_ask": 0.04
+            },
+            {
+              "recorded_at": "2026-08-28T04:10:52.885057+00:00",
+              "time_left_min": 4.118582383333334,
+              "mid_price": 0.075,
+              "best_bid": 0.07,
+              "best_ask": 0.08
+            }
+          ],
+          "n_5m_candles": 2,
+          "candles_5m_raw": [
+            {
+              "open_time": "2026-08-28T04:10:00+00:00",
+              "open": 79639.3,
+              "high": 79844.69,
+              "low": 79603.81,
+              "close": 79844.69,
+              "volume": 78.72937,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-28T04:15:00+00:00",
+              "open": 79844.68,
+              "high": 79970.5,
+              "low": 79844.68,
+              "close": 79903.26,
+              "volume": 134.53085,
+              "candle_interval": "5m"
+            }
+          ]
+        },
+        "phase3_post_expiration": {
+          "description": "Post-settlement observations",
+          "n_token_snapshots": 0,
+          "token_snapshots": [],
+          "n_5m_candles": 6,
+          "candles_5m_raw": [
+            {
+              "open_time": "2026-08-28T04:20:00+00:00",
+              "open": 79903.25,
+              "high": 79942.0,
+              "low": 79839.5,
+              "close": 79845.48,
+              "volume": 29.27034,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-28T04:25:00+00:00",
+              "open": 79845.49,
+              "high": 79855.11,
+              "low": 79816.0,
+              "close": 79816.01,
+              "volume": 8.98922,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-28T04:30:00+00:00",
+              "open": 79816.0,
+              "high": 79840.0,
+              "low": 79694.01,
+              "close": 79725.13,
+              "volume": 30.55252,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-28T04:35:00+00:00",
+              "open": 79725.13,
+              "high": 79734.9,
+              "low": 79630.05,
+              "close": 79636.52,
+              "volume": 30.73528,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-28T04:40:00+00:00",
+              "open": 79636.53,
+              "high": 79739.6,
+              "low": 79636.53,
+              "close": 79705.26,
+              "volume": 14.55944,
+              "candle_interval": "5m"
+            },
+            {
+              "open_time": "2026-08-28T04:45:00+00:00",
+              "open": 79705.26,
+              "high": 79744.75,
+              "low": 79625.25,
+              "close": 79630.0,
+              "volume": 38.83969,
+              "candle_interval": "5m"
+            }
+          ]
+        }
+      },
+      "self_checks": {
+        "arithmetic_adds_up": true,
+        "candle_high_not_called_close": true,
+        "five_min_candles_not_called_minute_trajectory": true,
+        "unknown_strike_preserved_as_unknown": true
+      }
+    }
+  }
+}

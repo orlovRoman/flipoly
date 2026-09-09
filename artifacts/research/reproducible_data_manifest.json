@@ -69,6 +69,21 @@
       "path": "C:\\Users\\orlov\\.gemini\\antigravity\\scratch\\flipoly\\artifacts\\research\\regime_strike_verdict.json",
       "sha256": "edac0698427bd8abf5d98e27134bf30e2325df1adc3961d52be78f470b657ced",
       "size_bytes": 10395
+    },
+    "stage2_comprehensive_study_results.json": {
+      "path": "C:\\Users\\orlov\\.gemini\\antigravity\\scratch\\flipoly\\artifacts\\research\\stage2_comprehensive_study_results.json",
+      "sha256": "29ffe0f42ea6de14c914eec1969436c288fa9aaa9195b68e0d855e4c70db5329",
+      "size_bytes": 23330
+    },
+    "common_opportunity_ledger.json": {
+      "path": "C:\\Users\\orlov\\.gemini\\antigravity\\scratch\\flipoly\\artifacts\\research\\common_opportunity_ledger.json",
+      "sha256": "3250315e7715b67b33ddfb84407a7ee3442e611034707c3a915ed98b80642b94",
+      "size_bytes": 4707217
+    },
+    "three_major_wins_evidence.json": {
+      "path": "C:\\Users\\orlov\\.gemini\\antigravity\\scratch\\flipoly\\artifacts\\research\\three_major_wins_evidence.json",
+      "sha256": "6d33515c6c535127e06756ff9a85a8c42ebcf76707cb9a63980707cf6d1174fd",
+      "size_bytes": 37022
     }
   }
 }

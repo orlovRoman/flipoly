@@ -8,21 +8,26 @@ import json
 import time
 import pandas as pd
 from polyflip.constants import HTTP_TIMEOUT_SEC, VOLUME_WINDOW_MIN
+from polyflip.collector.orderbook_depth import OrderbookContract, validate_and_normalize_orderbook
 
 logger = structlog.get_logger(__name__)
 
 
 class MarketPricesResult(TypedDict, total=False):
-    current_yes_price: float
-    current_no_price: float
-    current_spread: float
-    best_bid: float
-    best_ask: float
+    current_yes_price: float | None
+    current_no_price: float | None
+    current_spread: float | None
+    best_bid: float | None
+    best_ask: float | None
+    best_bid_no: float | None
+    best_ask_no: float | None
     tick_size: float | None
     min_order_size: float | None
     error: str
     bids: list[dict[str, float]]
     asks: list[dict[str, float]]
+    yes_orderbook: OrderbookContract | None
+    no_orderbook: OrderbookContract | None
 
 @dataclass(frozen=True)
 class StrikeProvenance:
@@ -30,6 +35,9 @@ class StrikeProvenance:
     strike_source: str
     strike_effective_at: datetime | None
     strike_received_at: datetime | None
+    market_start_at: datetime | None = None
+    market_end_at: datetime | None = None
+    settlement_price_source: str = "CHAINLINK_ORACLE"
 
     def __float__(self) -> float:
         if self.strike_value is None:
@@ -81,6 +89,21 @@ def _canonical_strike_provenance(market: Dict[str, Any], event: Dict[str, Any]) 
         except Exception:
             effective_at = None
 
+    end_dt = None
+    end_str = market.get("endDate") or market.get("market_end") or event.get("endDate")
+    if end_str:
+        try:
+            end_dt = pd.to_datetime(end_str, utc=True).to_pydatetime()
+        except Exception:
+            end_dt = None
+
+    settlement_src = str(
+        market.get("resolutionSource")
+        or market.get("oracle")
+        or event.get("resolutionSource")
+        or "CHAINLINK_ORACLE"
+    )
+
     for src_name, candidate in candidates:
         try:
             value = float(candidate)
@@ -92,12 +115,18 @@ def _canonical_strike_provenance(market: Dict[str, Any], event: Dict[str, Any]) 
                 strike_source=src_name,
                 strike_effective_at=effective_at or now,
                 strike_received_at=now,
+                market_start_at=effective_at,
+                market_end_at=end_dt,
+                settlement_price_source=settlement_src,
             )
     return StrikeProvenance(
         strike_value=None,
         strike_source="UNKNOWN",
         strike_effective_at=effective_at,
         strike_received_at=now,
+        market_start_at=effective_at,
+        market_end_at=end_dt,
+        settlement_price_source=settlement_src,
     )
 
 
@@ -364,118 +393,163 @@ class PolymarketClient:
             
         return markets
 
-    async def get_market_prices(self, yes_token_id: str) -> MarketPricesResult:
+    async def get_single_orderbook(
+        self,
+        token_id: str,
+        outcome_side: str = "YES",
+        market_id: str = "",
+        depth_limit: int | None = None,
+    ) -> OrderbookContract:
         """
-        Получает стакан (orderbook) из CLOB API для вычисления mid_price и spread.
+        Fetches and normalizes raw orderbook from CLOB API for a single token.
+        Ensures strict contract verification and explicit quality status (Points 4, 6, 7).
         """
+        now = datetime.now(timezone.utc)
         try:
             response = None
             for attempt in range(3):
                 try:
                     response = await self.client.get(
-                        f"{self.CLOB_API}/book", params={"token_id": yes_token_id}
+                        f"{self.CLOB_API}/book", params={"token_id": token_id}
                     )
                 except (httpx.TimeoutException, httpx.NetworkError) as exc:
                     if attempt == 2:
                         raise
                     delay = 0.25 * (2 ** attempt)
-                    logger.warning(
-                        "clob_book_retry", token_id=yes_token_id,
-                        attempt=attempt + 1, delay_sec=delay, error=str(exc),
-                    )
                     await asyncio.sleep(delay)
                     continue
                 if response.status_code in {408, 429, 500, 502, 503, 504} and attempt < 2:
                     delay = 0.25 * (2 ** attempt)
-                    logger.warning(
-                        "clob_book_retry", token_id=yes_token_id,
-                        attempt=attempt + 1, delay_sec=delay,
-                        status=response.status_code,
-                    )
                     await asyncio.sleep(delay)
                     continue
                 break
-            if response is None:
-                return {"error": "API book request returned no response"}
-            if response.status_code != 200:
-                if response.status_code == 404:
-                    logger.debug("clob_api_404_market_likely_closed", token_id=yes_token_id)
-                else:
-                    logger.warning("clob_api_error", token_id=yes_token_id, status=response.status_code)
-                return {"error": f"API HTTP Error {response.status_code}"}
+
+            if response is None or response.status_code != 200:
+                status = "API_ERROR" if response else "NO_RESPONSE"
+                err_msg = f"HTTP {response.status_code}" if response else "No response from API"
+                return OrderbookContract(
+                    market_id=str(market_id),
+                    token_id=str(token_id),
+                    outcome_side=outcome_side,
+                    event_at=now,
+                    received_at=now,
+                    bids=[],
+                    asks=[],
+                    quality_status=status,
+                    quality_notes=err_msg,
+                )
+
             book = response.json()
-            
-            # Парсим bids (покупка YES) и asks (продажа YES)
             bids = book.get("bids", [])
             asks = book.get("asks", [])
-            
-            if not bids or not asks:
-                logger.warning(
-                    "empty_orderbook_raw",
-                    token_id=yes_token_id,
-                    bids_count=len(bids),
-                    asks_count=len(asks),
-                    raw_keys=list(book.keys()),
-                )
-                return {"error": "Empty orderbook (no bids/asks)"}
-                
-            def _levels(raw_levels):
-                normalized = []
-                for level in raw_levels:
-                    try:
-                        price = float(level.get("price"))
-                        size = float(level.get("size") or level.get("quantity") or 0)
-                    except (AttributeError, TypeError, ValueError):
-                        continue
-                    if price > 0 and size > 0 and price == price and size == size:
-                        normalized.append({"price": price, "size": size})
-                return normalized
+            seq_id = book.get("sequence_id") or book.get("hash")
 
-            normalized_bids = _levels(bids)
-            normalized_asks = _levels(asks)
-            if not normalized_bids or not normalized_asks:
-                logger.warning(
-                    "empty_orderbook_normalized",
-                    token_id=yes_token_id,
-                    bids_count=len(normalized_bids),
-                    asks_count=len(normalized_asks),
-                )
-                return {"error": "Empty orderbook (no valid bids/asks)"}
+            return validate_and_normalize_orderbook(
+                raw_bids=bids,
+                raw_asks=asks,
+                market_id=str(market_id),
+                token_id=str(token_id),
+                outcome_side=outcome_side,
+                event_at=now,
+                received_at=now,
+                sequence_id=seq_id,
+                depth_limit=depth_limit,
+                source="CLOB",
+            )
+        except Exception as exc:
+            return OrderbookContract(
+                market_id=str(market_id),
+                token_id=str(token_id),
+                outcome_side=outcome_side,
+                event_at=now,
+                received_at=now,
+                bids=[],
+                asks=[],
+                quality_status="EXCEPTION",
+                quality_notes=str(exc),
+            )
 
-            # Polymarket API может возвращать стакан отсортированным от худших цен к лучшим.
-            # Поэтому надежнее искать максимум для bid и минимум для ask.
-            best_bid = max(level["price"] for level in normalized_bids)
-            best_ask = min(level["price"] for level in normalized_asks)
+    async def get_both_orderbooks(
+        self,
+        market_id: str,
+        yes_token_id: str,
+        no_token_id: str,
+        depth_limit: int | None = None,
+    ) -> tuple[OrderbookContract, OrderbookContract]:
+        """
+        Fetches real orderbooks for both YES and NO tokens concurrently.
+        Prevents reconstructing NO from YES (Point 6). Errors on one side are NOT masked.
+        """
+        yes_contract, no_contract = await asyncio.gather(
+            self.get_single_orderbook(
+                yes_token_id, outcome_side="YES", market_id=market_id, depth_limit=depth_limit
+            ),
+            self.get_single_orderbook(
+                no_token_id, outcome_side="NO", market_id=market_id, depth_limit=depth_limit
+            ),
+        )
+        return yes_contract, no_contract
 
-            if best_ask <= best_bid:
-                logger.warning("crossed_book", token_id=yes_token_id, bid=best_bid, ask=best_ask)
-                return {"error": "Crossed book (bid >= ask)"}
-
-            mid_price = (best_bid + best_ask) / 2.0
-            spread = best_ask - best_bid
-
-            tick_size = book.get("tick_size") or book.get("minimum_tick_size")
-            min_order_size = book.get("min_order_size") or book.get("minimum_order_size")
-            return {
-                "current_yes_price": mid_price,
-                "current_no_price": 1.0 - mid_price,
-                "current_spread": spread,
-                "best_bid": best_bid,
-                "best_ask": best_ask,
-                "tick_size": float(tick_size) if tick_size is not None else None,
-                "min_order_size": float(min_order_size) if min_order_size is not None else None,
-                "bids": normalized_bids,
-                "asks": normalized_asks,
+    async def get_market_prices(
+        self,
+        yes_token_id: str,
+        no_token_id: str | None = None,
+        market_id: str = "",
+    ) -> MarketPricesResult:
+        """
+        Получает стакан (orderbook) из CLOB API.
+        Если передан no_token_id, запрашивает РЕАЛЬНЫЕ стаканы YES и NO без реконструкции.
+        """
+        if no_token_id:
+            yes_book, no_book = await self.get_both_orderbooks(market_id, yes_token_id, no_token_id)
+            res: MarketPricesResult = {
+                "yes_orderbook": yes_book,
+                "no_orderbook": no_book,
             }
-        except httpx.TimeoutException:
-            logger.error("error_fetching_clob_book_timeout", token_id=yes_token_id)
-            return {"error": "API Timeout"}
-        except httpx.NetworkError:
-            logger.error("error_fetching_clob_book_network", token_id=yes_token_id)
-            return {"error": "API Network Error"}
-        except Exception as e:
-            logger.error("error_fetching_clob_book", market_id=yes_token_id, error=str(e))
-            return {"error": f"API Error: {str(e)}"}
+
+            if yes_book.quality_status in ("VALID", "UNORDERED_LEVELS_NORMALIZED"):
+                res["bids"] = yes_book.bids
+                res["asks"] = yes_book.asks
+                res["best_bid"] = yes_book.best_bid_price
+                res["best_ask"] = yes_book.best_ask_price
+                if yes_book.best_bid_price is not None and yes_book.best_ask_price is not None:
+                    res["current_yes_price"] = (yes_book.best_bid_price + yes_book.best_ask_price) / 2.0
+                    res["current_spread"] = yes_book.best_ask_price - yes_book.best_bid_price
+            else:
+                res["error"] = f"YES orderbook error: {yes_book.quality_status}"
+
+            # Real NO book metrics: NOT 1.0 - mid_price! (Point 6)
+            if no_book.quality_status in ("VALID", "UNORDERED_LEVELS_NORMALIZED"):
+                res["best_bid_no"] = no_book.best_bid_price
+                res["best_ask_no"] = no_book.best_ask_price
+                if no_book.best_bid_price is not None and no_book.best_ask_price is not None:
+                    res["current_no_price"] = (no_book.best_bid_price + no_book.best_ask_price) / 2.0
+            else:
+                res["current_no_price"] = None
+
+            return res
+
+        # Single-token fallback
+        yes_book = await self.get_single_orderbook(yes_token_id, outcome_side="YES", market_id=market_id)
+        if yes_book.quality_status not in ("VALID", "UNORDERED_LEVELS_NORMALIZED"):
+            return {"error": f"API Error: {yes_book.quality_status}"}
+
+        best_bid = yes_book.best_bid_price
+        best_ask = yes_book.best_ask_price
+        mid_price = (best_bid + best_ask) / 2.0 if (best_bid is not None and best_ask is not None) else None
+        spread = (best_ask - best_bid) if (best_bid is not None and best_ask is not None) else None
+
+        return {
+            "current_yes_price": mid_price,
+            "current_no_price": (1.0 - mid_price) if mid_price is not None else None,
+            "current_spread": spread,
+            "best_bid": best_bid,
+            "best_ask": best_ask,
+            "bids": yes_book.bids,
+            "asks": yes_book.asks,
+            "yes_orderbook": yes_book,
+            "no_orderbook": None,
+        }
 
     async def get_recent_trades_volume(self, yes_token_id: str, minutes: int = VOLUME_WINDOW_MIN) -> VolumeResult:
         """

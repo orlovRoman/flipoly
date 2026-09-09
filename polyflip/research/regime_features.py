@@ -501,3 +501,190 @@ def verify_mirror_symmetry(
         "payoff_symmetry": payoff_sym,
         "mode": mode,
     }
+
+
+def align_underlying_history_causal(
+    timestamps: Sequence[datetime | pd.Timestamp],
+    prices: Sequence[float],
+    as_of: datetime | pd.Timestamp,
+    window_min: float = 10.0,
+    max_staleness_sec: float = 120.0,
+) -> tuple[np.ndarray, np.ndarray, str]:
+    """
+    Point 11: Causal alignment of underlying price observations to a fixed historical window.
+    Guarantees:
+    - No future observations (ts <= as_of).
+    - No infinite forward fill.
+    - If most recent observation is older than max_staleness_sec, returns STALE_UNDERLYING status.
+    """
+    if len(timestamps) != len(prices) or len(prices) == 0:
+        return np.array([]), np.array([]), "EMPTY_INPUTS"
+
+    ts_series = pd.to_datetime(list(timestamps), utc=True)
+    p_arr = np.asarray(prices, dtype=float)
+    as_of_dt = pd.to_datetime(as_of, utc=True)
+
+    cutoff = as_of_dt - pd.Timedelta(minutes=float(window_min))
+    mask = (ts_series >= cutoff) & (ts_series <= as_of_dt) & np.isfinite(p_arr)
+
+    valid_ts = ts_series[mask]
+    valid_p = p_arr[mask]
+
+    if len(valid_p) == 0:
+        return np.array([]), np.array([]), "NO_OBSERVATIONS_IN_WINDOW"
+
+    latest_ts = valid_ts.max()
+    staleness_sec = (as_of_dt - latest_ts).total_seconds()
+    if staleness_sec > max_staleness_sec:
+        return valid_ts.to_numpy(), valid_p, "STALE_UNDERLYING"
+
+    return valid_ts.to_numpy(), valid_p, "VALID"
+
+
+def classify_spot_regime_short(
+    prices: Sequence[float] | np.ndarray,
+    timestamps: Sequence[datetime | pd.Timestamp] | None = None,
+    as_of: datetime | pd.Timestamp | None = None,
+    window_min: float = 10.0,
+    min_observations: int = 3,
+    er_rev_thresh: float = 0.40,
+    er_trend_thresh: float = 0.60,
+    sign_change_thresh: float = 0.45,
+    autocorr_thresh: float = -0.05,
+    amplitude_min_thresh: float = 1e-4,
+    require_valid_autocorr: bool = True,
+    max_staleness_sec: float = 120.0,
+) -> dict[str, Any]:
+    """
+    Points 12 & 13: CS_short classifier on fixed lookback window (e.g. 10m primary, 5m sensitivity).
+    Separated from historical CS.
+    
+    Self-checks:
+    - Monotonic movement -> TREND, never REVERSION.
+    - Motionless series -> QUIET.
+    - Insufficient history / stale data -> UNCERTAIN.
+    - Explicit feature availability (Point 13):
+      If require_valid_autocorr=True, missing/NaN autocorr NEVER confirms REVERSION!
+      Instead returns UNCERTAIN with explicit reason.
+    - Future observations do NOT change past classification.
+    """
+    arr = np.asarray(prices, dtype=float)
+    if timestamps is not None and as_of is not None:
+        _, sub_p, status = align_underlying_history_causal(
+            timestamps, arr, as_of=as_of, window_min=window_min, max_staleness_sec=max_staleness_sec
+        )
+        if status != "VALID":
+            return {
+                "state": "UNCERTAIN",
+                "efficiency_ratio": np.nan,
+                "sign_change_freq": np.nan,
+                "autocorr_lag1": np.nan,
+                "amplitude": np.nan,
+                "classification_reason": status,
+                "window_min": window_min,
+            }
+        arr = sub_p
+
+    arr = arr[np.isfinite(arr)]
+    if len(arr) < min_observations:
+        return {
+            "state": "UNCERTAIN",
+            "efficiency_ratio": np.nan,
+            "sign_change_freq": np.nan,
+            "autocorr_lag1": np.nan,
+            "amplitude": np.nan,
+            "classification_reason": "INSUFFICIENT_OBSERVATIONS",
+            "window_min": window_min,
+        }
+
+    mu = float(np.mean(arr))
+    scale = abs(mu) if abs(mu) > 1.0 else 1.0
+    amplitude = float((np.max(arr) - np.min(arr)) / scale)
+    er, er_status = compute_efficiency_ratio(arr, min_periods=min_observations)
+
+    # Motionless / flat check
+    if amplitude < amplitude_min_thresh or er_status == "QUIET_FLAT":
+        return {
+            "state": "QUIET",
+            "efficiency_ratio": 0.0 if np.isnan(er) else er,
+            "sign_change_freq": 0.0,
+            "autocorr_lag1": 0.0,
+            "amplitude": amplitude,
+            "classification_reason": "MOTIONLESS_SERIES",
+            "window_min": window_min,
+        }
+
+    sign_freq, sign_status = compute_return_sign_changes(arr)
+    autocorr, ac_status = compute_return_autocorrelation(arr)
+
+    # Monotonic movement check
+    if np.isfinite(er) and er >= er_trend_thresh:
+        return {
+            "state": "TREND",
+            "efficiency_ratio": round(float(er), 4),
+            "sign_change_freq": round(float(sign_freq), 4) if np.isfinite(sign_freq) else 0.0,
+            "autocorr_lag1": round(float(autocorr), 4) if np.isfinite(autocorr) else 0.0,
+            "amplitude": round(amplitude, 6),
+            "classification_reason": "CONFIRMED_TREND",
+            "window_min": window_min,
+        }
+
+    # Reversion check with explicit feature requirements (Point 13)
+    is_low_er = np.isfinite(er) and er <= er_rev_thresh
+    is_high_flips = np.isfinite(sign_freq) and sign_freq >= sign_change_thresh
+
+    if is_low_er and is_high_flips:
+        if require_valid_autocorr:
+            if np.isfinite(autocorr) and autocorr <= autocorr_thresh:
+                return {
+                    "state": "REVERSION",
+                    "efficiency_ratio": round(float(er), 4),
+                    "sign_change_freq": round(float(sign_freq), 4),
+                    "autocorr_lag1": round(float(autocorr), 4),
+                    "amplitude": round(amplitude, 6),
+                    "classification_reason": "CONFIRMED_REVERSION_WITH_AUTOCORR",
+                    "window_min": window_min,
+                }
+            elif np.isnan(autocorr) or ac_status != "VALID":
+                # Point 13: NaN does NOT become automatic confirmation of reversion!
+                return {
+                    "state": "UNCERTAIN",
+                    "efficiency_ratio": round(float(er), 4),
+                    "sign_change_freq": round(float(sign_freq), 4),
+                    "autocorr_lag1": np.nan,
+                    "amplitude": round(amplitude, 6),
+                    "classification_reason": "MISSING_AUTOCORRELATION",
+                    "window_min": window_min,
+                }
+            else:
+                return {
+                    "state": "UNCERTAIN",
+                    "efficiency_ratio": round(float(er), 4),
+                    "sign_change_freq": round(float(sign_freq), 4),
+                    "autocorr_lag1": round(float(autocorr), 4),
+                    "amplitude": round(amplitude, 6),
+                    "classification_reason": "POSITIVE_AUTOCORRELATION_NOT_REVERTING",
+                    "window_min": window_min,
+                }
+        else:
+            # Variant without mandatory autocorrelation
+            if np.isnan(autocorr) or autocorr <= autocorr_thresh:
+                return {
+                    "state": "REVERSION",
+                    "efficiency_ratio": round(float(er), 4),
+                    "sign_change_freq": round(float(sign_freq), 4),
+                    "autocorr_lag1": round(float(autocorr), 4) if np.isfinite(autocorr) else np.nan,
+                    "amplitude": round(amplitude, 6),
+                    "classification_reason": "REVERSION_WITHOUT_MANDATORY_AUTOCORR",
+                    "window_min": window_min,
+                }
+
+    return {
+        "state": "UNCERTAIN",
+        "efficiency_ratio": round(float(er), 4) if np.isfinite(er) else np.nan,
+        "sign_change_freq": round(float(sign_freq), 4) if np.isfinite(sign_freq) else np.nan,
+        "autocorr_lag1": round(float(autocorr), 4) if np.isfinite(autocorr) else np.nan,
+        "amplitude": round(amplitude, 6),
+        "classification_reason": "AMBIGUOUS_FEATURES",
+        "window_min": window_min,
+    }
