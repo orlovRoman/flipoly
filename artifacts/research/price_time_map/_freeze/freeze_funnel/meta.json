@@ -1,0 +1,75 @@
+{
+  "name": "freeze_funnel",
+  "markets_requested": 12745,
+  "rows": 2821414,
+  "db_snapshot_rows_info": 8322053,
+  "db_snapshot_max_id_info": 8333029,
+  "query": "SELECT market_id, recorded_at, time_left_min, mid_price, best_bid, best_ask, spread, final_outcome FROM market_snapshots WHERE market_id = ANY($1::text[]) ORDER BY market_id, recorded_at",
+  "files": [
+    {
+      "path": "chunks/part_0000.csv.gz",
+      "sha256": "e65f08e187512c4bbd2e553bb2fad25a6faabb6e40047330130ff108037d317f",
+      "rows": 170685
+    },
+    {
+      "path": "chunks/part_0001.csv.gz",
+      "sha256": "2b46e390b8213f44ae389014bc7d7f891c37a1645547e24b147f6024dc75c6e3",
+      "rows": 193710
+    },
+    {
+      "path": "chunks/part_0002.csv.gz",
+      "sha256": "28052c16a0608146e5762d1c5350b8ea1fa869be4d27cc92375069a276f1d31b",
+      "rows": 249180
+    },
+    {
+      "path": "chunks/part_0003.csv.gz",
+      "sha256": "ef9bc1521a2f525acc0940d35cdb60992c4663d850f3ceeb2fc50c096210781c",
+      "rows": 245016
+    },
+    {
+      "path": "chunks/part_0004.csv.gz",
+      "sha256": "4040054ed724bdfb9027ec92c695e9bfb73ee9172fcff90f00bf89c59a60deb6",
+      "rows": 214765
+    },
+    {
+      "path": "chunks/part_0005.csv.gz",
+      "sha256": "7756243b4ac1e016812af1c07724b2d48eb7297c89d8e735fb4ac82d53105075",
+      "rows": 222845
+    },
+    {
+      "path": "chunks/part_0006.csv.gz",
+      "sha256": "a5990aa3d4457faf3be9fc10c3b4f355e24c5d5112466837863717739214cb93",
+      "rows": 215297
+    },
+    {
+      "path": "chunks/part_0007.csv.gz",
+      "sha256": "46674a9067d37869d929217a698816869fade47b4ab062c0219954d36571110d",
+      "rows": 230018
+    },
+    {
+      "path": "chunks/part_0008.csv.gz",
+      "sha256": "58bba1fbb8b37915ff0c134de0e9f0e199cb4880f8ce320b2cca5d8b380c766f",
+      "rows": 229958
+    },
+    {
+      "path": "chunks/part_0009.csv.gz",
+      "sha256": "b27a9f3148b248e79759626afd6e42a7f09a7b1ca2dd5f0337e9baa57ff2162b",
+      "rows": 230121
+    },
+    {
+      "path": "chunks/part_0010.csv.gz",
+      "sha256": "39489e03c20705d341ee6a642b86aec756cabd7ee146b03832530b361edfbbde",
+      "rows": 229500
+    },
+    {
+      "path": "chunks/part_0011.csv.gz",
+      "sha256": "75e27f51fa2d0dbb174439b7b8a7f3e8e29fbfb3b6ffd161267520c10ccc91eb",
+      "rows": 225073
+    },
+    {
+      "path": "chunks/part_0012.csv.gz",
+      "sha256": "4ccf7ae4a98d9c89f3750f825fcc3ea688cef53ac833a102157ab04b14516bf5",
+      "rows": 165246
+    }
+  ]
+}

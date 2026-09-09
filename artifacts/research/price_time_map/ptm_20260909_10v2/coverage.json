@@ -1,0 +1,11 @@
+{
+  "markets": 12745,
+  "with_snapshots": 12745,
+  "outcome_ok": 12745,
+  "outcome_conflict": 0,
+  "outcome_missing": 0,
+  "entries_ok": 35753,
+  "entries_missing": 15227,
+  "timebase_mismatch": 0,
+  "per_asset": {}
+}
