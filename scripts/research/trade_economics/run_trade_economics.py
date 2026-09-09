@@ -89,7 +89,7 @@ def main():
             "charged_asset": "USD",
             "round_method": "ROUND_DOWN",
             "round_decimals": 4,
-            "source_reference": "DEMONSTRATION",
+            "source_reference": "0.1% FEE",
             "evidence_status": "DEMONSTRATION"
         },
         {
@@ -146,7 +146,7 @@ def main():
         for name, df_trades in datasets:
             total_trades = len(df_trades)
             # Check mandatory columns
-            required_cols = ['gross_pnl', 'net_pnl', 'shares', 'executable_ask', 'target']
+            required_cols = ['gross_pnl', 'net_pnl', 'shares', 'executable_ask', 'target', 'final_outcome']
             missing_cols = [c for c in required_cols if c not in df_trades.columns]
             if missing_cols:
                 raise ValueError(f"Missing mandatory columns for reproduction: {missing_cols} in {name}.")
@@ -245,18 +245,23 @@ def main():
             except Exception:
                 df_trades.to_csv(os.path.join(ARTIFACTS_DIR, f"opportunity_economics_{name}.csv"), index=False)
                 
-            accounting_diffs = df_trades[['opportunity_id', 'net_pnl', 'reproduced_net_pnl', 'scenario_net_pnl', 'sign_changed']]
+            accounting_diffs = df_trades[['opportunity_id', 'net_pnl', 'reproduced_net_pnl', 'historical_fee', 'historical_net_pnl', 'scenario_fee', 'scenario_net_pnl', 'sign_changed']]
             accounting_diffs.to_csv(os.path.join(ARTIFACTS_DIR, f"accounting_differences_{name}.csv"), index=False)
             
             sign_flips = int(df_trades['sign_changed'].sum())
             old_net_sum = float(df_trades['reproduced_net_pnl'].sum())
             new_net_sum = float(df_trades['scenario_net_pnl'].fillna(0).sum())
             
+            total_turnover = float(df_trades['reproduced_purchase_cash'].sum())
+            covered_turnover = float(df_trades.loc[df_trades['historical_fee'].notna(), 'reproduced_purchase_cash'].sum())
+            coverage_turnover_pct = (covered_turnover / total_turnover * 100) if total_turnover > 0 else 0.0
+            
             if "datasets_summary" not in locals():
                 datasets_summary = {}
             datasets_summary[name] = {
                 "total_trades": total_trades,
-                "coverage_pct": coverage_pct,
+                "coverage_pct_trades": coverage_pct,
+                "coverage_pct_turnover": coverage_turnover_pct,
                 "status": "UNKNOWN",
                 "scenario_net_pnl_sum": new_net_sum,
                 "reproduced_net_pnl_sum": old_net_sum,

@@ -19,7 +19,7 @@ def test_calculate_commission_current_only():
     # Historical date provided
     assert calculate_commission(scheme, 'taker', 0.5, 100, transaction_date='2020-01-01') is None
     # No historical date
-    assert calculate_commission(scheme, 'taker', 0.5, 100) == 0.0
+    assert calculate_commission(scheme, 'taker', 0.5, 100) is None
     
 def test_calculate_commission_maker_taker():
     scheme = {

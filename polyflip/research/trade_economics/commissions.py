@@ -16,17 +16,21 @@ def calculate_commission(
     if scheme is None or scheme.get('evidence_status') == 'UNKNOWN':
         return None
         
+    evidence_status = scheme.get('evidence_status')
+    valid_from = scheme.get('valid_from')
+    valid_to = scheme.get('valid_to')
+    
+    if evidence_status == 'CURRENT_ONLY':
+        return None
+        
     if transaction_date:
-        if scheme.get('evidence_status') == 'CURRENT_ONLY':
-            return None
-        
         tx_date_str = str(transaction_date)[:10]
-        valid_from = scheme.get('valid_from')
-        valid_to = scheme.get('valid_to')
-        
         if valid_from and tx_date_str < str(valid_from)[:10]:
             return None
         if valid_to and tx_date_str > str(valid_to)[:10]:
+            return None
+    else:
+        if valid_from or valid_to:
             return None
         
     formula_id = scheme.get('formula_id')
@@ -57,10 +61,8 @@ def calculate_commission(
     round_method = scheme.get('round_method') or scheme.get('rounding_rule')
     if round_method == 'ROUND_DOWN':
         decimals = scheme.get('round_decimals')
-        if decimals is None:
-            charged_asset = scheme.get('charged_asset', 'USD')
-            decimals = 6 if charged_asset == 'USDC' else 2
-        multiplier = 10 ** decimals
-        fee = math.floor(fee * multiplier) / multiplier
+        if decimals is not None:
+            multiplier = 10 ** decimals
+            fee = math.floor(fee * multiplier) / multiplier
             
     return fee
