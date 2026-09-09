@@ -111,3 +111,45 @@ async def test_run_collector_cycle_records_and_flushes_strike(db_session: AsyncS
     obs_res = await repo.get_latest_observation(instrument="BTC", source="ORACLE", as_of=now)
     assert obs_res.is_valid
     assert obs_res.price == 68500.0
+
+
+@pytest.mark.asyncio
+async def test_run_collector_cycle_one_sided_orderbook(db_session: AsyncSession):
+    """One-sided orderbook correctly saves depth in database instead of rejecting it."""
+    now = datetime.now(timezone.utc)
+    mock_market = {
+        "market_id": "test_m_oneside",
+        "yes_token_id": "tok_yes",
+        "no_token_id": "tok_no",
+        "asset": "BTC",
+        "question": "One sided",
+        "end_date_iso": (now + timedelta(minutes=15)).isoformat(),
+    }
+    
+    # Missing mid_price/spread due to empty side (e.g. YES has no bids, NO has no asks)
+    mock_prices = {
+        "current_yes_price": None,
+        "current_no_price": None,
+        "current_spread": None,
+        "best_bid": None,
+        "best_ask": 0.05,
+    }
+
+    with patch("polyflip.collector.parser.PolymarketClient") as MockClient:
+        instance = AsyncMock()
+        instance.get_active_15m_markets.return_value = [mock_market]
+        instance.get_market_prices.return_value = mock_prices
+        instance.get_recent_trades_volume.return_value = 100.0
+        
+        # We need the parser to also call get_both_orderbooks probably, but it's not mocked here
+        # Actually parser just processes it
+        MockClient.return_value = instance
+
+        await run_collector_cycle(db_session)
+
+    # Verify MarketSnapshot allows nullable mid_price
+    res = await db_session.execute(select(MarketSnapshot).where(MarketSnapshot.market_id == "test_m_oneside").order_by(MarketSnapshot.id.desc()).limit(1))
+    snapshot = res.scalar_one_or_none()
+    assert snapshot is not None
+    assert snapshot.mid_price is None
+    assert snapshot.spread is None

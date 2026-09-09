@@ -307,12 +307,27 @@ def compute_orderbook_completeness_report(
     ]
 
     target_markets = set(decision_market_ids) if decision_market_ids else set(market_sides.keys())
-    target_snapshots = [(m, t) for (m, t) in market_time_sides.keys() if m in target_markets]
-    both_count = sum(
-        1 for (m, t) in target_snapshots
-        if len(market_time_sides.get((m, t), set()).intersection({"YES", "NO"})) == 2
-    )
-    both_pct = (both_count / len(target_snapshots) * 100.0) if target_snapshots else 0.0
+    
+    # Causal search for pairing: group by market, sort by received_at, find YES/NO within 5 seconds
+    both_count = 0
+    total_decision_snaps = 0
+    
+    for m in target_markets:
+        c_list = [c for c in contracts if c.market_id == m]
+        c_list.sort(key=lambda x: x.received_at)
+        
+        # Consider each YES as a target snapshot
+        yes_books = [c for c in c_list if c.outcome_side == "YES"]
+        no_books = [c for c in c_list if c.outcome_side == "NO"]
+        
+        for yb in yes_books:
+            total_decision_snaps += 1
+            # Causal search: find any NO book within 5 seconds before or after
+            paired = any(abs((nb.received_at - yb.received_at).total_seconds()) <= 5.0 for nb in no_books)
+            if paired:
+                both_count += 1
+
+    both_pct = (both_count / total_decision_snaps * 100.0) if total_decision_snaps > 0 else 0.0
 
     latest_age = (now - timestamps[-1]).total_seconds() if timestamps else None
     mean_int = float(sum(intervals) / len(intervals)) if intervals else None

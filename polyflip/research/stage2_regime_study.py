@@ -78,6 +78,7 @@ def run_stage2_study(
     snaps_hash = hash_file(snapshots_csv_path)
     candles_hash = hash_file(candles_csv_path)
     exp_hash = hash_file(expirations_json_path)
+    candles_1m_hash = hash_file(candles_1m_csv_path)
 
     # 1. Load data
     try:
@@ -128,6 +129,7 @@ def run_stage2_study(
     grouped = snaps.groupby("market_id", sort=False)
 
     ledger_rows: list[dict[str, Any]] = []
+    vol_tracker = ExecutionVolumeTracker()
 
     for mid, group in grouped:
         m_str = str(mid)
@@ -207,6 +209,7 @@ def run_stage2_study(
         spot_price_at_decision = np.nan
         sub_c_closes = []
         cs_res: dict[str, Any] = {"state": "UNCERTAIN", "efficiency_ratio": None, "local_mean": None}
+
         if len(causal_candles) >= 6:
             last_candle_close = causal_candles["open_time"].iloc[-1] + pd.Timedelta(minutes=5)
             if (decision_at - last_candle_close) <= pd.Timedelta(minutes=15):
@@ -216,28 +219,24 @@ def run_stage2_study(
                 spot_price_at_decision = float(spot_closes[-1])
                 cs_res = classify_local_regime(spot_closes, min_observations=4)
                 spot_regime = cs_res["state"]
-                
-                if candles_1m is not None:
-                    c1m = candles_1m[candles_1m["open_time"] + pd.Timedelta(minutes=1) <= decision_at]
-                    if len(c1m) >= 10:
-                        c1m_last_close = c1m["open_time"].iloc[-1] + pd.Timedelta(minutes=1)
-                        if (decision_at - c1m_last_close) <= pd.Timedelta(minutes=5):
-                            c1m_closes = c1m["close"].tail(10).to_numpy()
-                            c1m_times = c1m["open_time"].tail(10).to_numpy()
-                            cs_short_res = classify_spot_regime_short(c1m_closes, timestamps=c1m_times, as_of=decision_at, window_min=10.0, require_valid_autocorr=True)
-                        else:
-                            cs_short_res = {"state": "UNCERTAIN", "classification_reason": "STALE_1M_CANDLE"}
-                    else:
-                        cs_short_res = {"state": "UNCERTAIN", "classification_reason": "INSUFFICIENT_1M_CANDLES"}
-                else:
-                    cs_short_res = classify_spot_regime_short(spot_closes, timestamps=spot_times, as_of=decision_at, window_min=10.0, require_valid_autocorr=True)
 
-                spot_regime_short = cs_short_res["state"]
-                cs_short_reason = cs_short_res.get("classification_reason")
+        if candles_1m is not None:
+            c1m = candles_1m[candles_1m["open_time"] + pd.Timedelta(minutes=1) <= decision_at]
+            if len(c1m) >= 10:
+                c1m_last_close = c1m["open_time"].iloc[-1] + pd.Timedelta(minutes=1)
+                if (decision_at - c1m_last_close) <= pd.Timedelta(minutes=5):
+                    c1m_closes = c1m["close"].tail(10).to_numpy()
+                    c1m_times = (c1m["open_time"].tail(10) + pd.Timedelta(minutes=1)).to_numpy()
+                    cs_short_res = classify_spot_regime_short(c1m_closes, timestamps=c1m_times, as_of=decision_at, window_min=10.0, require_valid_autocorr=True)
+                else:
+                    cs_short_res = {"state": "UNCERTAIN", "classification_reason": "STALE_1M_CANDLE"}
             else:
-                cs_short_reason = "STALE_CANDLE"
+                cs_short_res = {"state": "UNCERTAIN", "classification_reason": "INSUFFICIENT_1M_CANDLES"}
         else:
-            cs_short_reason = "INSUFFICIENT_CANDLES"
+            cs_short_res = {"state": "UNCERTAIN", "classification_reason": "INSUFFICIENT_1M_CANDLES"}
+
+        spot_regime_short = cs_short_res["state"]
+        cs_short_reason = cs_short_res.get("classification_reason")
 
         # Market boundaries and strike
         exp_iso = exp_map.get(m_str)
@@ -289,19 +288,67 @@ def run_stage2_study(
                     sim_asks = dec_row["asks"]
             except Exception:
                 pass
+                
+        if sim_asks is not None:
+            if dec_row.get("depth_outcome_side") not in ("YES", None, np.nan):
+                sim_asks = None
 
         # Multi-budget simulations ($1, $5, $10) (Item 26)
+        exec_1 = "BLOCKED_DATA"
+        exec_5 = "BLOCKED_DATA"
+        exec_10 = "BLOCKED_DATA"
+
         if sim_asks is not None:
-            res_1 = simulate_orderbook_execution(sim_asks, budget_usdc=1.0, taker_fee_rate=taker_fee_rate)
-            res_5 = simulate_orderbook_execution(sim_asks, budget_usdc=5.0, taker_fee_rate=taker_fee_rate)
-            res_10 = simulate_orderbook_execution(sim_asks, budget_usdc=10.0, taker_fee_rate=taker_fee_rate)
-            exec_1 = res_1.fill_status
-            exec_5 = res_5.fill_status
-            exec_10 = res_10.fill_status
-        else:
-            exec_1 = "BLOCKED_DATA"
-            exec_5 = "BLOCKED_DATA"
-            exec_10 = "BLOCKED_DATA"
+            is_trunc = bool(dec_row.get("is_truncated", False))
+            book_age = 0.0
+            if pd.notna(dec_row.get("depth_event_at")) and pd.notna(dec_row.get("depth_received_at")):
+                try:
+                    de_at = pd.to_datetime(dec_row["depth_event_at"], utc=True)
+                    dr_at = pd.to_datetime(dec_row["depth_received_at"], utc=True)
+                    book_age = max(0.0, (dr_at - de_at).total_seconds())
+                except Exception:
+                    pass
+            
+            dec_id = vol_tracker.make_decision_id(m_str, decision_at, "YES")
+            
+            if vol_tracker.register_decision(dec_id):
+                consumed_for_1 = vol_tracker.get_consumed_shares(m_str, len(sim_asks)).copy()
+                res_1 = simulate_orderbook_execution(
+                    sim_asks, budget_usdc=1.0, price_limit=ask, taker_fee_rate=taker_fee_rate, 
+                    is_truncated=is_trunc, book_age_sec=book_age, already_consumed_shares_by_level=consumed_for_1
+                )
+                
+                consumed_for_5 = vol_tracker.get_consumed_shares(m_str, len(sim_asks)).copy()
+                res_5 = simulate_orderbook_execution(
+                    sim_asks, budget_usdc=5.0, price_limit=ask, taker_fee_rate=taker_fee_rate, 
+                    is_truncated=is_trunc, book_age_sec=book_age, already_consumed_shares_by_level=consumed_for_5
+                )
+                
+                consumed_for_10 = vol_tracker.get_consumed_shares(m_str, len(sim_asks)).copy()
+                res_10 = simulate_orderbook_execution(
+                    sim_asks, budget_usdc=10.0, price_limit=ask, taker_fee_rate=taker_fee_rate, 
+                    is_truncated=is_trunc, book_age_sec=book_age, already_consumed_shares_by_level=consumed_for_10
+                )
+                
+                if res_1.fill_status in ("FULL", "PARTIAL", "LIMIT_EXCEEDED"):
+                    vol_tracker.record_fill(m_str, sim_asks, res_1.filled_shares)
+
+                # Recompute net_pnl based on actual execution if target was $1
+                settlement = calculate_trade_payout_and_pnl(
+                    filled_shares=res_1.filled_shares,
+                    spent_usdc=res_1.spent_usdc,
+                    budget_usdc=1.0,
+                    target=target,
+                    fee=res_1.fee,
+                )
+                net_pnl = settlement.net_pnl
+                gross_pnl = settlement.gross_pnl
+                shares = settlement.filled_shares
+                fee = settlement.fee
+
+                exec_1 = res_1.__dict__
+                exec_5 = res_5.__dict__
+                exec_10 = res_10.__dict__
 
         # Context evaluation for canonical strike
         ctx_canon = compute_strike_context(
@@ -622,16 +669,65 @@ def run_stage2_study(
             variant_results[v_key]["standalone_expectancy_ci_95"] = None
 
     # 9. Item 26: Multi-budget execution recalculation ($1, $5, $10)
-    # Replaced with BLOCKED_DATA per plan (missing historical depth)
-    budget_tables: dict[str, Any] = {
-        "$1": "BLOCKED_DATA",
-        "$5": "BLOCKED_DATA",
-        "$10": "BLOCKED_DATA",
-    }
+    budget_tables: dict[str, Any] = {}
+    for b_key, b_lbl in [("execution_sim", "$1"), ("execution_sim_5", "$5"), ("execution_sim_10", "$10")]:
+        full, partial, unfill = 0, 0, 0
+        tot_spent = 0.0
+        tot_pnl = 0.0
+        vwap_drifts = []
+        
+        for _, row in c0_sub.iterrows():
+            sim = row[b_key]
+            if isinstance(sim, dict):
+                st = sim.get("fill_status")
+                if st == "FULL": full += 1
+                elif st == "PARTIAL": partial += 1
+                else: unfill += 1
+                
+                tot_spent += sim.get("spent_usdc", 0.0)
+                
+                # Compute trade settlement logic to get PnL
+                sett = calculate_trade_payout_and_pnl(
+                    filled_shares=sim.get("filled_shares", 0.0),
+                    spent_usdc=sim.get("spent_usdc", 0.0),
+                    budget_usdc=float(b_lbl.replace("$","")),
+                    target=row["target"],
+                    fee=sim.get("fee", 0.0)
+                )
+                tot_pnl += sett.net_pnl
+                
+                v = sim.get("vwap")
+                if v is not None and v > 0:
+                    vwap_drifts.append((v - row["executable_ask"]) / row["executable_ask"])
+                    
+        budget_tables[b_lbl] = {
+            "full_fills": full,
+            "partial_fills": partial,
+            "unfilled": unfill,
+            "total_spent_usdc": round(tot_spent, 2),
+            "vwap_drift_vs_decision_price": round(float(np.mean(vwap_drifts)), 4) if vwap_drifts else 0.0,
+            "net_pnl_total": round(tot_pnl, 2),
+            "return_on_spent_pct": round(tot_pnl / tot_spent * 100, 2) if tot_spent > 0 else 0.0
+        }
 
     # 10. Item 27: Selection effect of execution
     # Compare filled vs unfilled opportunities on price, mechanism, outcome
-    selection_effect = "BLOCKED_DATA"
+    filled_mask = c0_sub["execution_sim"].apply(lambda x: isinstance(x, dict) and x.get("fill_status") in ("FULL", "PARTIAL"))
+    sub_filled = c0_sub[filled_mask]
+    sub_unfilled = c0_sub[~filled_mask]
+    
+    selection_effect = {
+        "filled": {
+            "n": len(sub_filled),
+            "win_rate": round(float(sub_filled["target"].mean()), 4) if not sub_filled.empty else 0.0,
+            "avg_price": round(float(sub_filled["executable_ask"].mean()), 4) if not sub_filled.empty else 0.0,
+        },
+        "unfilled": {
+            "n": len(sub_unfilled),
+            "win_rate": round(float(sub_unfilled["target"].mean()), 4) if not sub_unfilled.empty else 0.0,
+            "avg_price": round(float(sub_unfilled["executable_ask"].mean()), 4) if not sub_unfilled.empty else 0.0,
+        }
+    }
 
     # 11. Item 29: Subsequent unviewed holdout check & Exploratory Period
     exploratory_mask = (c0_sub["calendar_date"] >= "2026-09-02") & (c0_sub["calendar_date"] <= "2026-09-08")
@@ -763,6 +859,7 @@ def run_stage2_study(
             "input_hashes": {
                 "snapshots": snaps_hash,
                 "candles": candles_hash,
+                "candles_1m": candles_1m_hash,
                 "expirations": exp_hash
             },
             "schema_version": "1.1.0",

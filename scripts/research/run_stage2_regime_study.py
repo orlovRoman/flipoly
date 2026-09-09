@@ -52,11 +52,13 @@ def main() -> None:
 
     snaps_csv = REPO_ROOT / "artifacts" / "research" / "btc_snapshots_4_15m.csv"
     candles_csv = REPO_ROOT / "artifacts" / "research" / "crypto_candles_5m.csv"
+    candles_1m_csv = REPO_ROOT / "artifacts" / "research" / "crypto_candles_1m.csv"
     exp_json = REPO_ROOT / "artifacts" / "research" / "market_expirations.json"
 
     res = run_stage2_study(
         snapshots_csv_path=snaps_csv,
         candles_csv_path=candles_csv,
+        candles_1m_csv_path=candles_1m_csv,
         expirations_json_path=exp_json,
         target_asset="BTC",
         stake_usdc=1.0,
@@ -74,11 +76,15 @@ def main() -> None:
     print(f"{'Variant':<26s} | {'Trades':<6s} | {'WinRate':<7s} | {'Net PnL':<10s} | {'Exp':<8s} | {'Delta vs C0 (95% CI)':<25s}")
     print("-" * 90)
     for k, v in variants.items():
-        ci = v.get("paired_bootstrap_ci_95", [0, 0])
-        delta = v.get("paired_delta_vs_c0", 0.0)
+        ci = v.get("paired_bootstrap_ci_95")
+        if ci is None:
+            ci = [0.0, 0.0]
+        delta = v.get("paired_delta_vs_c0") or 0.0
         ci_str = f"[{ci[0]:+7.2f}, {ci[1]:+7.2f}]" if k != "C0" else "baseline"
         delta_str = f"{delta:+7.2f}" if k != "C0" else "  0.00"
-        print(f"{v['label']:<26s} | {v['n_trades']:<6d} | {v['win_rate']*100:<6.2f}% | {v['net_pnl_usdc']:+9.2f}  | {v['expectancy']:+7.4f} | {delta_str} {ci_str}")
+        pnl = v.get('net_pnl_usdc') or 0.0
+        exp = v.get('expectancy') or 0.0
+        print(f"{v['label']:<26s} | {v['n_trades']:<6d} | {v['win_rate']*100:<6.2f}% | {pnl:+9.2f}  | {exp:+7.4f} | {delta_str} {ci_str}")
 
     print("\n" + "=" * 80)
     print("FORMER FAVORITE MECHANISM BREAKDOWN (Items 19 & 20)")

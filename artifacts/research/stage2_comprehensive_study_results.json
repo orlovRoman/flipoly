@@ -2,12 +2,13 @@
   "metadata": {
     "title": "Stage 2 Comprehensive Regime and Strike Research Study",
     "asset": "BTC",
-    "generated_at": "2026-09-09T06:04:26.673136+00:00",
-    "git_commit": "a02a4394b5ce40ef0c0b5a196f9fcd51fb4d58d1",
+    "generated_at": "2026-09-09T06:59:18.663581+00:00",
+    "git_commit": "926fb5771c6b7c7d913880b32ac61230049a4cfe",
     "git_dirty": true,
     "input_hashes": {
       "snapshots": "31b18ee191d2fa82a0cc0fa85ecd8a612577d5b54108f7a19078e3a2f037b3b0",
       "candles": "b5d96f1e68dc6989823ed2fb508ad2b12a59f24d891e72c09aa0a6559ff5eb4e",
+      "candles_1m": "UNKNOWN",
       "expirations": "8d36e383cc958e07dcec08d08763e26310bc25e4afdd477b72539b3c8ac82b28"
     },
     "schema_version": "1.1.0",
@@ -198,38 +199,38 @@
   },
   "item_19_and_20_former_favorite_mechanism": {
     "FORMER_FAVORITE": {
-      "n_trades": 1361,
+      "n_trades": 1354,
       "n_days": 70,
-      "avg_entry_price": 0.1847,
-      "win_rate": 0.1866,
-      "net_pnl_usdc": -9.43,
-      "expectancy": -0.0069,
+      "avg_entry_price": 0.1849,
+      "win_rate": 0.1876,
+      "net_pnl_usdc": -2.42,
+      "expectancy": -0.0018,
       "top_3_wins": [
         32.33,
         24.0,
         24.0
       ],
       "weekly_pnl": {
-        "2026-06-29/2026-07-05": -41.25,
-        "2026-07-06/2026-07-12": -19.67,
-        "2026-07-13/2026-07-19": 14.01,
+        "2026-06-29/2026-07-05": -40.25,
+        "2026-07-06/2026-07-12": -18.67,
+        "2026-07-13/2026-07-19": 16.02,
         "2026-07-20/2026-07-26": -9.65,
         "2026-07-27/2026-08-02": 22.67,
-        "2026-08-03/2026-08-09": -41.92,
-        "2026-08-10/2026-08-16": 57.6,
+        "2026-08-03/2026-08-09": -40.92,
+        "2026-08-10/2026-08-16": 58.6,
         "2026-08-17/2026-08-23": 21.19,
-        "2026-08-24/2026-08-30": 7.62,
+        "2026-08-24/2026-08-30": 8.62,
         "2026-08-31/2026-09-06": 6.24,
         "2026-09-07/2026-09-13": -26.26
       }
     },
     "PERSISTENT_CHEAP": {
-      "n_trades": 309,
+      "n_trades": 307,
       "n_days": 69,
-      "avg_entry_price": 0.0843,
-      "win_rate": 0.0583,
-      "net_pnl_usdc": -179.79,
-      "expectancy": -0.5819,
+      "avg_entry_price": 0.0847,
+      "win_rate": 0.0586,
+      "net_pnl_usdc": -177.79,
+      "expectancy": -0.5791,
       "top_3_wins": [
         19.0,
         13.28,
@@ -239,8 +240,8 @@
         "2026-06-29/2026-07-05": -26.05,
         "2026-07-06/2026-07-12": -22.17,
         "2026-07-13/2026-07-19": -20.2,
-        "2026-07-20/2026-07-26": -29.06,
-        "2026-07-27/2026-08-02": -17.44,
+        "2026-07-20/2026-07-26": -28.06,
+        "2026-07-27/2026-08-02": -16.44,
         "2026-08-03/2026-08-09": -15.39,
         "2026-08-10/2026-08-16": -22.05,
         "2026-08-17/2026-08-23": -4.84,
@@ -276,14 +277,27 @@
       }
     },
     "INSUFFICIENT_HISTORY": {
-      "n_trades": 0,
-      "n_days": 0,
-      "avg_entry_price": 0.0,
+      "n_trades": 9,
+      "n_days": 9,
+      "avg_entry_price": 0.1119,
       "win_rate": 0.0,
-      "net_pnl_usdc": 0.0,
-      "expectancy": 0.0,
-      "top_3_wins": [],
-      "weekly_pnl": {}
+      "net_pnl_usdc": -9.02,
+      "expectancy": -1.002,
+      "top_3_wins": [
+        -1.0,
+        -1.0,
+        -1.0
+      ],
+      "weekly_pnl": {
+        "2026-06-29/2026-07-05": -1.0,
+        "2026-07-06/2026-07-12": -1.0,
+        "2026-07-13/2026-07-19": -2.0,
+        "2026-07-20/2026-07-26": -1.0,
+        "2026-07-27/2026-08-02": -1.0,
+        "2026-08-03/2026-08-09": -1.0,
+        "2026-08-10/2026-08-16": -1.0,
+        "2026-08-24/2026-08-30": -1.0
+      }
     }
   },
   "item_21_price_bucket_separation": {
@@ -291,16 +305,16 @@
       "total_trades": 538,
       "by_group": {
         "FORMER_FAVORITE": {
-          "n_trades": 170,
-          "win_rate": 0.0235,
-          "expectancy": -0.3647,
-          "net_pnl_usdc": -62.01
+          "n_trades": 168,
+          "win_rate": 0.0238,
+          "expectancy": -0.3572,
+          "net_pnl_usdc": -60.0
         },
         "PERSISTENT_CHEAP": {
-          "n_trades": 121,
+          "n_trades": 119,
           "win_rate": 0.0,
           "expectancy": -1.002,
-          "net_pnl_usdc": -121.24
+          "net_pnl_usdc": -119.24
         },
         "OTHER_TRAJECTORY": {
           "n_trades": 247,
@@ -309,7 +323,7 @@
           "net_pnl_usdc": -111.53
         },
         "INSUFFICIENT_HISTORY": {
-          "n_trades": 0,
+          "n_trades": 4,
           "status": "INSUFFICIENT_DATA"
         }
       }
@@ -318,10 +332,10 @@
       "total_trades": 554,
       "by_group": {
         "FORMER_FAVORITE": {
-          "n_trades": 221,
-          "win_rate": 0.0769,
-          "expectancy": 0.1296,
-          "net_pnl_usdc": 28.64
+          "n_trades": 219,
+          "win_rate": 0.0776,
+          "expectancy": 0.1399,
+          "net_pnl_usdc": 30.64
         },
         "PERSISTENT_CHEAP": {
           "n_trades": 93,
@@ -336,7 +350,7 @@
           "net_pnl_usdc": 38.09
         },
         "INSUFFICIENT_HISTORY": {
-          "n_trades": 0,
+          "n_trades": 2,
           "status": "INSUFFICIENT_DATA"
         }
       }
@@ -345,10 +359,10 @@
       "total_trades": 398,
       "by_group": {
         "FORMER_FAVORITE": {
-          "n_trades": 200,
-          "win_rate": 0.145,
-          "expectancy": 0.1945,
-          "net_pnl_usdc": 38.89
+          "n_trades": 199,
+          "win_rate": 0.1457,
+          "expectancy": 0.2005,
+          "net_pnl_usdc": 39.89
         },
         "PERSISTENT_CHEAP": {
           "n_trades": 47,
@@ -363,7 +377,7 @@
           "net_pnl_usdc": -47.11
         },
         "INSUFFICIENT_HISTORY": {
-          "n_trades": 0,
+          "n_trades": 1,
           "status": "INSUFFICIENT_DATA"
         }
       }
@@ -399,10 +413,10 @@
       "total_trades": 225,
       "by_group": {
         "FORMER_FAVORITE": {
-          "n_trades": 147,
-          "win_rate": 0.2177,
-          "expectancy": -0.0187,
-          "net_pnl_usdc": -2.74
+          "n_trades": 146,
+          "win_rate": 0.2192,
+          "expectancy": -0.0119,
+          "net_pnl_usdc": -1.74
         },
         "PERSISTENT_CHEAP": {
           "n_trades": 13,
@@ -417,7 +431,7 @@
           "net_pnl_usdc": -7.42
         },
         "INSUFFICIENT_HISTORY": {
-          "n_trades": 0,
+          "n_trades": 1,
           "status": "INSUFFICIENT_DATA"
         }
       }
@@ -478,10 +492,10 @@
       "total_trades": 207,
       "by_group": {
         "FORMER_FAVORITE": {
-          "n_trades": 145,
-          "win_rate": 0.3724,
-          "expectancy": -0.0131,
-          "net_pnl_usdc": -1.9
+          "n_trades": 144,
+          "win_rate": 0.375,
+          "expectancy": -0.0062,
+          "net_pnl_usdc": -0.9
         },
         "PERSISTENT_CHEAP": {
           "n_trades": 7,
@@ -496,7 +510,7 @@
           "net_pnl_usdc": 6.56
         },
         "INSUFFICIENT_HISTORY": {
-          "n_trades": 0,
+          "n_trades": 1,
           "status": "INSUFFICIENT_DATA"
         }
       }
@@ -599,8 +613,8 @@
         0.0
       ],
       "standalone_expectancy_ci_95": [
-        -0.4932,
-        -0.0799
+        -0.219,
+        -0.0359
       ]
     },
     "CT": {
@@ -618,8 +632,8 @@
         656.75
       ],
       "standalone_expectancy_ci_95": [
-        -0.0347,
-        0.1601
+        -0.0619,
+        0.2937
       ]
     },
     "CS": {
@@ -637,8 +651,8 @@
         521.92
       ],
       "standalone_expectancy_ci_95": [
-        -0.1697,
-        0.1002
+        -0.2716,
+        0.1634
       ]
     },
     "CS_short": {
@@ -647,18 +661,12 @@
       "n_trades": 0,
       "win_rate": 0.0,
       "avg_entry_price": 0.0,
-      "net_pnl_usdc": 0.0,
-      "expectancy": 0.0,
-      "status": "COMPUTED",
-      "paired_delta_vs_c0": 343.75,
-      "paired_bootstrap_ci_95": [
-        106.37,
-        589.37
-      ],
-      "standalone_expectancy_ci_95": [
-        0.0,
-        0.0
-      ]
+      "net_pnl_usdc": null,
+      "expectancy": null,
+      "status": "BLOCKED_DATA",
+      "paired_delta_vs_c0": null,
+      "paired_bootstrap_ci_95": null,
+      "standalone_expectancy_ci_95": null
     },
     "CT_plus_canonical_strike": {
       "label": "CT + canonical strike",
@@ -666,18 +674,12 @@
       "n_trades": 0,
       "win_rate": 0.0,
       "avg_entry_price": 0.0,
-      "net_pnl_usdc": 0.0,
-      "expectancy": 0.0,
-      "status": "COMPUTED",
-      "paired_delta_vs_c0": 343.75,
-      "paired_bootstrap_ci_95": [
-        83.68,
-        593.41
-      ],
-      "standalone_expectancy_ci_95": [
-        0.0,
-        0.0
-      ]
+      "net_pnl_usdc": null,
+      "expectancy": null,
+      "status": "BLOCKED_DATA",
+      "paired_delta_vs_c0": null,
+      "paired_bootstrap_ci_95": null,
+      "standalone_expectancy_ci_95": null
     },
     "CT_plus_proxy_strike": {
       "label": "CT + proxy strike",
@@ -690,12 +692,12 @@
       "status": "COMPUTED",
       "paired_delta_vs_c0": 429.58,
       "paired_bootstrap_ci_95": [
-        170.08,
-        663.4
+        200.58,
+        652.16
       ],
       "standalone_expectancy_ci_95": [
-        0.0064,
-        0.1441
+        0.0299,
+        0.8499
       ]
     },
     "C1": {
@@ -709,21 +711,56 @@
       "status": "COMPUTED",
       "paired_delta_vs_c0": 410.73,
       "paired_bootstrap_ci_95": [
-        208.16,
-        596.3
+        202.41,
+        604.45
       ],
       "standalone_expectancy_ci_95": [
-        -0.0903,
-        0.2183
+        -0.0986,
+        0.2238
       ]
     }
   },
   "item_26_multi_budget_execution": {
-    "$1": "BLOCKED_DATA",
-    "$5": "BLOCKED_DATA",
-    "$10": "BLOCKED_DATA"
+    "$1": {
+      "full_fills": 0,
+      "partial_fills": 0,
+      "unfilled": 0,
+      "total_spent_usdc": 0.0,
+      "vwap_drift_vs_decision_price": 0.0,
+      "net_pnl_total": 0.0,
+      "return_on_spent_pct": 0.0
+    },
+    "$5": {
+      "full_fills": 0,
+      "partial_fills": 0,
+      "unfilled": 0,
+      "total_spent_usdc": 0.0,
+      "vwap_drift_vs_decision_price": 0.0,
+      "net_pnl_total": 0.0,
+      "return_on_spent_pct": 0.0
+    },
+    "$10": {
+      "full_fills": 0,
+      "partial_fills": 0,
+      "unfilled": 0,
+      "total_spent_usdc": 0.0,
+      "vwap_drift_vs_decision_price": 0.0,
+      "net_pnl_total": 0.0,
+      "return_on_spent_pct": 0.0
+    }
   },
-  "item_27_execution_selection_effect": "BLOCKED_DATA",
+  "item_27_execution_selection_effect": {
+    "filled": {
+      "n": 0,
+      "win_rate": 0.0,
+      "avg_price": 0.0
+    },
+    "unfilled": {
+      "n": 2636,
+      "win_rate": 0.1445,
+      "avg_price": 0.1518
+    }
+  },
   "item_29_exploratory_results": {
     "C0": {
       "n_trades": 214,
@@ -818,7 +855,7 @@
     "three_core_answers": {
       "q1_is_there_a_mechanism": {
         "verdict": false,
-        "evidence": "Проверено на общих данных. Expectancy бывших фаворитов: -0.0069 USDC."
+        "evidence": "Проверено на общих данных. Expectancy бывших фаворитов: -0.0018 USDC."
       },
       "q2_does_filter_add_value": {
         "verdict": true,

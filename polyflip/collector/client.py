@@ -446,6 +446,23 @@ class PolymarketClient:
             bids = book.get("bids", [])
             asks = book.get("asks", [])
             seq_id = book.get("sequence_id") or book.get("hash")
+            
+            raw_ts = book.get("timestamp")
+            event_at_dt = None
+            if raw_ts:
+                try:
+                    ts_str = str(raw_ts)
+                    if ts_str.replace('.', '', 1).isdigit():
+                        ts = float(ts_str)
+                        if ts > 1e11:
+                            ts /= 1000.0
+                        event_at_dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+                    else:
+                        event_at_dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                except Exception:
+                    event_at_dt = received_at_dt
+            else:
+                event_at_dt = received_at_dt
 
             return validate_and_normalize_orderbook(
                 raw_bids=bids,
@@ -453,7 +470,7 @@ class PolymarketClient:
                 market_id=str(market_id),
                 token_id=str(token_id),
                 outcome_side=outcome_side,
-                event_at=now,
+                event_at=event_at_dt,
                 received_at=received_at_dt,
                 sequence_id=seq_id,
                 depth_limit=depth_limit,
