@@ -670,13 +670,10 @@ def _probe_candidates(
     ).strip()
     if model_spec and not model_spec.get("is_go"):
         pref = str(model_spec.get("protocol") or "")
-        if pref == "chat_completions":
-            candidates: list[dict[str, str]] = []
-            if chat_endpoint:
-                candidates.append({"url": chat_endpoint, "protocol": "chat_completions"})
-            if responses_endpoint:
-                candidates.append({"url": responses_endpoint, "protocol": "responses"})
-            return candidates
+        if pref == "chat_completions" and chat_endpoint:
+            return [{"url": chat_endpoint, "protocol": "chat_completions"}]
+        if pref == "responses" and responses_endpoint:
+            return [{"url": responses_endpoint, "protocol": "responses"}]
     candidates: list[dict[str, str]] = []
     if responses_endpoint:
         candidates.append({"url": responses_endpoint, "protocol": "responses"})
