@@ -7,7 +7,12 @@ import numpy as np
 from decimal import Decimal
 from polyflip.research.trade_economics.commissions import calculate_commission_decimal, calculate_commission
 from polyflip.research.trade_economics.pnl import calculate_fill_position, calculate_net_pnl
-from polyflip.research.trade_economics.execution_analysis import compute_diagnostic_spread, build_waterfall_decomposition
+from polyflip.research.trade_economics.execution_analysis import (
+    compute_diagnostic_spread,
+    build_waterfall_decomposition,
+    build_scenario_waterfall,
+    build_matched_subset_waterfall
+)
 from polyflip.research.trade_economics.strategy_evaluation import compute_breakeven_thresholds, run_paired_daily_bootstrap
 from polyflip.research.trade_economics.db_loader import match_opportunities_with_fills
 
@@ -65,10 +70,6 @@ def test_causal_matching_rules():
             "variants": {"C0": True, "CT": True}
         }
     ]
-    # DB fills:
-    # 1. Wrong direction (NO)
-    # 2. Prior timing (-300s)
-    # 3. Valid YES (+10s)
     db_fills = pd.DataFrame([
         {
             "request_id": "req_wrong_dir",
@@ -103,19 +104,16 @@ def test_causal_matching_rules():
     db_fills["fill_timestamp"] = pd.to_datetime(db_fills["fill_timestamp"], utc=True)
     
     live_df, paper_df, unmatched_df, summary = match_opportunities_with_fills(opps, db_fills, causality_window_sec=120)
-    # Both DB fills are rejected: req_wrong_dir is NO, req_prior is 5 min prior
     assert len(live_df) == 0
     assert len(unmatched_df) == 1
     assert unmatched_df["reason"].iloc[0] == "TIMING_MISMATCH_PRIOR"
+    assert summary["applicable_live_coverage_c0_ct"] == 0
 
 def test_waterfall_invariants():
     df_trades = pd.DataFrame([
         {"shares": 100.0, "executable_ask": 0.50, "target": 1},
         {"shares": 100.0, "executable_ask": 0.50, "target": 0},
     ])
-    # gross = (100 * 1) - (200 * 0.5) = 100 - 100 = 0.0
-    # base fee = 100 * 0.002 = 0.20 -> step0_pnl = -0.20
-    # scenario fee (0.001) = 0.10 -> step1_pnl = -0.10
     wf = build_waterfall_decomposition("C0", df_trades, matched_fills_df=None, scenario_fee_rate=0.001)
     assert len(wf) == 5
     assert wf.loc[wf["step_number"] == 0, "cumulative_pnl_usdc"].iloc[0] == -0.20
@@ -128,15 +126,48 @@ def test_breakeven_math():
         {"shares": 10.0, "executable_ask": 0.50, "target": 0}, # cash=5, payout=0  -> gross=-5
         {"shares": 10.0, "executable_ask": 0.50, "target": 1}, # cash=5, payout=10 -> gross=+5
     ])
-    # total shares=30, total cash=15, gross pnl = 5.0
-    # baseline fee (0.2%) = 15 * 0.002 = 0.03
-    # baseline net pnl = 5.0 - 0.03 = 4.97
-    # breakeven fee rate = 5.0 / 15 = 0.3333 (33.33%)
-    # breakeven slippage per share = 4.97 / 30 = 0.1657
     be = compute_breakeven_thresholds(df, baseline_fee_rate=0.002)
     assert be["n_trades"] == 3
     assert abs(be["breakeven_fee_rate"] - (5.0 / 15.0)) < 1e-4
     assert abs(be["breakeven_slippage_per_share_usdc"] - (4.97 / 30.0)) < 1e-4
+    assert "breakeven_slippage_fixed_budget_usdc" in be
+    assert "simple_average_entry_price" in be
+    assert "weighted_average_entry_price" in be
+
+def test_breakeven_fixed_budget_vs_linear():
+    df = pd.DataFrame([
+        {"shares": 2.0, "executable_ask": 0.50, "target": 1}, # budget=1.0, win
+        {"shares": 5.0, "executable_ask": 0.20, "target": 0}, # budget=1.0, loss
+        {"shares": 4.0, "executable_ask": 0.25, "target": 1}, # budget=1.0, win
+    ])
+    be = compute_breakeven_thresholds(df, baseline_fee_rate=0.002)
+    s_fix = be["breakeven_slippage_fixed_budget_usdc"]
+    # Check that fixed budget slippage sets PnL to ~0 under dynamic shares
+    pnl_at_s = (1.0 / (0.50 + s_fix) - 1.002) + (0.0 - 1.002) + (1.0 / (0.25 + s_fix) - 1.002)
+    assert abs(pnl_at_s) < 1e-4
+    # Simple average ask: (0.50 + 0.20 + 0.25) / 3 = 0.3167
+    assert abs(be["simple_average_entry_price"] - 0.3167) < 1e-3
+    # Weighted average ask: 3.0 / 11.0 = 0.2727
+    assert abs(be["weighted_average_entry_price"] - (3.0 / 11.0)) < 1e-4
+
+def test_matched_subset_waterfall_invariants():
+    matched_df = pd.DataFrame([
+        {
+            "is_ct": True,
+            "decision_ask": 0.20,
+            "hypothetical_shares": 5.0,
+            "hypothetical_net_pnl": 3.998, # target=1: 5 - 1 - 0.002
+            "filled_shares": 4.0,
+            "vwap": 0.25,
+            "slippage_cash": (0.25 - 0.20) * 4.0, # 0.20
+            "fee_usdc": 0.0,
+            "actual_net_pnl": 4.0 - 1.0 - 0.0 # 3.0
+        }
+    ])
+    wf = build_matched_subset_waterfall("CT", matched_df)
+    assert len(wf) == 5
+    assert wf.loc[wf["step_number"] == 0, "cumulative_pnl_usdc"].iloc[0] == 4.00
+    assert wf.loc[wf["step_number"] == 4, "cumulative_pnl_usdc"].iloc[0] == 3.00
 
 def test_bootstrap_reproducibility():
     df_c0 = pd.DataFrame([
@@ -151,3 +182,4 @@ def test_bootstrap_reproducibility():
     b2 = run_paired_daily_bootstrap(df_c0, df_ct, n_bootstrap=100, seed=42)
     assert b1["c0_net_pnl_ci95"] == b2["c0_net_pnl_ci95"]
     assert b1["delta_pnl_ci95"] == b2["delta_pnl_ci95"]
+    assert b1["nonpositive_delta_count"] == b2["nonpositive_delta_count"]

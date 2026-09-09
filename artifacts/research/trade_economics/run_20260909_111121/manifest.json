@@ -1,0 +1,17 @@
+{
+    "run_id": "run_20260909_111121",
+    "base_commit": "7eade123c8b3ffdc32cb848aed2d816e465de39c",
+    "research_commit": "a37a4d14de8f327791a8b951ceace700914a18e5",
+    "dirty_worktree": true,
+    "input_files": {
+        "common_opportunity_ledger.json": "207a445ef472ddae7268acc68299b5c8cadb3ffaba1119864ce68905fdc0af89"
+    },
+    "period_utc": "2026-06-25 to 2026-09-09",
+    "assets": [
+        "BTC"
+    ],
+    "policy_version": "2.0-full-economics",
+    "accounting_convention": "exclusive",
+    "fee_evidence_version": "v2",
+    "fee_evidence_hash": "58a70c3bf66bf5224e84d104e3a0c5714afc709ae580ccd075a625d910d9c351"
+}

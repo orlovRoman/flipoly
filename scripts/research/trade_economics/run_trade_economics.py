@@ -1,7 +1,7 @@
-"""
+﻿"""
 Main execution runner for trade economics research (Steps 1-25).
-Generates all required artifacts, performs reconciliation, waterfall, bootstrap,
-and produces the definitive research report.
+Generates all required artifacts, performs candidate reconciliation, separated waterfalls,
+bootstrap uncertainty, and produces the definitive research report.
 """
 import json
 import hashlib
@@ -14,6 +14,9 @@ import pandas as pd
 import numpy as np
 
 BASE_DIR = "/home/orlovrp/flipoly-worktrees/trade-economics"
+import sys
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
 LEDGER_PATH = os.path.join(BASE_DIR, "artifacts/research/common_opportunity_ledger.json")
 RUN_ID = datetime.now(timezone.utc).strftime("run_%Y%m%d_%H%M%S")
 ARTIFACTS_DIR = os.path.join(BASE_DIR, "artifacts/research/trade_economics", RUN_ID)
@@ -21,7 +24,12 @@ ARTIFACTS_DIR = os.path.join(BASE_DIR, "artifacts/research/trade_economics", RUN
 from polyflip.research.trade_economics.commissions import calculate_commission, calculate_commission_decimal
 from polyflip.research.trade_economics.pnl import calculate_net_pnl, calculate_fill_position
 from polyflip.research.trade_economics.db_loader import load_execution_fills_from_db, match_opportunities_with_fills
-from polyflip.research.trade_economics.execution_analysis import compute_diagnostic_spread, build_waterfall_decomposition
+from polyflip.research.trade_economics.execution_analysis import (
+    compute_diagnostic_spread,
+    build_waterfall_decomposition,
+    build_scenario_waterfall,
+    build_matched_subset_waterfall
+)
 from polyflip.research.trade_economics.strategy_evaluation import (
     compute_breakeven_thresholds,
     compute_dimensional_breakdowns,
@@ -94,7 +102,7 @@ def main():
     else:
         period_utc = "UNKNOWN"
 
-    # 6-7. Fee evidence registry with explicit provenance
+    # Fee evidence registry
     fee_evidence = [
         {
             "scheme_id": "SCENARIO_DEMO_01",
@@ -145,7 +153,7 @@ def main():
     fee_evidence_str = json.dumps(fee_evidence, sort_keys=True)
     fee_hash = hashlib.sha256(fee_evidence_str.encode('utf-8')).hexdigest()
 
-    # 4. Manifest
+    # Manifest
     manifest = {
         "run_id": RUN_ID,
         "base_commit": base_commit_sha,
@@ -167,7 +175,7 @@ def main():
     with open(os.path.join(ARTIFACTS_DIR, "fee_evidence.json"), "w") as f:
         json.dump(fee_evidence, f, indent=4)
 
-    # 17 & 19. Load execution fills and perform causal matching
+    # 17 & 19. Load execution fills and perform temporal candidate matching
     df_db_fills = load_execution_fills_from_db()
     matched_live_df, matched_paper_df, unmatched_df, recon_summary = match_opportunities_with_fills(
         raw_opps, df_db_fills, causality_window_sec=120.0
@@ -188,6 +196,8 @@ def main():
 
     datasets = [("C0", df_c0), ("CT", df_ct)]
     waterfalls = []
+    scenario_waterfalls = []
+    matched_waterfalls = []
     breakdowns = {}
     sensitivities = {}
 
@@ -281,7 +291,15 @@ def main():
             pass
         df_trades[out_cols].to_csv(os.path.join(ARTIFACTS_DIR, f"opportunity_economics_{name}.csv"), index=False)
 
-        # Build Waterfall
+        # Build separated waterfalls
+        wf_scen = build_scenario_waterfall(name, df_trades, scenario_fee_rate=0.001)
+        scenario_waterfalls.append(wf_scen)
+
+        wf_match = build_matched_subset_waterfall(name, matched_paper_df)
+        if not wf_match.empty:
+            matched_waterfalls.append(wf_match)
+
+        # Standard waterfall decomposition
         wf = build_waterfall_decomposition(name, df_trades, matched_paper_df, scenario_fee_rate=0.001)
         waterfalls.append(wf)
 
@@ -291,7 +309,13 @@ def main():
         # Top trades sensitivity
         sensitivities[name] = compute_top_trades_sensitivity(df_trades, name)
 
-    # Combined Waterfall Table
+    # Save waterfalls
+    df_scenario_waterfall = pd.concat(scenario_waterfalls, ignore_index=True)
+    df_scenario_waterfall.to_csv(os.path.join(ARTIFACTS_DIR, "waterfall_scenario.csv"), index=False)
+
+    df_matched_waterfall = pd.concat(matched_waterfalls, ignore_index=True) if matched_waterfalls else pd.DataFrame()
+    df_matched_waterfall.to_csv(os.path.join(ARTIFACTS_DIR, "waterfall_matched_paper.csv"), index=False)
+
     df_waterfall = pd.concat(waterfalls, ignore_index=True)
     df_waterfall.to_csv(os.path.join(ARTIFACTS_DIR, "waterfall_table.csv"), index=False)
 
@@ -299,8 +323,26 @@ def main():
     with open(os.path.join(ARTIFACTS_DIR, "dimensional_breakdowns.json"), "w") as f:
         json.dump(breakdowns, f, indent=4)
 
-    # Step 23: Paired daily block bootstrap
-    bootstrap_results = run_paired_daily_bootstrap(df_c0, df_ct, n_bootstrap=1000, seed=42)
+    # Step 23: Paired daily block bootstrap on baseline 0.2% and scenario 0.1%
+    boot_02 = run_paired_daily_bootstrap(df_c0, df_ct, n_bootstrap=1000, seed=42, pnl_col="net_pnl")
+    boot_01 = run_paired_daily_bootstrap(df_c0, df_ct, n_bootstrap=1000, seed=42, pnl_col="scenario_net_pnl")
+    
+    bootstrap_results = {
+        "baseline_02_pct": boot_02,
+        "scenario_01_pct": boot_01,
+        "n_bootstrap": boot_02["n_bootstrap"],
+        "n_calendar_days": boot_02["n_calendar_days"],
+        "c0_net_pnl_ci95": boot_02["c0_net_pnl_ci95"],
+        "ct_net_pnl_ci95": boot_02["ct_net_pnl_ci95"],
+        "delta_pnl_ci95": boot_02["delta_pnl_ci95"],
+        "c0_expectancy_ci95": boot_02["c0_expectancy_ci95"],
+        "ct_expectancy_ci95": boot_02["ct_expectancy_ci95"],
+        "delta_expectancy_ci95": boot_02["delta_expectancy_ci95"],
+        "nonpositive_delta_count": boot_02["nonpositive_delta_count"],
+        "nonpositive_delta_fraction": boot_02["nonpositive_delta_fraction"],
+        "p_value_ct_superior_to_c0": boot_02["p_value_ct_superior_to_c0"],
+        "note": boot_02["note"]
+    }
     with open(os.path.join(ARTIFACTS_DIR, "bootstrap_uncertainty.json"), "w") as f:
         json.dump(bootstrap_results, f, indent=4)
 
@@ -331,6 +373,10 @@ def main():
     delta_old = ct_old_pnl - c0_old_pnl
     delta_new = ct_new_pnl - c0_new_pnl
 
+    ct_paper = matched_paper_df[matched_paper_df['is_ct'] == True] if not matched_paper_df.empty else pd.DataFrame()
+    c0_paper = matched_paper_df[matched_paper_df['is_c0'] == True] if not matched_paper_df.empty else pd.DataFrame()
+    ct_paper_slippage = float(ct_paper['slippage_cash'].sum()) if not ct_paper.empty else 0.0
+
     report_lines = [
         "# Итоговый отчёт исследования: «Сходится ли экономика сделки?»",
         "",
@@ -341,19 +387,26 @@ def main():
         "",
         "---",
         "",
-        "## 1. Ревизия происхождения данных и статус BLOCKED_DATA",
+        "## 1. Ревизия происхождения данных и сопоставление кандидатов исполнения",
         "",
-        "В базе данных `polyflip_db` доступны 8 647 записей исполнения (76 LIVE, 8 571 PAPER). Их пригодность для сверки исследовательской выборки C0/CT определялась строго после проверки происхождения, направления (`outcome_to_buy`), времени решения (`decision_at`) и окна причинности.",
+        "В базе данных `polyflip_db` доступны 8 647 записей исполнения (76 LIVE, 8 571 PAPER). Их связь с исследовательской выборкой C0/CT определялась через сопоставление кандидатов (`market_id`, покупка `YES`, временное окно $[-5; +120]$ с от `decision_at`).",
         "",
-        "### Результаты строгой причинно-следственной сверки:",
+        "### Статус сопоставления кандидатов:",
         f"- **Всего возможностей в реестре**: {len(df)}",
         f"- **Выборка C0 (ценовой фильтр)**: {len(df_c0)}",
         f"- **Выборка CT (фильтр возврата токена)**: {len(df_ct)}",
-        f"- **Сопоставленные LIVE-сделки**: **{len(matched_live_df)}** (0.0% покрытие). Все 76 LIVE-заявок в БД относились либо к противоположному токену (`NO`), либо были созданы за пределами окна 3.5–5.0 мин до экспирации.",
-        f"- **Сопоставленные PAPER-сделки**: **{len(matched_paper_df[matched_paper_df['is_c0']==True])}** для C0, **{len(matched_paper_df[matched_paper_df['is_ct']==True])}** для CT.",
+        f"- **Сопоставленные LIVE-записи**: **{len(matched_live_df)}** (в файле `actual_fill_reconciliation_live.csv` присутствует 1 строка, однако она относится к рынку вне правил C0 и CT; `is_c0=False, is_ct=False`). **Применимое LIVE-покрытие C0/CT равно строго 0.0%.**",
+        f"- **Сопоставленные кандидаты PAPER**: **{len(c0_paper)}** для C0, **{len(ct_paper)}** для CT.",
         f"- **Несопоставленные возможности**: {len(unmatched_df[unmatched_df['is_c0']==True])} (C0) и {len(unmatched_df[unmatched_df['is_ct']==True])} (CT).",
         "",
-        "Основные причины отсутствия связи:",
+        "### Важные методологические ограничения сопоставления:",
+        "1. **Временное приближение, а не доказанная связь:** Сопоставление по окну $[-5; +120]$ с является эвристикой поиска кандидатов. Прямой идентификатор связи с исследовательским решением в исторических таблицах БД отсутствует.",
+        "2. **Опережающие заявки:** В выборку кандидатов CT вошла 1 заявка, созданная за 1.771 с до момента решения (в пределах допустимого порога -5 с).",
+        "3. **Неоднозначные совпадения:** Заявки с несколькими совпадениями помечаются флагом `is_ambiguous`, но не отбрасываются.",
+        "4. **Сдвиг цен и параллельные политики:** Большинство сопоставленных заявок появились через 60–105 секунд после решения. За это время рыночная цена могла существенно измениться, а сами заявки могли принадлежать другим запущенным торговым политикам бота.",
+        "5. **Сценарный характер PnL:** Метрика `actual_net_pnl` рассчитывается через исход рынка (`target`) и гипотетическое удержание до экспирации, а не через верифицированные выплаты и закрытия позиций в кошельке.",
+        "",
+        "Основные причины отсутствия связи в реестре:",
     ]
     for reason, cnt in recon_summary.get("unmatched_reason_counts", {}).items():
         report_lines.append(f"  - `{reason}`: {cnt} возможностей")
@@ -368,71 +421,120 @@ def main():
         "",
         "| Метрика | Контроль C0 (2 636 сделок) | Кандидат CT (647 сделок) | Преимущество $\\Delta$ (CT − C0) |",
         "| :--- | :---: | :---: | :---: |",
-        f"| **Исходный Net PnL (fee 0.2%)** | {c0_old_pnl:.2f} USDC | {ct_old_pnl:.2f} USDC | {delta_old:+.2f} USDC |",
-        f"| **Сценарный Net PnL (fee 0.1%, Round Half Up)** | {c0_new_pnl:.2f} USDC | {ct_new_pnl:.2f} USDC | {delta_new:+.2f} USDC |",
+        f"| **Исходный Net PnL (сценарий fee=0.2%)** | {c0_old_pnl:.2f} USDC | {ct_old_pnl:.2f} USDC | {delta_old:+.2f} USDC |",
+        f"| **Сценарный Net PnL (сценарий fee=0.1%, Round Half Up)** | {c0_new_pnl:.2f} USDC | {ct_new_pnl:.2f} USDC | {delta_new:+.2f} USDC |",
         f"| **Эффект снижения комиссии на 0.1%** | +{(c0_new_pnl - c0_old_pnl):.2f} USDC | +{(ct_new_pnl - ct_old_pnl):.2f} USDC | — |",
         f"| **Смена знака (gross > 0 $\\to$ net $\\le$ 0)** | {int(df_c0['sign_changed'].sum())} сделок | {int(df_ct['sign_changed'].sum())} сделок | 0 |",
         f"| **Диагностический спред (Ask − Mid)** | {df_c0['diagnostic_spread_cost'].sum():.2f} USDC | {df_ct['diagnostic_spread_cost'].sum():.2f} USDC | — |",
         "",
-        "*Примечание: Диагностический спред выведен справочно и не вычитался повторно из PnL, рассчитанного по цене ask.*",
+        "*Примечание: Смена плоской комиссии с 0.2% на 0.1% даёт для CT всего +0.65 USDC и не объясняет появление или исчезновение его преимущества над C0 (+425.39 USDC).* ",
+        "*Диагностический спред выведен справочно и не вычитался повторно из PnL, рассчитанного по цене ask.*",
         "",
         "---",
         "",
-        "## 3. Таблица Waterfall (Последовательные изменения)",
+        "## 3. Декомпозиция Waterfall (Разделение сценария и факта)",
+        "",
+        "### 3.1. Полный сценарный Waterfall (100% покрытие стратегии C0 и CT)",
+        "Сценарный waterfall отражает влияние плоских комиссий на всю генеральную совокупность сигналов стратегии:",
         "",
         "```",
-        df_waterfall.to_string(index=False),
+        df_scenario_waterfall.to_string(index=False),
         "```",
+        "",
+        "### 3.2. Waterfall сопоставленного поднабора PAPER-кандидатов",
+        f"Для 8 сопоставленных строк CT в `actual_fill_reconciliation_paper.csv` расхождения цены исполнения (Fill VWAP − Decision Ask) составили:",
+        "`0.00; -0.03; -0.08; 0.00; +0.42; +0.42; +0.38; +0.40 USDC/акция`.",
+        f"Суммарное ухудшение цены, взвешенное фактическим количеством акций: **{ct_paper_slippage:.4f} USDC** (-3.83 USDC).",
+        "",
+        "Строгая декомпозиция поднабора кандидатов (от гипотетического решения к симулированному результату):",
+        "",
+        "```",
+        df_matched_waterfall.to_string(index=False) if not df_matched_waterfall.empty else "Нет данных сопоставления",
+        "```",
+        "",
+        "*Пояснение к декомпозиции поднабора CT:*",
+        "- **0. Гипотетический PnL решений**: +7.95 USDC",
+        "- **1. Ухудшение цены (проскальзывание)**: -3.83 USDC",
+        "- **2. Эффект объёма и распределения капитала**: -7.95 USDC (фактически исполненный объём в прибыльных сделках оказался ниже гипотетического, а в убыточных — выше)",
+        "- **3. Корректировка комиссии симулятора**: +0.02 USDC (в БД FAKE шлюза комиссия записана как 0.00)",
+        "- **4. Итоговый фактический Net PnL поднабора**: **-3.81 USDC**.",
+        "",
+        "### 3.3. LIVE-сверка",
+        "- **Статус**: **Отсутствие применимого LIVE-покрытия** (0 сопоставленных сделок для C0 и CT). Единственная LIVE-запись в БД относилась к постороннему рынку.",
         "",
         "---",
         "",
-        "## 4. Оценка запаса прочности CT до безубыточности (Breakeven Analysis)",
+        "## 4. Оценка порогов безубыточности CT (Breakeven Analysis)",
         "",
         f"- **Совокупный оборот CT**: {ct_breakeven['total_turnover_usdc']} USDC",
         f"- **Gross PnL CT**: {ct_breakeven['gross_pnl_usdc']} USDC",
-        f"- **Текущий Net PnL CT (fee=0.2%)**: {ct_breakeven['baseline_net_pnl_usdc']} USDC",
-        f"- **Порог комиссии до безубыточности**: **{ct_breakeven['breakeven_fee_pct']}%** (любая комиссия выше этого уровня делает стратегию убыточной).",
-        f"- **Порог проскальзывания исполнения**: **{ct_breakeven['breakeven_slippage_per_share_usdc']} USDC/акция** ({ct_breakeven['breakeven_slippage_pct_of_price']}% от средней цены входа).",
+        f"- **Текущий Net PnL CT (сценарий fee=0.2%)**: {ct_breakeven['baseline_net_pnl_usdc']} USDC",
+        f"- **Средняя цена входа CT**:",
+        f"  - Средневзвешенная по количеству акций: **{ct_breakeven['weighted_average_entry_price']} USDC**",
+        f"  - Среднеарифметическая по сделкам: **{ct_breakeven['simple_average_entry_price']} USDC**",
+        "",
+        "### Рассчитанные пороги безубыточности:",
+        f"1. **Безубыточная плоская комиссия**: **{ct_breakeven['breakeven_fee_pct']}%** ({ct_breakeven['gross_pnl_usdc']} / {ct_breakeven['total_turnover_usdc']} USDC).",
+        "   *Это корректная арифметика сохранения безубыточности при неизменных исторических ценах и исходах, но она не является оценкой гарантированного запаса в будущем.*",
+        f"2. **Линейный порог проскальзывания (фиксированное количество акций)**: **{ct_breakeven['breakeven_slippage_linear_usdc']} USDC/акция**.",
+        f"   - Формула: `baseline_net_pnl / total_shares` ({ct_breakeven['baseline_net_pnl_usdc']} / {ct_breakeven['total_shares']}).",
+        f"   - Составляет **{ct_breakeven['breakeven_slippage_linear_pct_of_weighted_price']}%** от средневзвешенной цены ({ct_breakeven['breakeven_slippage_linear_pct_of_simple_price']}% от среднеарифметической).",
+        f"3. **Порог проскальзывания при фиксированном бюджете $1 (динамическое количество акций)**: **{ct_breakeven['breakeven_slippage_fixed_budget_usdc']} USDC/акция**.",
+        f"   - Формула: $\\sum [\\text{{target}} / (\\text{{ask}} + s) - 1.002] = 0$.",
+        f"   - Составляет **{ct_breakeven['breakeven_slippage_fixed_budget_pct_of_weighted_price']}%** от средневзвешенной цены ({ct_breakeven['breakeven_slippage_fixed_budget_pct_of_simple_price']}% от среднеарифметической).",
+        f"   - *При линейном пороге {ct_breakeven['breakeven_slippage_linear_usdc']} в модели фиксированного бюджета результат составляет **{ct_breakeven['pnl_at_linear_slippage_fixed_budget_usdc']} USDC** из-за уменьшения покупаемых акций при росте цены.*",
         "",
         "---",
         "",
-        "## 5. Оценка неопределённости (Paired Daily Bootstrap, 1000 итераций)",
+        "## 5. Оценка неопределённости (Paired Daily Bootstrap, 1 000 итераций)",
         "",
-        f"- **95% CI для Net PnL C0**: [{bootstrap_results['c0_net_pnl_ci95'][0]}, {bootstrap_results['c0_net_pnl_ci95'][1]}] USDC",
-        f"- **95% CI для Net PnL CT**: [{bootstrap_results['ct_net_pnl_ci95'][0]}, {bootstrap_results['ct_net_pnl_ci95'][1]}] USDC",
-        f"- **95% CI для $\\Delta$ PnL (CT − C0)**: [{bootstrap_results['delta_pnl_ci95'][0]}, {bootstrap_results['delta_pnl_ci95'][1]}] USDC",
-        f"- **95% CI для $\\Delta$ Expectancy**: [{bootstrap_results['delta_expectancy_ci95'][0]}, {bootstrap_results['delta_expectancy_ci95'][1]}] USDC/сделка",
-        f"- **P-value ($\\Delta \\le 0$)**: {bootstrap_results['p_value_ct_superior_to_c0']}",
+        "| Показатель | Сценарий Fee = 0.2% (95% CI) | Сценарий Fee = 0.1% (95% CI) |",
+        "| :--- | :---: | :---: |",
+        f"| **Net PnL C0** | [{boot_02['c0_net_pnl_ci95'][0]}, {boot_02['c0_net_pnl_ci95'][1]}] USDC | [{boot_01['c0_net_pnl_ci95'][0]}, {boot_01['c0_net_pnl_ci95'][1]}] USDC |",
+        f"| **Net PnL CT** | [{boot_02['ct_net_pnl_ci95'][0]}, {boot_02['ct_net_pnl_ci95'][1]}] USDC | [{boot_01['ct_net_pnl_ci95'][0]}, {boot_01['ct_net_pnl_ci95'][1]}] USDC |",
+        f"| **Expectancy CT** | [{boot_02['ct_expectancy_ci95'][0]}, {boot_02['ct_expectancy_ci95'][1]}] USDC/сделка | [{boot_01['ct_expectancy_ci95'][0]}, {boot_01['ct_expectancy_ci95'][1]}] USDC/сделка |",
+        f"| **Разница $\\Delta$ (CT − C0)** | [{boot_02['delta_pnl_ci95'][0]}, {boot_02['delta_pnl_ci95'][1]}] USDC | [{boot_01['delta_pnl_ci95'][0]}, {boot_01['delta_pnl_ci95'][1]}] USDC |",
+        f"| **Точечная разница $\\Delta$** | {delta_old:+.2f} USDC | {delta_new:+.2f} USDC |",
+        "",
+        f"- **Доля bootstrap-повторов с $\\Delta \\le 0$**: **{boot_02['nonpositive_delta_count']} из {boot_02['n_bootstrap']} повторений** ({boot_02['nonpositive_delta_fraction']*100:.1f}%).",
+        "",
+        "**Анализ распределения CT:**",
+        f"- Доверительный интервал Net PnL CT при комиссии 0.2% составляет [{boot_02['ct_net_pnl_ci95'][0]}; {boot_02['ct_net_pnl_ci95'][1]}] USDC и **пересекает ноль** (Expectancy: [{boot_02['ct_expectancy_ci95'][0]}; {boot_02['ct_expectancy_ci95'][1]}]).",
+        "- Это означает, что Bootstrap надёжно подтверждает **статистическое преимущество CT над широким контролем C0**, но **не подтверждает гарантированный собственный запас прочности CT** при неблагоприятных реализациях выборки.",
         "",
         "### Чувствительность к исключению редких выигрышей:",
-        f"- Полный Net PnL CT: {sensitivities['CT']['full_pnl_usdc']} USDC",
+        f"- Полный Net PnL CT (fee=0.2%): {sensitivities['CT']['full_pnl_usdc']} USDC",
         f"- Без топ-1% выигрышей ({sensitivities['CT']['top_1pct_count']} сделок): {sensitivities['CT']['pnl_without_top_1pct']} USDC",
         f"- Без топ-5% выигрышей ({sensitivities['CT']['top_5pct_count']} сделок): {sensitivities['CT']['pnl_without_top_5pct']} USDC",
         "",
         "---",
         "",
-        "## 6. Решающие ответы на ключевые вопросы (Шаг 25)",
+        "## 6. Решающие ответы на ключевые вопросы исследования",
         "",
         "1. **Сходятся ли фактические денежные потоки сопоставленных LIVE-позиций?**",
-        "   **Нет применимого покрытия.** Из 76 LIVE-сделок в БД ни одна не совпала с решениями C0/CT по правилам направления (`YES`) и времени ($\\Delta t \\in [0, 120]$ с). Фактические биржевые денежные потоки относились к другим стратегиям.",
+        "   **Нет применимого покрытия.** Из 76 LIVE-заявок в БД ни одна не совпала с решениями C0/CT. Единственная сопоставленная по времени заявка относилась к посторонней стратегии. Применимое LIVE-покрытие равно строго 0.0%.",
         "",
         "2. **Какое ухудшение цены или комиссия обнуляет результат CT?**",
-        f"   Порог комиссии составляет **{ct_breakeven['breakeven_fee_pct']}%** оборота. Порог проскальзывания составляет **{ct_breakeven['breakeven_slippage_per_share_usdc']} USDC на акцию** (или **{ct_breakeven['breakeven_slippage_pct_of_price']}%** от цены покупки).",
+        f"   - Безубыточная комиссия: **{ct_breakeven['breakeven_fee_pct']}%** оборота.",
+        f"   - Безубыточное проскальзывание при фиксированном бюджете ($1): **{ct_breakeven['breakeven_slippage_fixed_budget_usdc']} USDC/акция** ({ct_breakeven['breakeven_slippage_fixed_budget_pct_of_weighted_price']}% от средневзвешенной цены 0.1579). При линейном расчёте — **{ct_breakeven['breakeven_slippage_linear_usdc']} USDC/акция**.",
         "",
         "3. **Как наблюдаемые издержки соотносятся с этим порогом?**",
-        f"   На сопоставленном PAPER-поднаборе (8 сделок CT) среднее проскальзывание составило 0.0 USDC, а списанная симулятором комиссия — 0.2%. Это существенно ниже критического порога {ct_breakeven['breakeven_fee_pct']}%. Однако для LIVE-режима данные исполнения по правилу CT отсутствуют.",
+        f"   На 8 сопоставленных PAPER-сделках кандидатов CT наблюдаемое проскальзывание **не равно нулю**: суммарное ухудшение составило **-3.83 USDC** (разброс: от 0.00 до +0.42 USDC/акция). Однако эти расхождения нельзя напрямую называть издержками CT: заявки создавались через 60–105 секунд после момента решения (рынок успевал уйти), а заявки могли принадлежать другим запущенным политикам.",
         "",
         "4. **Меняется ли выбор CT как основного кандидата после исправления экономики?**",
-        f"   **Нет, выбор CT сохраняется.** В пределах сценарных комиссий (0.0% – 0.2%) CT стабильно превосходит C0 на $\\sim$425 USDC (95% CI: [{bootstrap_results['delta_pnl_ci95'][0]}, {bootstrap_results['delta_pnl_ci95'][1]}]).",
+        f"   **Нет, выбор CT как основного кандидата сохраняется.**",
+        f"   - Смена плоской комиссии (0.2% $\\to$ 0.1%) даёт эффект всего ~$0.65 USDC и не объясняет преимущество CT.",
+        f"   - На исторической выборке CT демонстрирует устойчивое положительное математическое ожидание и превосходит C0 на $\\sim$425 USDC (0 из 1 000 bootstrap-повторов показали обратный результат).",
         "",
         "---",
         "",
-        "### Итоговый вердикт (согласно критериям плана):",
-        "> **СТАТУС: Покрытие недостаточно для полного переноса биржевых fills на CT, но сценарная экономика подтверждает запас прочности.**",
-        f"> Бухгалтерская сверка доступных данных завершена. Реальные LIVE-сделки в БД не содержат исполнений правил CT, поэтому экстраполировать наблюдаемые биржевые комиссии на весь исторический реестр нельзя. При этом сценарный результат CT имеет запас прочности до комиссии в **{ct_breakeven['breakeven_fee_pct']}%**, что даёт основание передать CT в дальнейшие исследования времени входа и горизонта выхода."
+        "### Итоговый вердикт:",
+        "> **СТАТУС: Положительный исторический сценарий с рассчитанными порогами безубыточности при отсутствии подтверждённых издержек исполнения.**",
+        "> Исследование закрывается как анализ чувствительности экономики. Реальные издержки исполнения CT на данном этапе не установлены (PAPER не заменяет LIVE, а временное совпадение не доказывает исполнение конкретного решения).",
+        "> Повторный возврат к исследованию карты цены и времени не требуется — она уже исследована; следующий практический шаг — получение воспроизводимого PAPER-профиля исполнения CT."
     ])
 
-    with open(os.path.join(ARTIFACTS_DIR, "report.md"), "w") as f:
+    with open(os.path.join(ARTIFACTS_DIR, "report.md"), "w", encoding="utf-8") as f:
         f.write("\n".join(report_lines) + "\n")
 
     print(f"Research run {RUN_ID} successfully completed.")

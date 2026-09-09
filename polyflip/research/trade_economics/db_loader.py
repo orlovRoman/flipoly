@@ -1,5 +1,7 @@
 """
-Database loader and strict causal matcher for research opportunities and execution fills.
+Database loader and temporal candidate heuristic matcher for research opportunities and execution records.
+Matches opportunities (buying YES) with fills in polyflip_db using market_id, side, and [-5, +120]s timing window.
+Note: This is a proximity candidate heuristic, not a proven causal execution link.
 """
 import subprocess
 import pandas as pd
@@ -68,8 +70,18 @@ def match_opportunities_with_fills(
     causality_window_sec: float = 120.0
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
     """
-    Performs rigorous causal matching between research opportunities (C0/CT buying YES)
-    and actual execution records.
+    Performs candidate matching between research opportunities (C0/CT buying YES)
+    and execution records based on market, direction, and [-5, causality_window_sec] second window.
+    
+    Caveats & Methodological Limits:
+    1. Proximity heuristic, not causal attribution: Direct links to specific research decisions
+       are unrecorded in historical DB tables.
+    2. Timing window [-5.0s, +causality_window_sec]: Admits requests created slightly before
+       the recorded decision moment (e.g. -1.77s observed due to clock drift or early trigger).
+    3. Over 60-105s latency, market prices drift substantially; requests may belong to
+       other concurrent strategies/policies running in the bot.
+    4. Ambiguous matches: multiple requests in window are flagged (is_ambiguous=True) but retained.
+    5. actual_net_pnl assumes position held to contract outcome resolution, not verified cash redemptions.
     
     Returns:
       (matched_live_df, matched_paper_df, unmatched_df, reconciliation_summary)
@@ -207,14 +219,26 @@ def match_opportunities_with_fills(
     matched_paper_df = pd.DataFrame(matched_paper_records)
     unmatched_df = pd.DataFrame(unmatched_records)
     
+    live_c0 = len(matched_live_df[matched_live_df["is_c0"] == True]) if not matched_live_df.empty else 0
+    live_ct = len(matched_live_df[matched_live_df["is_ct"] == True]) if not matched_live_df.empty else 0
+    paper_c0 = len(matched_paper_df[matched_paper_df["is_c0"] == True]) if not matched_paper_df.empty else 0
+    paper_ct = len(matched_paper_df[matched_paper_df["is_ct"] == True]) if not matched_paper_df.empty else 0
+
     summary = {
+        "matching_methodology": "temporal_candidate_heuristic_window_minus_5_plus_120s",
         "total_opportunities_evaluated": len(opportunities),
         "matched_live_count": len(matched_live_df),
+        "matched_live_c0_count": live_c0,
+        "matched_live_ct_count": live_ct,
+        "applicable_live_coverage_c0_ct": 0,
         "matched_paper_count": len(matched_paper_df),
+        "matched_paper_c0_count": paper_c0,
+        "matched_paper_ct_count": paper_ct,
         "unmatched_count": len(unmatched_df),
         "unique_matched_requests": len(unique_matched_requests),
         "unique_matched_fills": len(unique_matched_fills),
-        "unmatched_reason_counts": unmatched_df["reason"].value_counts().to_dict() if not unmatched_df.empty else {}
+        "unmatched_reason_counts": unmatched_df["reason"].value_counts().to_dict() if not unmatched_df.empty else {},
+        "note": "Temporal proximity matching [-5, +120s] represents candidate association, not confirmed causal execution link."
     }
     
     return matched_live_df, matched_paper_df, unmatched_df, summary
