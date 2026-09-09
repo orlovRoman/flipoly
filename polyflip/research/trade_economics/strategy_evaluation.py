@@ -60,7 +60,8 @@ def compute_breakeven_thresholds(df_trades: pd.DataFrame, baseline_fee_rate: flo
     except Exception:
         breakeven_slippage_fixed_budget = breakeven_slippage_linear
 
-    pnl_at_linear_slippage = fixed_budget_pnl(breakeven_slippage_linear)
+    pnl_at_rounded_linear_slippage = fixed_budget_pnl(round(breakeven_slippage_linear, 4))
+    pnl_at_exact_linear_slippage = fixed_budget_pnl(breakeven_slippage_linear)
     
     return {
         "n_trades": n_trades,
@@ -80,7 +81,8 @@ def compute_breakeven_thresholds(df_trades: pd.DataFrame, baseline_fee_rate: flo
         "breakeven_slippage_fixed_budget_usdc": round(breakeven_slippage_fixed_budget, 5),
         "breakeven_slippage_fixed_budget_pct_of_weighted_price": round(breakeven_slippage_fixed_budget / weighted_avg_price * 100.0, 2) if weighted_avg_price > 0 else 0.0,
         "breakeven_slippage_fixed_budget_pct_of_simple_price": round(breakeven_slippage_fixed_budget / simple_avg_price * 100.0, 2) if simple_avg_price > 0 else 0.0,
-        "pnl_at_linear_slippage_fixed_budget_usdc": round(pnl_at_linear_slippage, 2),
+        "pnl_at_linear_slippage_fixed_budget_usdc": round(pnl_at_rounded_linear_slippage, 2),
+        "pnl_at_exact_linear_slippage_fixed_budget_usdc": round(pnl_at_exact_linear_slippage, 2),
         "breakeven_slippage_pct_of_price": round(breakeven_slippage_linear / weighted_avg_price * 100.0, 2) if weighted_avg_price > 0 else 0.0,  # backwards compatibility
         "formula_linear": "baseline_net_pnl / total_shares (fixed shares model)",
         "formula_fixed_budget": "sum(target * budget / (ask + s) - budget * (1 + fee_rate)) = 0 (dynamic shares under fixed budget model)"
@@ -217,6 +219,9 @@ def run_paired_daily_bootstrap(
         "n_bootstrap": n_bootstrap,
         "n_calendar_days": n_days,
         "pnl_column": pnl_col,
+        "point_estimate_c0": round(float(c0_pnl.sum()), 2),
+        "point_estimate_ct": round(float(ct_pnl.sum()), 2),
+        "point_estimate_delta": round(float(ct_pnl.sum()) - float(c0_pnl.sum()), 2),
         "c0_net_pnl_ci95": [round(float(np.percentile(boot_c0_pnl, 2.5)), 2), round(float(np.percentile(boot_c0_pnl, 97.5)), 2)],
         "ct_net_pnl_ci95": [round(float(np.percentile(boot_ct_pnl, 2.5)), 2), round(float(np.percentile(boot_ct_pnl, 97.5)), 2)],
         "delta_pnl_ci95": [round(float(np.percentile(boot_delta_pnl, 2.5)), 2), round(float(np.percentile(boot_delta_pnl, 97.5)), 2)],

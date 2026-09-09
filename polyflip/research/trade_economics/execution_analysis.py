@@ -114,13 +114,18 @@ def build_matched_subset_waterfall(
     step1_pnl = hyp_pnl + delta_slippage
     
     # Step 2: Size & capital allocation effect
-    hyp_cash = sub["hypothetical_shares"] * sub["decision_ask"]
+    hyp_shares = sub["hypothetical_shares"].values.astype(float)
+    decision_asks = sub["decision_ask"].values.astype(float)
+    filled_shares = sub["filled_shares"].values.astype(float)
+    hyp_cash = hyp_shares * decision_asks
     hyp_fee = hyp_cash * 0.002
-    target_val = sub.apply(
-        lambda r: 1.0 if (r["hypothetical_net_pnl"] + hyp_cash.loc[r.name] + hyp_fee.loc[r.name]) > 0.01 else 0.0, 
-        axis=1
-    )
-    delta_size = float(((sub["filled_shares"] - sub["hypothetical_shares"]) * (target_val - sub["decision_ask"])).sum())
+    
+    if "target" in sub.columns:
+        target_val = sub["target"].values.astype(float)
+    else:
+        hyp_pnl_vals = sub["hypothetical_net_pnl"].values.astype(float)
+        target_val = np.array([1.0 if (p + c + f) > 0.01 else 0.0 for p, c, f in zip(hyp_pnl_vals, hyp_cash, hyp_fee)])
+    delta_size = float(((filled_shares - hyp_shares) * (target_val - decision_asks)).sum())
     step2_pnl = step1_pnl + delta_size
     
     # Step 3: Fee adjustment (hypothetical 0.2% fee vs simulator recorded fee, which is 0.0 in FAKE gateway)
@@ -221,13 +226,18 @@ def build_waterfall_decomposition(
             slippage_impact = - (v_matched["slippage_per_share"] * v_matched["filled_shares"]).sum()
             delta_price_slippage = float(slippage_impact)
             
-            hyp_cash = v_matched["hypothetical_shares"] * v_matched["decision_ask"]
+            hyp_shares = v_matched["hypothetical_shares"].values.astype(float)
+            decision_asks = v_matched["decision_ask"].values.astype(float)
+            filled_shares = v_matched["filled_shares"].values.astype(float)
+            hyp_cash = hyp_shares * decision_asks
             hyp_fee = hyp_cash * 0.002
-            target_val = v_matched.apply(
-                lambda r: 1.0 if (r["hypothetical_net_pnl"] + hyp_cash.loc[r.name] + hyp_fee.loc[r.name]) > 0.01 else 0.0, 
-                axis=1
-            )
-            delta_size = float(((v_matched["filled_shares"] - v_matched["hypothetical_shares"]) * (target_val - v_matched["decision_ask"])).sum())
+            
+            if "target" in v_matched.columns:
+                target_val = v_matched["target"].values.astype(float)
+            else:
+                hyp_pnl_vals = v_matched["hypothetical_net_pnl"].values.astype(float)
+                target_val = np.array([1.0 if (p + c + f) > 0.01 else 0.0 for p, c, f in zip(hyp_pnl_vals, hyp_cash, hyp_fee)])
+            delta_size = float(((filled_shares - hyp_shares) * (target_val - decision_asks)).sum())
             
     step2_pnl = step1_pnl + delta_price_slippage
     step3_pnl = step2_pnl + delta_size

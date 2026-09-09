@@ -199,6 +199,7 @@ def match_opportunities_with_fills(
                 "decision_ask": opp.get("executable_ask"),
                 "hypothetical_shares": opp.get("shares"),
                 "hypothetical_net_pnl": opp.get("net_pnl"),
+                "target": target,
                 "filled_shares": agg["filled_shares"],
                 "purchase_cash": agg["purchase_cash"],
                 "vwap": agg["vwap"],

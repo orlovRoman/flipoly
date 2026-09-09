@@ -1,0 +1,49 @@
+[
+    {
+        "scheme_id": "SCENARIO_DEMO_01",
+        "market_id": "*",
+        "valid_from": "2020-01-01",
+        "valid_to": "2099-12-31",
+        "liquidity_role": "taker",
+        "formula_id": "FIXED_PERCENTAGE",
+        "parameters": {
+            "rate": 0.001
+        },
+        "charged_asset": "USDC",
+        "round_method": "ROUND_HALF_UP",
+        "round_decimals": 4,
+        "source_reference": "0.1% Demonstration Scenario",
+        "evidence_status": "DEMONSTRATION",
+        "provenance_note": "Demonstration scenario with Decimal precision and ROUND_HALF_UP to prevent truncation"
+    },
+    {
+        "scheme_id": "OBSERVED_POLYMARKET_FILLS",
+        "market_id": "*",
+        "valid_from": "2026-08-01",
+        "valid_to": "2026-08-31",
+        "liquidity_role": "taker",
+        "formula_id": "ZERO_FEE",
+        "parameters": {},
+        "charged_asset": "USDC",
+        "round_method": "ROUND_HALF_UP",
+        "round_decimals": 4,
+        "source_reference": "execution_fills.fee_usdc in DB",
+        "evidence_status": "OBSERVED_FILL_UNVERIFIED_ORIGIN",
+        "provenance_note": "Recorded as fee_usdc=0.00 in DB for 76 LIVE fills; unverified primary receipt from Polymarket API (fallback default in gateway)"
+    },
+    {
+        "scheme_id": "UNKNOWN_HISTORICAL",
+        "market_id": "*",
+        "valid_from": "2020-01-01",
+        "valid_to": "2099-12-31",
+        "liquidity_role": "taker",
+        "formula_id": "UNKNOWN",
+        "parameters": {},
+        "charged_asset": "USDC",
+        "round_method": "NONE",
+        "round_decimals": null,
+        "source_reference": "Unrecorded historical schedule",
+        "evidence_status": "UNKNOWN",
+        "provenance_note": "True historical schedule is unconfirmed for the full 2026-06 to 2026-09 window"
+    }
+]

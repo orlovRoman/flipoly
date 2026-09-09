@@ -1,0 +1,186 @@
+{
+    "run_id": "run_20260909_113734",
+    "total_opportunities_in_ledger": 6501,
+    "c0_opportunities": 2636,
+    "ct_opportunities": 647,
+    "reconciliation": {
+        "matching_methodology": "temporal_candidate_heuristic_window_minus_5_plus_120s",
+        "total_opportunities_evaluated": 6501,
+        "matched_live_count": 1,
+        "matched_live_c0_count": 0,
+        "matched_live_ct_count": 0,
+        "applicable_live_coverage_c0_ct": 0,
+        "matched_paper_count": 44,
+        "matched_paper_c0_count": 15,
+        "matched_paper_ct_count": 8,
+        "unmatched_count": 6457,
+        "unique_matched_requests": 45,
+        "unique_matched_fills": 45,
+        "unmatched_reason_counts": {
+            "NO_REQUEST_FOR_MARKET": 4788,
+            "DIRECTION_MISMATCH_NO": 838,
+            "TIMING_MISMATCH_PRIOR": 804,
+            "TIMING_MISMATCH_TOO_LATE": 27
+        },
+        "note": "Temporal proximity matching [-5, +120s] represents candidate association, not confirmed causal execution link."
+    },
+    "ct_breakeven": {
+        "n_trades": 647,
+        "total_shares": 4098.41,
+        "total_turnover_usdc": 647.0,
+        "gross_pnl_usdc": 82.94,
+        "baseline_net_pnl_usdc": 81.65,
+        "simple_average_entry_price": 0.2295,
+        "weighted_average_entry_price": 0.1579,
+        "average_entry_price": 0.1579,
+        "breakeven_fee_rate": 0.1282,
+        "breakeven_fee_pct": 12.82,
+        "breakeven_slippage_per_share_usdc": 0.0199,
+        "breakeven_slippage_linear_usdc": 0.0199,
+        "breakeven_slippage_linear_pct_of_weighted_price": 12.62,
+        "breakeven_slippage_linear_pct_of_simple_price": 8.68,
+        "breakeven_slippage_fixed_budget_usdc": 0.01872,
+        "breakeven_slippage_fixed_budget_pct_of_weighted_price": 11.86,
+        "breakeven_slippage_fixed_budget_pct_of_simple_price": 8.16,
+        "pnl_at_linear_slippage_fixed_budget_usdc": -4.18,
+        "pnl_at_exact_linear_slippage_fixed_budget_usdc": -4.26,
+        "breakeven_slippage_pct_of_price": 12.62,
+        "formula_linear": "baseline_net_pnl / total_shares (fixed shares model)",
+        "formula_fixed_budget": "sum(target * budget / (ask + s) - budget * (1 + fee_rate)) = 0 (dynamic shares under fixed budget model)"
+    },
+    "bootstrap": {
+        "baseline_02_pct": {
+            "n_bootstrap": 1000,
+            "n_calendar_days": 71,
+            "pnl_column": "net_pnl",
+            "point_estimate_c0": -343.75,
+            "point_estimate_ct": 81.65,
+            "point_estimate_delta": 425.39,
+            "c0_net_pnl_ci95": [
+                -574.55,
+                -96.08
+            ],
+            "ct_net_pnl_ci95": [
+                -36.85,
+                204.63
+            ],
+            "delta_pnl_ci95": [
+                200.26,
+                626.74
+            ],
+            "c0_expectancy_ci95": [
+                -0.219,
+                -0.0359
+            ],
+            "ct_expectancy_ci95": [
+                -0.0572,
+                0.3163
+            ],
+            "delta_expectancy_ci95": [
+                0.0892,
+                0.4329
+            ],
+            "nonpositive_delta_count": 0,
+            "nonpositive_delta_fraction": 0.0,
+            "p_value_ct_superior_to_c0": 0.0,
+            "note": "0 of 1000 iterations had delta <= 0 (fraction: 0.0000). This is an empirical resample fraction, not an asymptotic p-value."
+        },
+        "scenario_01_pct": {
+            "n_bootstrap": 1000,
+            "n_calendar_days": 71,
+            "pnl_column": "scenario_net_pnl",
+            "point_estimate_c0": -341.11,
+            "point_estimate_ct": 82.29,
+            "point_estimate_delta": 423.41,
+            "c0_net_pnl_ci95": [
+                -571.97,
+                -93.41
+            ],
+            "ct_net_pnl_ci95": [
+                -36.19,
+                205.28
+            ],
+            "delta_pnl_ci95": [
+                198.34,
+                624.77
+            ],
+            "c0_expectancy_ci95": [
+                -0.218,
+                -0.0349
+            ],
+            "ct_expectancy_ci95": [
+                -0.0562,
+                0.3173
+            ],
+            "delta_expectancy_ci95": [
+                0.0892,
+                0.4329
+            ],
+            "nonpositive_delta_count": 0,
+            "nonpositive_delta_fraction": 0.0,
+            "p_value_ct_superior_to_c0": 0.0,
+            "note": "0 of 1000 iterations had delta <= 0 (fraction: 0.0000). This is an empirical resample fraction, not an asymptotic p-value."
+        },
+        "n_bootstrap": 1000,
+        "n_calendar_days": 71,
+        "c0_net_pnl_ci95": [
+            -574.55,
+            -96.08
+        ],
+        "ct_net_pnl_ci95": [
+            -36.85,
+            204.63
+        ],
+        "delta_pnl_ci95": [
+            200.26,
+            626.74
+        ],
+        "point_estimate_c0": -343.75,
+        "point_estimate_ct": 81.65,
+        "point_estimate_delta": 425.39,
+        "c0_expectancy_ci95": [
+            -0.219,
+            -0.0359
+        ],
+        "ct_expectancy_ci95": [
+            -0.0572,
+            0.3163
+        ],
+        "delta_expectancy_ci95": [
+            0.0892,
+            0.4329
+        ],
+        "nonpositive_delta_count": 0,
+        "nonpositive_delta_fraction": 0.0,
+        "p_value_ct_superior_to_c0": 0.0,
+        "note": "0 of 1000 iterations had delta <= 0 (fraction: 0.0000). This is an empirical resample fraction, not an asymptotic p-value."
+    },
+    "top_trades_sensitivity": {
+        "C0": {
+            "variant": "C0",
+            "total_trades": 2636,
+            "full_pnl_usdc": -343.75,
+            "full_expectancy": -0.1304,
+            "top_1pct_count": 26,
+            "pnl_without_top_1pct": -894.37,
+            "expectancy_without_top_1pct": -0.3427,
+            "top_5pct_count": 132,
+            "pnl_without_top_5pct": -1658.77,
+            "expectancy_without_top_5pct": -0.6624,
+            "note": "Excluding top trades is a sensitivity diagnostic; rare large payouts are an inherent feature of low-price option-like contracts."
+        },
+        "CT": {
+            "variant": "CT",
+            "total_trades": 647,
+            "full_pnl_usdc": 81.65,
+            "full_expectancy": 0.1262,
+            "top_1pct_count": 6,
+            "pnl_without_top_1pct": -27.02,
+            "expectancy_without_top_1pct": -0.0422,
+            "top_5pct_count": 32,
+            "pnl_without_top_5pct": -184.25,
+            "expectancy_without_top_5pct": -0.2996,
+            "note": "Excluding top trades is a sensitivity diagnostic; rare large payouts are an inherent feature of low-price option-like contracts."
+        }
+    }
+}

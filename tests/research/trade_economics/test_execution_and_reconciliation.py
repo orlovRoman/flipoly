@@ -149,6 +149,8 @@ def test_breakeven_fixed_budget_vs_linear():
     assert abs(be["simple_average_entry_price"] - 0.3167) < 1e-3
     # Weighted average ask: 3.0 / 11.0 = 0.2727
     assert abs(be["weighted_average_entry_price"] - (3.0 / 11.0)) < 1e-4
+    assert "pnl_at_linear_slippage_fixed_budget_usdc" in be
+    assert "pnl_at_exact_linear_slippage_fixed_budget_usdc" in be
 
 def test_matched_subset_waterfall_invariants():
     matched_df = pd.DataFrame([
@@ -183,3 +185,49 @@ def test_bootstrap_reproducibility():
     assert b1["c0_net_pnl_ci95"] == b2["c0_net_pnl_ci95"]
     assert b1["delta_pnl_ci95"] == b2["delta_pnl_ci95"]
     assert b1["nonpositive_delta_count"] == b2["nonpositive_delta_count"]
+
+def test_scenario_waterfall_invariants():
+    df_trades = pd.DataFrame([
+        {"shares": 10.0, "executable_ask": 0.20, "target": 1}, # cash=2, pay=10
+        {"shares": 10.0, "executable_ask": 0.30, "target": 0}, # cash=3, pay=0
+    ])
+    # total cash = 5.0, gross pnl = 10 - 5 = 5.0
+    # baseline fee (0.2%) = 5 * 0.002 = 0.01 -> baseline net pnl = 4.99
+    # scenario fee (0.1%) = 5 * 0.001 = 0.005 -> scenario net pnl = 4.995
+    wf = build_scenario_waterfall("CT", df_trades, scenario_fee_rate=0.001)
+    assert len(wf) == 3
+    assert wf.loc[wf["step_number"] == 0, "cumulative_pnl_usdc"].iloc[0] == 4.99
+    assert wf.loc[wf["step_number"] == 1, "incremental_change_usdc"].iloc[0] == 0.01
+    assert wf.loc[wf["step_number"] == 2, "cumulative_pnl_usdc"].iloc[0] == 5.00
+
+def test_matched_subset_waterfall_with_target_and_duplicate_index():
+    matched_df = pd.DataFrame([
+        {
+            "is_ct": True,
+            "decision_ask": 0.20,
+            "hypothetical_shares": 5.0,
+            "hypothetical_net_pnl": 3.998,
+            "target": 1.0,
+            "filled_shares": 4.0,
+            "vwap": 0.25,
+            "slippage_cash": (0.25 - 0.20) * 4.0,
+            "fee_usdc": 0.0,
+            "actual_net_pnl": 4.0 - 1.0 - 0.0
+        },
+        {
+            "is_ct": True,
+            "decision_ask": 0.20,
+            "hypothetical_shares": 5.0,
+            "hypothetical_net_pnl": 3.998,
+            "target": 1.0,
+            "filled_shares": 4.0,
+            "vwap": 0.25,
+            "slippage_cash": (0.25 - 0.20) * 4.0,
+            "fee_usdc": 0.0,
+            "actual_net_pnl": 4.0 - 1.0 - 0.0
+        }
+    ], index=[0, 0])
+    wf = build_matched_subset_waterfall("CT", matched_df)
+    assert len(wf) == 5
+    assert wf.loc[wf["step_number"] == 0, "cumulative_pnl_usdc"].iloc[0] == 8.00
+    assert wf.loc[wf["step_number"] == 4, "cumulative_pnl_usdc"].iloc[0] == 6.00
