@@ -42,6 +42,8 @@ async def takeprofit_worker_cycle(
             TradeHistory.exit_attempts < 10,
             TradeHistory.take_profit_status == "ACTIVE",
             TradeHistory.take_profit_price.is_not(None),
+            (TradeHistory.strategy_type != "CT_OUTSIDER") | (TradeHistory.strategy_type.is_(None)),
+            (TradeHistory.strategy_name != "BTC_CT_T5_V1") | (TradeHistory.strategy_name.is_(None)),
         )
     )
     open_trades = (await db_session.execute(stmt)).scalars().all()

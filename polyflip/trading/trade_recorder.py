@@ -221,6 +221,8 @@ async def save_or_update_skipped_trade(
             entry_model_ece=details.get("entry_model_ece"),
             decision_run_id=details.get("decision_run_id"),
             ai_lab_overlay_ids=overlay_ids,
+            strategy_name=details.get("spec_id") if details.get("strategy_type") == "CT_OUTSIDER" else None,
+            strategy_type=details.get("strategy_type"),
             created_at=start_time
         )
         for key, value in weighted_details.items():
@@ -370,26 +372,33 @@ async def execute_and_record(
     for key, value in weighted_details.items():
         setattr(history, key, value)
     
-    if cfg.stop_loss_enabled:
-        is_outsider = (
-            hasattr(decision_obj, 'strategy_type')
-            and isinstance(decision_obj.strategy_type, str)
-            and decision_obj.strategy_type.upper() == "OUTSIDER"
-        )
-        stop_pct = cfg.stop_loss_pct_outsider if is_outsider else cfg.stop_loss_pct_favorite
-        
-        history.market_end_time = getattr(market, "end_time_est", None)
-        history.stop_loss_pct = stop_pct
-        # Price is unknown, will be set on fill
-        history.stop_loss_status = "PENDING_FILL"
-
-    if cfg.take_profit_enabled:
-        history.take_profit_enabled    = True
-        history.take_profit_multiplier = cfg.take_profit_multiplier
-        history.take_profit_status     = "PENDING_FILL"
-    else:
+    if decision_obj.strategy_type == "CT_OUTSIDER":
+        history.strategy_name = details.get("spec_id") or "BTC_CT_T5_V1"
+        history.strategy_type = "CT_OUTSIDER"
+        history.stop_loss_status = "DISABLED"
+        history.take_profit_status = "DISABLED"
         history.take_profit_enabled = False
-        history.take_profit_status  = "SKIPPED"
+    else:
+        if cfg.stop_loss_enabled:
+            is_outsider = (
+                hasattr(decision_obj, 'strategy_type')
+                and isinstance(decision_obj.strategy_type, str)
+                and decision_obj.strategy_type.upper() == "OUTSIDER"
+            )
+            stop_pct = cfg.stop_loss_pct_outsider if is_outsider else cfg.stop_loss_pct_favorite
+            
+            history.market_end_time = getattr(market, "end_time_est", None)
+            history.stop_loss_pct = stop_pct
+            # Price is unknown, will be set on fill
+            history.stop_loss_status = "PENDING_FILL"
+
+        if cfg.take_profit_enabled:
+            history.take_profit_enabled    = True
+            history.take_profit_multiplier = cfg.take_profit_multiplier
+            history.take_profit_status     = "PENDING_FILL"
+        else:
+            history.take_profit_enabled = False
+            history.take_profit_status  = "SKIPPED"
 
     savepoint = await db_session.begin_nested()
     try:

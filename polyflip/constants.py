@@ -10,6 +10,7 @@ polyflip/constants.py
 
 # --- Режимы торговли (строковые идентификаторы) ---
 TRADING_MODE_COMBINED = "combined"
+TRADING_MODE_CT_OUTSIDER = "ct_outsider"
 DEFAULT_TRADING_MODE  = TRADING_MODE_COMBINED
 
 # --- Маппинги активов и поддерживаемые рынки ---

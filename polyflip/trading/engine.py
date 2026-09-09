@@ -174,19 +174,36 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                     from polyflip.trading.ml_inference import get_models_cache
 
                     models_cache = get_models_cache()
-                    decision_res = await decide_combined_mode(
-                        db_session,
-                        api_client,
-                        market,
-                        cfg,
-                        raw_settings,
-                        models_cache,
-                        _get_crypto_predictor(),
-                        start_time,
-                        time_left_sec,
-                        existing_skipped,
-                        execution_mode=execution_mode,
-                    )
+                    if cfg.trading_mode.lower() in ("ct_outsider", "ct"):
+                        from polyflip.trading.decision_runners import decide_ct_outsider_mode
+
+                        decision_res = await decide_ct_outsider_mode(
+                            db_session,
+                            api_client,
+                            market,
+                            cfg,
+                            raw_settings,
+                            models_cache,
+                            _get_crypto_predictor(),
+                            start_time,
+                            time_left_sec,
+                            existing_skipped,
+                            execution_mode=execution_mode,
+                        )
+                    else:
+                        decision_res = await decide_combined_mode(
+                            db_session,
+                            api_client,
+                            market,
+                            cfg,
+                            raw_settings,
+                            models_cache,
+                            _get_crypto_predictor(),
+                            start_time,
+                            time_left_sec,
+                            existing_skipped,
+                            execution_mode=execution_mode,
+                        )
                     if (
                         overlay_ids
                         and decision_res is not None

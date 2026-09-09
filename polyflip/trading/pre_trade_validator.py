@@ -80,6 +80,28 @@ async def validate_pre_trade(
 
     actual_role = "OUTSIDER" if fresh_mid < 0.50 else "FAVORITE"
 
+    # Item 15 & 22: CT_OUTSIDER bypasses ML thresholds (flip_threshold, dead zone, ML veto, min_edge).
+    # Enforces price boundaries [0.01, 0.40], budget cap $1.00, and locks limit price to decision ask.
+    if decision_obj.strategy_type == "CT_OUTSIDER":
+        if not (0.01 <= fresh_ask <= 0.40):
+            return PreTradeValidation(
+                valid=False,
+                buy_price=buy_price,
+                actual_bet_size=actual_bet_size,
+                edge=0.0,
+                skip_reason=f"validation: Fresh ask {fresh_ask:.3f} outside CT limits [0.01, 0.40]",
+                market_role="OUTSIDER",
+            )
+        ct_bet_size = min(actual_bet_size, 1.00)
+        return PreTradeValidation(
+            valid=True,
+            buy_price=buy_price,  # locked to decision ask (Item 22)
+            actual_bet_size=ct_bet_size,
+            edge=0.0,
+            skip_reason=None,
+            market_role="OUTSIDER",
+        )
+
     # Re-check execution quality against the same spread limit used during
     # decision making.  This closes the race where the book widens between
     # signal generation and submission.
