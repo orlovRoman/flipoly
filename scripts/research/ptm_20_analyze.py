@@ -67,7 +67,7 @@ def bootstrap_days(rows, seed=SEED, reps=BOOT):
         byday[r["calendar_date"]].append(r)
     days = sorted(byday)
     if len(days) < MIN_DAYS:
-        return {"status": "INSUFFICIENT_SAMPLE", "days": len(days)}
+        return {"status": "INSUFFICIENT_SAMPLE", "days": len(days), "exp_ci95": None}
     rng = random.Random(seed)
     exps = []
     for _ in range(reps):
@@ -83,29 +83,33 @@ def bootstrap_days(rows, seed=SEED, reps=BOOT):
 def main():
     rows = load()
     print("valid rows:", len(rows))
+    def tlabel(r):
+        return ("GRID", int(float(r["time_left_target"]))) if r.get("entry_policy") == "GRID" else ("FUNNEL", -1)
     # 12. main table
     groups = defaultdict(list)
     for r in rows:
-        groups[(r["asset"], r["time_left_target"], r["entry_variant"], r["price_bin"])].append(r)
+        groups[(r["asset"], tlabel(r), r["entry_variant"], r["price_bin"])].append(r)
     table = []
-    for key in sorted(groups):
+    for key in sorted(groups, key=str):
         a = agg(groups[key])
-        a.update({"asset": key[0], "entry_time": key[1], "variant": key[2], "price_bin": key[3]})
+        a.update({"asset": key[0], "entry_policy": key[1][0], "entry_time": key[1][1] if key[1][0] == "GRID" else "FUNNEL",
+                  "variant": key[2], "price_bin": key[3]})
         a.update(bootstrap_days(groups[key]))
         table.append(a)
     with open(os.path.join(BASE, "price_time_table.csv"), "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(table[0].keys()))
         w.writeheader()
         w.writerows(table)
-    # 14. side comparison
+    # 14. side comparison (per policy)
     side = defaultdict(list)
     for r in rows:
-        side[(r["entry_variant"], r["price_bin"])].append(r)
+        side[(r.get("entry_policy") or "GRID", r["entry_variant"], r["price_bin"])].append(r)
     with open(os.path.join(BASE, "side_comparison.csv"), "w", newline="") as f:
         recs = []
-        for key in sorted(side):
+        for key in sorted(side, key=str):
             a = agg(side[key])
-            a.update({"variant": key[0], "price_bin": key[1]})
+            a.update({"entry_policy": key[0], "variant": key[1], "price_bin": key[2]})
+            a.update(bootstrap_days(side[key]))
             recs.append(a)
         w = csv.DictWriter(f, fieldnames=list(recs[0].keys()))
         w.writeheader()
@@ -126,9 +130,10 @@ def main():
         w.writerows(recs)
     # 20. sensitivity
     sens = []
+    grid = [r for r in rows if r.get("entry_policy") == "GRID"]
     for mp in (0.30, 0.35, 0.40, 0.50):
         for t in (12, 8, 5):
-            rs = [r for r in rows if r["best_ask"] and float(r["best_ask"]) <= mp and int(r["time_left_target"]) == t]
+            rs = [r for r in grid if r["best_ask"] and float(r["best_ask"]) <= mp and int(float(r["time_left_target"])) == t]
             if not rs:
                 continue
             a = agg(rs)
@@ -145,8 +150,52 @@ def main():
         w = csv.DictWriter(f, fieldnames=list(sens[0].keys()))
         w.writeheader()
         w.writerows(sens)
-    json.dump({"run": RUN_ID, "groups": len(table)}, open(os.path.join(BASE, "bootstrap_results.json"), "w"), indent=2)
-    print("groups:", len(table), "sens rows:", len(sens))
+    # 13/19. paired entry-time diffs on same markets, day-clustered bootstrap
+    import random as _random
+    grid_by_mkt = defaultdict(lambda: defaultdict(list))
+    for r in grid:
+        grid_by_mkt[r["market_id"]][int(float(r["time_left_target"]))].append(r)
+    pairs, paired_rows = [], []
+    for (ta, tb) in ((12, 8), (12, 5), (8, 5)):
+        per_market = {}
+        for m, d in grid_by_mkt.items():
+            if ta in d and tb in d:
+                per_market[m] = (sum(r["net_pnl"] for r in d[ta]), sum(r["net_pnl"] for r in d[tb]))
+        if not per_market:
+            continue
+        day_of = {}
+        for m in per_market:
+            day_of[m] = next(r["calendar_date"] for r in grid if r["market_id"] == m and int(float(r["time_left_target"])) == ta)
+        byday = defaultdict(list)
+        for m, (pa_, pb_) in per_market.items():
+            byday[day_of[m]].append(pb_ - pa_)
+        days = sorted(byday)
+        diffs = [pb - pa for pa, pb in per_market.values()]
+        rec = {"pair": f"T-{ta}_vs_T-{tb}", "markets": len(per_market), "days": len(days),
+               "mean_diff": round(sum(diffs) / len(diffs), 6)}
+        if len(days) >= MIN_DAYS:
+            rng = _random.Random(SEED)
+            means = []
+            for _ in range(BOOT):
+                s = [rng.choice(days) for _ in days]
+                vals = [v for d in s for v in byday[d]]
+                means.append(sum(vals) / len(vals))
+            means.sort()
+            rec.update({"status": "OK", "ci95": [round(means[int(0.025 * BOOT)], 6), round(means[int(0.975 * BOOT)], 6)]})
+        else:
+            rec.update({"status": "INSUFFICIENT_SAMPLE", "ci95": None})
+        pairs.append(rec)
+        for m, (pa_, pb_) in per_market.items():
+            paired_rows.append({"market_id": m, "pair": rec["pair"], "pnl_a": round(pa_, 4), "pnl_b": round(pb_, 4),
+                               "diff": round(pb_ - pa_, 4), "calendar_date": day_of[m]})
+    with open(os.path.join(BASE, "paired_time_diffs.csv"), "w", newline="") as f:
+        if pairs:
+            w = csv.DictWriter(f, fieldnames=list(pairs[0].keys()))
+            w.writeheader()
+            w.writerows(pairs)
+    json.dump({"run": RUN_ID, "groups": len(table), "paired": pairs},
+              open(os.path.join(BASE, "bootstrap_results.json"), "w"), indent=2)
+    print("groups:", len(table), "sens rows:", len(sens), "pairs:", len(pairs))
 
 
 main()

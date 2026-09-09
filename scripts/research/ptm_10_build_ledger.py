@@ -28,7 +28,7 @@ RUN_ID = datetime.now(timezone.utc).strftime("ptm_%Y%m%d_%H%M%S")
 OUTDIR = os.path.join("artifacts", "research", "price_time_map", RUN_ID)
 STAKE = 1.0
 ASSETS = ("BTC", "ETH", "SOL", "XRP", "DOGE")
-COLS = ["market_id", "asset", "decision_at", "time_left_target", "time_left_actual", "entry_variant",
+COLS = ["market_id", "asset", "decision_at", "entry_policy", "time_left_target", "time_left_actual", "entry_variant",
         "side", "mid_price", "best_bid", "best_ask", "spread", "price_bin", "region", "final_outcome",
         "target", "stake_usdc", "shares", "gross_pnl", "fee_status", "fee", "net_pnl",
         "scenario_fee", "scenario_net_pnl", "selection_status", "skip_reason",
@@ -47,7 +47,7 @@ def git(*args):
     return subprocess.run(["git"] + list(args), capture_output=True, text=True).stdout.strip()
 
 
-def process_chunk(snaps_by_m, chunk, asset_of, json_outcome, exp, w, cov):
+def process_chunk(snaps_by_m, chunk, asset_of, json_outcome, exp, w, cov, job_of):
     n = 0
     for mid in chunk:
         snaps = snaps_by_m.get(mid)
@@ -84,7 +84,7 @@ def process_chunk(snaps_by_m, chunk, asset_of, json_outcome, exp, w, cov):
         for x in ENTRY_TARGETS_MAIN:
             decision_at = expiry - timedelta(minutes=x)
             base = {"market_id": mid, "asset": asset, "decision_at": decision_at.isoformat(),
-                    "time_left_target": x, "final_outcome": final}
+                    "entry_policy": "GRID", "time_left_target": x, "final_outcome": final}
             row, status, reason = select_entry(snaps, x, decision_at)
             if status != "OK":
                 cov["entries_missing"] += 1
@@ -118,6 +118,58 @@ def process_chunk(snaps_by_m, chunk, asset_of, json_outcome, exp, w, cov):
                     "calendar_date": dt.date().isoformat(), "hour_utc": dt.hour, "weekday": dt.weekday(),
                 })
                 n += 1
+        n += funnel_rows(mid, asset, final, expiry, job_of, w, cov)
+    return n
+
+
+def funnel_rows(mid, asset, final, expiry, job_of, w, cov):
+    """FUNNEL_OBSERVED stratum: the single decision-funnel observation per market.
+
+    Uses only real quotes from the JSON row (yes_ask and/or no_ask). Side is
+    classified by own ask price (ask<=0.5 OUTSIDER, else FAVORITE).
+    """
+    n = 0
+    o = job_of.get(mid)
+    if o is None:
+        return 0
+    ts = o.get("timestamp")
+    if not ts:
+        return 0
+    dt = datetime.fromisoformat(str(ts))
+    tl = (expiry - dt).total_seconds() / 60.0
+    if tl < 0:
+        return 0
+    variants = []
+    if o.get("yes_ask") is not None:
+        variants.append(("YES_OUTSIDER" if o["yes_ask"] <= 0.5 else "YES_FAVORITE", "YES", o["yes_ask"], o.get("p_market_yes"), None, o.get("spread")))
+    if o.get("no_ask") is not None:
+        variants.append(("NO_OUTSIDER" if o["no_ask"] <= 0.5 else "NO_FAVORITE", "NO", o["no_ask"], None, None, o.get("spread")))
+    if not variants:
+        cov["entries_missing"] += 1
+        w.writerow({"market_id": mid, "asset": asset, "decision_at": dt.isoformat(),
+                    "entry_policy": "FUNNEL", "time_left_target": "", "final_outcome": final,
+                    "selection_status": "MISSING_ENTRY_QUOTE", "skip_reason": "NO_REAL_QUOTE_IN_FUNNEL_ROW"})
+        return 1
+    for variant, side, entry_price, mpx, bid, spread in variants:
+        won = (final == side)
+        shares, cash, gross, fee, net, _ = pnl_row(entry_price, won, STAKE, None)
+        _, _, _, sfee, snet, _ = pnl_row(entry_price, won, STAKE, SCENARIO_FEE_RATE)
+        cov["entries_ok"] += 1
+        w.writerow({
+            "market_id": mid, "asset": asset, "decision_at": dt.isoformat(),
+            "entry_policy": "FUNNEL", "time_left_target": "", "time_left_actual": round(tl, 3),
+            "entry_variant": variant, "side": side,
+            "mid_price": mpx, "best_bid": bid, "best_ask": entry_price,
+            "spread": spread, "price_bin": bin_of(entry_price), "region": region_of(entry_price),
+            "target": int(won), "stake_usdc": STAKE,
+            "shares": round(shares, 6), "gross_pnl": round(gross, 6),
+            "fee_status": "UNKNOWN", "fee": 0.0, "net_pnl": round(gross, 6),
+            "scenario_fee": round(sfee, 6), "scenario_net_pnl": round(snet, 6),
+            "selection_status": "OK", "skip_reason": "",
+            "recorded_at": dt.isoformat(),
+            "calendar_date": dt.date().isoformat(), "hour_utc": dt.hour, "weekday": dt.weekday(),
+        })
+        n += 1
     return n
 
 
@@ -133,13 +185,16 @@ async def main():
     for o in obs:
         asset_of.setdefault(str(o["market_id"]), o.get("asset"))
     json_outcome = {str(o["market_id"]): o.get("outcome_yes") for o in obs}
+    job_of = {}
+    for o in obs:
+        job_of.setdefault(str(o["market_id"]), o)
     config = {
         "run_id": RUN_ID, "stake_usdc": STAKE,
         "entry_time_grid": list(ENTRY_TARGETS_MAIN),
         "entry_window_min": 0.5, "price_bins": "plan-14-fixed",
         "fee_model": "gross_or_observed_quote + scenario_fee", "fee_status": "UNKNOWN",
         "scenario_fee_rate": SCENARIO_FEE_RATE,
-        "side_definition": "mid<=0.5 OUTSIDER / mid>0.5 FAVORITE at decision; NO_* requires real NO book",
+        "side_definition": "GRID: mid<=0.5 OUTSIDER / mid>0.5 FAVORITE at decision; NO_* needs real NO book (absent in snapshots). FUNNEL: own-ask<=0.5 OUTSIDER else FAVORITE, YES_* needs yes_ask, NO_* needs no_ask",
         "outcome_definition": "DB market_snapshots.final_outcome",
         "bootstrap_seed": 20260911, "assets": list(ASSETS),
         "period_utc": [period[0], period[-1]],
@@ -173,7 +228,7 @@ async def main():
             snaps_by_m = {}
             for r in rows:
                 snaps_by_m.setdefault(r["market_id"], []).append(dict(r))
-            n_rows += process_chunk(snaps_by_m, chunk, asset_of, json_outcome, exp, w, cov)
+            n_rows += process_chunk(snaps_by_m, chunk, asset_of, json_outcome, exp, w, cov, job_of)
             print("chunk %d/%d rows=%d" % (i // B + 1, nch, n_rows), flush=True)
         f.close()
     finally:

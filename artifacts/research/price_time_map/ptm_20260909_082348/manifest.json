@@ -1,0 +1,38 @@
+{
+  "run_id": "ptm_20260909_082348",
+  "stake_usdc": 1.0,
+  "entry_time_grid": [
+    12,
+    8,
+    5
+  ],
+  "entry_window_min": 0.5,
+  "price_bins": "plan-14-fixed",
+  "fee_model": "gross_or_observed_quote + scenario_fee",
+  "fee_status": "UNKNOWN",
+  "scenario_fee_rate": 0.02,
+  "side_definition": "GRID: mid<=0.5 OUTSIDER / mid>0.5 FAVORITE at decision; NO_* needs real NO book (absent in snapshots). FUNNEL: own-ask<=0.5 OUTSIDER else FAVORITE, YES_* needs yes_ask, NO_* needs no_ask",
+  "outcome_definition": "DB market_snapshots.final_outcome",
+  "bootstrap_seed": 20260911,
+  "assets": [
+    "BTC",
+    "ETH",
+    "SOL",
+    "XRP",
+    "DOGE"
+  ],
+  "period_utc": [
+    "2026-08-03 19:32:07.947098+00:00",
+    "2026-09-02 19:30:05.578248+00:00"
+  ],
+  "config_hash": "8553df1cb4f26152",
+  "base_commit": "8380773776e2150f031456731b18c9afb7c25404",
+  "research_commit": "8380773776e2150f031456731b18c9afb7c25404",
+  "dirty_worktree": true,
+  "input_file_hashes": {
+    "observations_30d.json": "06920496fbe2a5bfac15393ae8a12fdb70ed1f589601bf5b3518172787806ccf",
+    "market_expirations.json": "8d36e383cc958e07dcec08d08763e26310bc25e4afdd477b72539b3c8ac82b28"
+  },
+  "db_snapshot_rows": 8317448,
+  "db_snapshot_max_id": 8328473
+}
