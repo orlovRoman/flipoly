@@ -31,6 +31,7 @@ from polyflip.ai_lab.llm import (
     DEFAULT_OPENCODE_MODELS,
     DEFAULT_OPENROUTER_ENDPOINT,
     DEFAULT_OPENROUTER_MODELS_ENDPOINT,
+    OPENCODE_MODEL_LABELS,
     OPENCODE_MODEL_SPECS,
     get_llm_model_catalog,
 )
@@ -667,6 +668,15 @@ def _probe_candidates(
         getattr(settings_obj, "AI_LAB_OPENCODE_CHAT_ENDPOINT", DEFAULT_OPENCODE_CHAT_ENDPOINT)
         or DEFAULT_OPENCODE_CHAT_ENDPOINT
     ).strip()
+    if model_spec and not model_spec.get("is_go"):
+        pref = str(model_spec.get("protocol") or "")
+        if pref == "chat_completions":
+            candidates: list[dict[str, str]] = []
+            if chat_endpoint:
+                candidates.append({"url": chat_endpoint, "protocol": "chat_completions"})
+            if responses_endpoint:
+                candidates.append({"url": responses_endpoint, "protocol": "responses"})
+            return candidates
     candidates: list[dict[str, str]] = []
     if responses_endpoint:
         candidates.append({"url": responses_endpoint, "protocol": "responses"})
@@ -839,14 +849,21 @@ async def persist_model_check_result(
             )
         )
     ).scalar_one_or_none()
+    label = (
+        OPENCODE_MODEL_LABELS.get(model_id, model_id)
+        if provider == "opencode"
+        else model_id
+    )
     if row is None:
         row = AILLMModelCatalog(
             provider=provider,
             model_id=model_id,
-            display_name=model_id,
+            display_name=label,
             discovered_at=now,
         )
         db.add(row)
+    elif provider == "opencode" and model_id in OPENCODE_MODEL_LABELS:
+        row.display_name = label
     is_passed = bool(report.get("available"))
     row.is_available = is_passed
     row.is_discovered = True  # type: ignore[attr-defined]

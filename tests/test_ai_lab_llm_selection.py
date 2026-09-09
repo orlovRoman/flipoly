@@ -35,7 +35,9 @@ def test_catalog_contains_safe_provider_metadata(monkeypatch):
     assert {item["id"] for item in catalog["models"]} == set(DEFAULT_OPENCODE_MODELS)
     labels = {item["id"]: item["label"] for item in catalog["models"]}
     assert labels["big-pickle"] == "Big Pickle"
-    assert labels["muse-spark-1.2-contributor-free"] == "Muse Spark 1.2 Contributor Free"
+    assert labels["ling-3.0-flash-fin-free"] == "Ling 3.0 Flash Fin Free"
+    assert labels["muse-spark-1.2-contributor-free"] == "Muse Spark 1.2 Free"
+    assert labels["muse-spark-1.3-contributor-free"] == "Muse Spark 1.3 Free"
     assert labels["nemotron-3-ultra-free"] == "Nemotron 3 Ultra Free"
     assert catalog["providers"][-1]["configured"] is True
     assert "secret-value" not in str(catalog)

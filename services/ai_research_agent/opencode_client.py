@@ -61,12 +61,15 @@ _OPENCODE_GO_MODEL_PROTOCOLS = {
 }
 _OPENCODE_FREE_MODEL_PROTOCOLS = {
     "big-pickle": "chat_completions",
-    "x-preview-f-free": "chat_completions",
-    "mimo-v2.5-free": "chat_completions",
-    "hy3-free": "chat_completions",
-    "nemotron-3-ultra-free": "chat_completions",
-    "nemotron-3.5-lightning-free": "chat_completions",
+    "ling-3.0-flash-fin-free": "chat_completions",
     "muse-spark-1.2-contributor-free": "responses",
+    "muse-spark-1.3-contributor-free": "responses",
+    "nemotron-3.5-lightning-free": "chat_completions",
+    "nemotron-3-ultra-free": "chat_completions",
+    "mimo-v2.5-free": "chat_completions",
+    "deepseek-v4-flash-free": "chat_completions",
+    "x-preview-f-free": "chat_completions",
+    "hy3-free": "chat_completions",
 }
 OPENCODE_GO_MODELS = frozenset(_OPENCODE_GO_MODEL_PROTOCOLS)
 OPENCODE_MODEL_SPECS = {

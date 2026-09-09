@@ -72,12 +72,15 @@ DEFAULT_OPENCODE_GO_MODEL_SPECS = (
 )
 DEFAULT_OPENCODE_FREE_MODEL_SPECS = (
     ("big-pickle", "Big Pickle", "chat_completions"),
-    ("x-preview-f-free", "Ox Alpha Free", "chat_completions"),
-    ("mimo-v2.5-free", "MiMo-V2.5 Free", "chat_completions"),
-    ("hy3-free", "Hy3 Free", "chat_completions"),
-    ("nemotron-3-ultra-free", "Nemotron 3 Ultra Free", "chat_completions"),
+    ("ling-3.0-flash-fin-free", "Ling 3.0 Flash Fin Free", "chat_completions"),
+    ("muse-spark-1.2-contributor-free", "Muse Spark 1.2 Free", "responses"),
+    ("muse-spark-1.3-contributor-free", "Muse Spark 1.3 Free", "responses"),
     ("nemotron-3.5-lightning-free", "Nemotron 3.5 Lightning Free", "chat_completions"),
-    ("muse-spark-1.2-contributor-free", "Muse Spark 1.2 Contributor Free", "responses"),
+    ("nemotron-3-ultra-free", "Nemotron 3 Ultra Free", "chat_completions"),
+    ("mimo-v2.5-free", "MiMo-V2.5 Free", "chat_completions"),
+    ("deepseek-v4-flash-free", "DeepSeek V4 Flash Free", "chat_completions"),
+    ("x-preview-f-free", "Ox Alpha Free", "chat_completions"),
+    ("hy3-free", "Hy3 Free", "chat_completions"),
 )
 OPENCODE_MODEL_SPECS = {
     model_id: {
