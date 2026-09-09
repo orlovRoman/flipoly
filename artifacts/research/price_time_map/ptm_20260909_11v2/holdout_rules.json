@@ -1,0 +1,150 @@
+{
+  "rule_set_version": "v1",
+  "selection_criteria": "Holm-adjusted p<0.05 OR CT positive-CI (pair-bootstrapped) OR positive mean CT diff",
+  "rules_a_cells": [
+    {
+      "rule_id": "A_GRID_T-12_BTC_YES_FAVORITE_[0.90,0.99]",
+      "rule_type": "CELL_BET",
+      "asset": "BTC",
+      "entry_rule": "T-12",
+      "role": "YES_FAVORITE",
+      "price_bin": "[0.90,0.99]",
+      "n": 20,
+      "pnl": 1.6688,
+      "ci": [
+        0.072158,
+        0.093785
+      ],
+      "holm_adj_p": 0.0,
+      "status": "CANDIDATE_FOR_HOLDOUT"
+    },
+    {
+      "rule_id": "A_GRID_T-5_BTC_YES_FAVORITE_ABOVE_0.99",
+      "rule_type": "CELL_BET",
+      "asset": "BTC",
+      "entry_rule": "T-5",
+      "role": "YES_FAVORITE",
+      "price_bin": "ABOVE_0.99",
+      "n": 26,
+      "pnl": 0.0935,
+      "ci": [
+        0.002749,
+        0.004731
+      ],
+      "holm_adj_p": 0.0,
+      "status": "CANDIDATE_FOR_HOLDOUT"
+    },
+    {
+      "rule_id": "A_GRID_T-5_DOGE_YES_FAVORITE_ABOVE_0.99",
+      "rule_type": "CELL_BET",
+      "asset": "DOGE",
+      "entry_rule": "T-5",
+      "role": "YES_FAVORITE",
+      "price_bin": "ABOVE_0.99",
+      "n": 30,
+      "pnl": 0.0431,
+      "ci": [
+        0.001126,
+        0.001734
+      ],
+      "holm_adj_p": 0.0,
+      "status": "CANDIDATE_FOR_HOLDOUT"
+    },
+    {
+      "rule_id": "A_GRID_T-5_ETH_YES_FAVORITE_ABOVE_0.99",
+      "rule_type": "CELL_BET",
+      "asset": "ETH",
+      "entry_rule": "T-5",
+      "role": "YES_FAVORITE",
+      "price_bin": "ABOVE_0.99",
+      "n": 37,
+      "pnl": 0.0842,
+      "ci": [
+        0.001877,
+        0.002723
+      ],
+      "holm_adj_p": 0.0,
+      "status": "CANDIDATE_FOR_HOLDOUT"
+    },
+    {
+      "rule_id": "A_GRID_T-5_SOL_YES_FAVORITE_ABOVE_0.99",
+      "rule_type": "CELL_BET",
+      "asset": "SOL",
+      "entry_rule": "T-5",
+      "role": "YES_FAVORITE",
+      "price_bin": "ABOVE_0.99",
+      "n": 37,
+      "pnl": 0.0742,
+      "ci": [
+        0.001575,
+        0.002583
+      ],
+      "holm_adj_p": 0.0,
+      "status": "CANDIDATE_FOR_HOLDOUT"
+    },
+    {
+      "rule_id": "A_GRID_T-5_XRP_YES_FAVORITE_ABOVE_0.99",
+      "rule_type": "CELL_BET",
+      "asset": "XRP",
+      "entry_rule": "T-5",
+      "role": "YES_FAVORITE",
+      "price_bin": "ABOVE_0.99",
+      "n": 29,
+      "pnl": 0.0582,
+      "ci": [
+        0.001419,
+        0.00271
+      ],
+      "holm_adj_p": 0.0,
+      "status": "CANDIDATE_FOR_HOLDOUT"
+    },
+    {
+      "rule_id": "A_GRID_T-8_DOGE_YES_FAVORITE_[0.90,0.99]",
+      "rule_type": "CELL_BET",
+      "asset": "DOGE",
+      "entry_rule": "T-8",
+      "role": "YES_FAVORITE",
+      "price_bin": "[0.90,0.99]",
+      "n": 218,
+      "pnl": 6.759,
+      "ci": [
+        0.014513,
+        0.045932
+      ],
+      "holm_adj_p": 0.031903,
+      "status": "CANDIDATE_FOR_HOLDOUT"
+    }
+  ],
+  "rules_b_ct_filter": [],
+  "rules_c_time_pairs": [
+    {
+      "rule_id": "C_T-12_vs_T-8_CT",
+      "rule_type": "CT_TIME_PAIR",
+      "description": "T-12_vs_T-8_CT",
+      "markets": 1682,
+      "mean_diff": 0.046438,
+      "status": "INFORMATIONAL_NO_HOLM"
+    },
+    {
+      "rule_id": "C_T-12_vs_T-5_CT",
+      "rule_type": "CT_TIME_PAIR",
+      "description": "T-12_vs_T-5_CT",
+      "markets": 1608,
+      "mean_diff": 0.132511,
+      "status": "INFORMATIONAL_NO_HOLM"
+    },
+    {
+      "rule_id": "C_T-8_vs_T-5_CT",
+      "rule_type": "CT_TIME_PAIR",
+      "description": "T-8_vs_T-5_CT",
+      "markets": 2633,
+      "mean_diff": 0.12249,
+      "status": "INFORMATIONAL_NO_HOLM"
+    }
+  ],
+  "holdout_period": {
+    "status": "PENDING_DATA",
+    "note": "holdout period not yet defined; requires additional weeks of data or out-of-sample split"
+  },
+  "total_candidate_rules": 10
+}
