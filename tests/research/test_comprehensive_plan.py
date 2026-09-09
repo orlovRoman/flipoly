@@ -683,3 +683,16 @@ def test_item_30_additional_simulation_and_strike_checks():
     # 6. Canonical strike checks
     ctx = compute_strike_context(spot=90.0, strike=105.0, sigma_min=0.5, time_left_min=10.0, local_mean=110.0, candidate_side="UP")
     assert ctx["reversion_helps_strike"] is True
+
+
+def test_stage2_negative_book_age_unmasked():
+    """Verify that negative book age (clock skew: depth_received_at < depth_event_at) is not masked by max(0.0, ...)."""
+    asks = [{"price": 0.05, "size": 100.0}]
+    de_at = pd.to_datetime("2026-08-01T12:00:05Z", utc=True)
+    dr_at = pd.to_datetime("2026-08-01T12:00:01Z", utc=True)  # received before event -> negative age
+    book_age = (dr_at - de_at).total_seconds()
+    assert book_age < 0.0
+    res = simulate_orderbook_execution(asks, budget_usdc=1.0, book_age_sec=book_age)
+    assert res.fill_status == "STALE_BOOK"
+    assert res.data_status == "INVALID_TIMESTAMP"
+

@@ -2,13 +2,13 @@
   "metadata": {
     "title": "Stage 2 Comprehensive Regime and Strike Research Study",
     "asset": "BTC",
-    "generated_at": "2026-09-09T08:22:57.086158+00:00",
-    "git_commit": "d58ab5c7839f3f98d7cf955a17ef446717c2f4a0",
-    "git_dirty": false,
+    "generated_at": "2026-09-09T09:09:09.962614+00:00",
+    "git_commit": "87a72d0f24b8f17d6b233a0bad4b1e81e5efaa5d",
+    "git_dirty": true,
     "input_hashes": {
       "snapshots": "31b18ee191d2fa82a0cc0fa85ecd8a612577d5b54108f7a19078e3a2f037b3b0",
       "candles": "b5d96f1e68dc6989823ed2fb508ad2b12a59f24d891e72c09aa0a6559ff5eb4e",
-      "candles_1m": "UNKNOWN",
+      "candles_1m": "cfd2eee316114ede09c62728e291b1d5e0be3f8e16a8f2f5b91ea3fb00a56a98",
       "expirations": "8d36e383cc958e07dcec08d08763e26310bc25e4afdd477b72539b3c8ac82b28"
     },
     "schema_version": "1.1.0",
@@ -120,6 +120,40 @@
           "net_pnl_usdc": -83.78,
           "expectancy": -0.1135,
           "pnl_drop_usdc": 32.79
+        }
+      }
+    },
+    "CS_short": {
+      "n_trades": 774,
+      "base_net_pnl": -46.85,
+      "base_expectancy": -0.0605,
+      "absolute_shifts": {
+        "+0.005_usdc_per_share": {
+          "net_pnl_usdc": -70.29,
+          "expectancy": -0.0908,
+          "pnl_drop_usdc": 23.43
+        },
+        "+0.010_usdc_per_share": {
+          "net_pnl_usdc": -91.75,
+          "expectancy": -0.1185,
+          "pnl_drop_usdc": 44.9
+        },
+        "+0.020_usdc_per_share": {
+          "net_pnl_usdc": -129.86,
+          "expectancy": -0.1678,
+          "pnl_drop_usdc": 83.01
+        }
+      },
+      "relative_shifts": {
+        "+2%": {
+          "net_pnl_usdc": -61.14,
+          "expectancy": -0.079,
+          "pnl_drop_usdc": 14.29
+        },
+        "+5%": {
+          "net_pnl_usdc": -81.55,
+          "expectancy": -0.1054,
+          "pnl_drop_usdc": 34.7
         }
       }
     },
@@ -593,9 +627,9 @@
   "item_23_time_scales_comparison": {
     "token_reversion_rate": 0.2454,
     "spot_long_reversion_rate": 0.28,
-    "spot_short_reversion_rate": 0.0,
+    "spot_short_reversion_rate": 0.2936,
     "agreement_token_vs_spot_long": 0.3752,
-    "agreement_token_vs_spot_short": 0.5235
+    "agreement_token_vs_spot_short": 0.5505
   },
   "item_25_and_28_core_variants": {
     "C0": {
@@ -658,15 +692,21 @@
     "CS_short": {
       "label": "CS_short",
       "what_it_tests": "Benefit of short 10m spot reversion regime",
-      "n_trades": 0,
-      "win_rate": 0.0,
-      "avg_entry_price": 0.0,
-      "net_pnl_usdc": null,
-      "expectancy": null,
-      "status": "BLOCKED_DATA",
-      "paired_delta_vs_c0": null,
-      "paired_bootstrap_ci_95": null,
-      "standalone_expectancy_ci_95": null
+      "n_trades": 774,
+      "win_rate": 0.1964,
+      "avg_entry_price": 0.1898,
+      "net_pnl_usdc": -46.85,
+      "expectancy": -0.0605,
+      "status": "COMPUTED",
+      "paired_delta_vs_c0": 296.9,
+      "paired_bootstrap_ci_95": [
+        40.32,
+        534.83
+      ],
+      "standalone_expectancy_ci_95": [
+        -0.2155,
+        0.09
+      ]
     },
     "CT_plus_canonical_strike": {
       "label": "CT + canonical strike",
@@ -692,12 +732,12 @@
       "status": "COMPUTED",
       "paired_delta_vs_c0": 429.58,
       "paired_bootstrap_ci_95": [
-        200.58,
-        652.16
+        173.03,
+        666.66
       ],
       "standalone_expectancy_ci_95": [
-        0.0299,
-        0.8499
+        0.0451,
+        0.8269
       ]
     },
     "C1": {
@@ -711,12 +751,12 @@
       "status": "COMPUTED",
       "paired_delta_vs_c0": 410.73,
       "paired_bootstrap_ci_95": [
-        202.41,
-        604.45
+        200.73,
+        607.2
       ],
       "standalone_expectancy_ci_95": [
-        -0.0986,
-        0.2238
+        -0.0988,
+        0.2254
       ]
     }
   },
@@ -760,7 +800,7 @@
         "reason": "missing historical asks/depth timestamps",
         "full_fills": 0,
         "partial_fills": 0,
-        "unfilled": 0,
+        "unfilled": 774,
         "total_spent_usdc": 0.0,
         "vwap_drift_vs_decision_price": null,
         "net_pnl_total": null,
@@ -839,7 +879,7 @@
         "reason": "missing historical asks/depth timestamps",
         "full_fills": 0,
         "partial_fills": 0,
-        "unfilled": 0,
+        "unfilled": 774,
         "total_spent_usdc": 0.0,
         "vwap_drift_vs_decision_price": null,
         "net_pnl_total": null,
@@ -918,7 +958,7 @@
         "reason": "missing historical asks/depth timestamps",
         "full_fills": 0,
         "partial_fills": 0,
-        "unfilled": 0,
+        "unfilled": 774,
         "total_spent_usdc": 0.0,
         "vwap_drift_vs_decision_price": null,
         "net_pnl_total": null,
@@ -991,10 +1031,10 @@
       "expectancy": -0.1204
     },
     "CS_short": {
-      "n_trades": 0,
-      "win_rate": 0.0,
-      "net_pnl_usdc": 0.0,
-      "expectancy": 0.0
+      "n_trades": 72,
+      "win_rate": 0.25,
+      "net_pnl_usdc": 24.26,
+      "expectancy": 0.337
     },
     "CT_plus_canonical_strike": {
       "n_trades": 0,

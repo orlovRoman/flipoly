@@ -61,7 +61,7 @@ def run_stage2_study(
 
     try:
         git_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], stderr=subprocess.DEVNULL).decode().strip()
-        git_dirty = bool(subprocess.check_output(['git', 'status', '--porcelain'], stderr=subprocess.DEVNULL).decode().strip())
+        git_dirty = bool(subprocess.check_output(['git', 'status', '--porcelain', '--', 'polyflip', 'scripts', 'tests'], stderr=subprocess.DEVNULL).decode().strip())
     except Exception:
         git_commit = "UNKNOWN"
         git_dirty = False
@@ -302,7 +302,7 @@ def run_stage2_study(
                 try:
                     de_at = pd.to_datetime(dec_row["depth_event_at"], utc=True)
                     dr_at = pd.to_datetime(dec_row["depth_received_at"], utc=True)
-                    book_age = max(0.0, (dr_at - de_at).total_seconds())
+                    book_age = (dr_at - de_at).total_seconds()
                 except Exception:
                     book_age = None
             

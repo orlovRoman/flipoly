@@ -1,6 +1,6 @@
 {
   "timestamp": "2026-09-09T02:59:46.901970+00:00",
-  "git_commit": "d58ab5c7839f3f98d7cf955a17ef446717c2f4a0",
+  "git_commit": "87a72d0f24b8f17d6b233a0bad4b1e81e5efaa5d",
   "git_branch": "main",
   "python_environment": {
     "python_version": "3.14.4 (tags/v3.14.4:23116f9, Apr  7 2026, 14:10:54) [MSC v.1944 64 bit (AMD64)]",
@@ -25,7 +25,8 @@
     "snapshots_csv": "artifacts/research/all_assets_snapshots_4_15m.csv",
     "btc_snapshots_csv": "artifacts/research/btc_snapshots_4_15m.csv",
     "candles_csv": "artifacts/research/crypto_candles_5m.csv",
-    "export_command": "python scripts/research/export_snapshots_sql.py (or fetch from verified archive)"
+    "export_command": "python scripts/research/export_snapshots_sql.py (or fetch from verified archive)",
+    "candles_1m_csv": "artifacts/research/crypto_candles_1m.csv"
   },
   "dataset_row_counts": {
     "btc_decision_markets": 6501,
@@ -72,18 +73,23 @@
     },
     "stage2_comprehensive_study_results.json": {
       "path": "C:\\Users\\orlov\\.gemini\\antigravity\\scratch\\flipoly\\artifacts\\research\\stage2_comprehensive_study_results.json",
-      "sha256": "d1a0ce44b94b27fefa8b755af4d23f377002b10776fb457943082b8589381ce4",
-      "size_bytes": 30838
+      "sha256": "641ca07130e1647c5806c2ade891ac2cd45576db12b148df3f01961ef9e598ee",
+      "size_bytes": 31901
     },
     "common_opportunity_ledger.json": {
       "path": "C:\\Users\\orlov\\.gemini\\antigravity\\scratch\\flipoly\\artifacts\\research\\common_opportunity_ledger.json",
-      "sha256": "75ef8908ab2145374d2d465457b90be01fa99cc9617e7d6ba8542b3ba27e3793",
-      "size_bytes": 9007467
+      "sha256": "f5566513d8e075b0d55ffb10cc08ee35a955029a4e3d818be57610d649e6f4b6",
+      "size_bytes": 9046098
     },
     "three_major_wins_evidence.json": {
       "path": "C:\\Users\\orlov\\.gemini\\antigravity\\scratch\\flipoly\\artifacts\\research\\three_major_wins_evidence.json",
-      "sha256": "6d33515c6c535127e06756ff9a85a8c42ebcf76707cb9a63980707cf6d1174fd",
+      "sha256": "5c385e8c509a987c7554b687fd3901328b151595081908e53b0e7c02b4fd5c64",
       "size_bytes": 37022
+    },
+    "crypto_candles_1m.csv": {
+      "path": "C:\\Users\\orlov\\.gemini\\antigravity\\scratch\\flipoly\\artifacts\\research\\crypto_candles_1m.csv",
+      "sha256": "cfd2eee316114ede09c62728e291b1d5e0be3f8e16a8f2f5b91ea3fb00a56a98",
+      "size_bytes": 8873161
     }
   }
 }

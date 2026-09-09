@@ -26,12 +26,14 @@ def update_manifest(study_results: dict) -> None:
         manifest = json.load(f)
 
     manifest["git_commit"] = study_results.get("metadata", {}).get("git_commit", manifest.get("git_commit"))
+    manifest.setdefault("data_provenance", {})["candles_1m_csv"] = "artifacts/research/crypto_candles_1m.csv"
 
     # Recompute sha256 of updated artifacts
     for fname in [
         "stage2_comprehensive_study_results.json",
         "common_opportunity_ledger.json",
         "three_major_wins_evidence.json",
+        "crypto_candles_1m.csv",
     ]:
         p = REPO_ROOT / "artifacts" / "research" / fname
         if p.exists():

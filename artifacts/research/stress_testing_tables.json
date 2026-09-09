@@ -101,6 +101,40 @@
       }
     }
   },
+  "CS_short": {
+    "n_trades": 774,
+    "base_net_pnl": -46.85,
+    "base_expectancy": -0.0605,
+    "absolute_shifts": {
+      "+0.005_usdc_per_share": {
+        "net_pnl_usdc": -70.29,
+        "expectancy": -0.0908,
+        "pnl_drop_usdc": 23.43
+      },
+      "+0.010_usdc_per_share": {
+        "net_pnl_usdc": -91.75,
+        "expectancy": -0.1185,
+        "pnl_drop_usdc": 44.9
+      },
+      "+0.020_usdc_per_share": {
+        "net_pnl_usdc": -129.86,
+        "expectancy": -0.1678,
+        "pnl_drop_usdc": 83.01
+      }
+    },
+    "relative_shifts": {
+      "+2%": {
+        "net_pnl_usdc": -61.14,
+        "expectancy": -0.079,
+        "pnl_drop_usdc": 14.29
+      },
+      "+5%": {
+        "net_pnl_usdc": -81.55,
+        "expectancy": -0.1054,
+        "pnl_drop_usdc": 34.7
+      }
+    }
+  },
   "CT_plus_proxy_strike": {
     "n_trades": 204,
     "base_net_pnl": 85.83,
