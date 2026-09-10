@@ -15,6 +15,8 @@
     "total_universe_trades": 5237,
     "stream_expectancy_usdc": -0.03707,
     "filter_pass_rate_pct": 56.46,
+    "gross_expectancy_usdc": -0.06365,
+    "stream_gross_expectancy_usdc": -0.03594,
     "assets": {
       "BTC": 627,
       "ETH": 613,
@@ -39,6 +41,8 @@
     "total_universe_trades": 5237,
     "stream_expectancy_usdc": -0.10017,
     "filter_pass_rate_pct": 26.52,
+    "gross_expectancy_usdc": -0.37568,
+    "stream_gross_expectancy_usdc": -0.09964,
     "assets": {
       "DOGE": 293,
       "XRP": 289,
@@ -63,12 +67,40 @@
     "total_universe_trades": 5237,
     "stream_expectancy_usdc": -0.05948,
     "filter_pass_rate_pct": 17.01,
+    "gross_expectancy_usdc": -0.34759,
+    "stream_gross_expectancy_usdc": -0.05914,
     "assets": {
       "SOL": 190,
       "ETH": 180,
       "XRP": 180,
       "BTC": 172,
       "DOGE": 169
+    }
+  },
+  {
+    "policy_name": "Control (\u0412\u0441\u0435 \u043a\u043e\u0433\u043e\u0440\u0442\u044b)",
+    "n_trades": 5237,
+    "n_days": 58,
+    "mean_ask": 0.1551,
+    "win_count": 726,
+    "win_rate": 0.1386,
+    "turnover_usdc": 5237.0,
+    "gross_pnl": -1019.727,
+    "net_pnl_02pct": -1030.201,
+    "net_pnl_01pct": -1024.964,
+    "expectancy_usdc": -0.19672,
+    "expectancy_roi_pct": -19.6716,
+    "total_universe_trades": 5237,
+    "stream_expectancy_usdc": -0.19672,
+    "filter_pass_rate_pct": 100.0,
+    "gross_expectancy_usdc": -0.19472,
+    "stream_gross_expectancy_usdc": -0.19472,
+    "assets": {
+      "SOL": 1066,
+      "BTC": 1064,
+      "XRP": 1056,
+      "ETH": 1050,
+      "DOGE": 1001
     }
   }
 ]

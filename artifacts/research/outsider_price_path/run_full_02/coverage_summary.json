@@ -7,11 +7,11 @@
   "eligible_opportunities_ok": 5237,
   "status_breakdown": {
     "DELAY_TOO_LARGE": 21121,
-    "MISSING_QUOTE": 682,
-    "NO_SNAPSHOT": 1061,
-    "OK": 5237,
     "NOT_YES_OUTSIDER": 5909,
+    "OK": 5237,
+    "NO_SNAPSHOT": 1061,
     "PRICE_FILTER": 832,
+    "MISSING_QUOTE": 682,
     "PARITY": 20,
     "UNRESOLVED": 1
   },

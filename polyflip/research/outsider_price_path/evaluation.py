@@ -112,6 +112,8 @@ class PolicySummary:
     total_universe_trades: int = 0
     stream_expectancy_usdc: float = 0.0
     filter_pass_rate_pct: float = 0.0
+    gross_expectancy_usdc: float = 0.0
+    stream_gross_expectancy_usdc: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -130,6 +132,8 @@ class PolicySummary:
             "total_universe_trades": self.total_universe_trades,
             "stream_expectancy_usdc": round(self.stream_expectancy_usdc, 5),
             "filter_pass_rate_pct": round(self.filter_pass_rate_pct, 2),
+            "gross_expectancy_usdc": round(self.gross_expectancy_usdc, 5),
+            "stream_gross_expectancy_usdc": round(self.stream_gross_expectancy_usdc, 5),
         }
 
 
@@ -169,8 +173,10 @@ def summarize_policy(
     net_02 = float(df_trades["net_pnl_02pct"].sum())
     net_01 = float(df_trades["net_pnl_01pct"].sum()) if "net_pnl_01pct" in df_trades else (gross - turnover * 0.001)
     exp_usdc = net_02 / n
+    gross_exp_usdc = gross / n
     exp_roi = (net_02 / turnover * 100.0) if turnover > 0 else 0.0
     stream_exp = net_02 / u_total if u_total > 0 else 0.0
+    stream_gross_exp = gross / u_total if u_total > 0 else 0.0
     pass_rate = (n / u_total * 100.0) if u_total > 0 else 100.0
 
     return PolicySummary(
@@ -189,6 +195,8 @@ def summarize_policy(
         total_universe_trades=u_total,
         stream_expectancy_usdc=stream_exp,
         filter_pass_rate_pct=pass_rate,
+        gross_expectancy_usdc=gross_exp_usdc,
+        stream_gross_expectancy_usdc=stream_gross_exp,
     )
 
 
@@ -197,10 +205,17 @@ def compute_stratified_comparison(
     group_col: str,
     group_a: str = "FORMER_FAVORITE",
     group_b: str = "OBSERVED_ALWAYS_OUTSIDER",
+    n_boot: int = 1000,
+    seed: int = 42,
 ) -> dict[str, Any]:
     """
     Stratifies sample by (asset, side, ask_bin, calendar_week) to control for
     entry price, asset mix, and time period (Item 21).
+    Computes precision-weighted and equal-weighted differences for:
+    - win rate
+    - expectancy ($)
+    - residual ask price ($)
+    And computes day-block bootstrap confidence intervals (B=n_boot).
     """
     req_cols = ["asset", "side", "ask_bin", "calendar_week", group_col, "target", "net_pnl_02pct"]
     for c in req_cols:
@@ -210,67 +225,80 @@ def compute_stratified_comparison(
     sub = df[df[group_col].isin([group_a, group_b])].copy()
     strata_keys = ["asset", "side", "ask_bin", "calendar_week"]
     
-    # Group by strata
-    grouped = sub.groupby(strata_keys)
+    sub["_stratum"] = sub[strata_keys].astype(str).agg("_".join, axis=1)
     
-    common_strata = []
-    lost_rows_a = 0
-    lost_rows_b = 0
+    counts = sub.groupby(["_stratum", group_col]).size().unstack(fill_value=0)
+    has_both = (counts.get(group_a, 0) > 0) & (counts.get(group_b, 0) > 0)
+    common_strata = counts[has_both].index.tolist()
 
-    for name, grp in grouped:
-        counts = grp[group_col].value_counts()
-        has_a = counts.get(group_a, 0)
-        has_b = counts.get(group_b, 0)
-        if has_a > 0 and has_b > 0:
-            common_strata.append(name)
-        else:
-            lost_rows_a += has_a
-            lost_rows_b += has_b
+    lost_rows_a = int(counts.loc[~has_both, group_a].sum()) if group_a in counts else 0
+    lost_rows_b = int(counts.loc[~has_both, group_b].sum()) if group_b in counts else 0
 
-    common_df = sub[sub.set_index(strata_keys).index.isin(common_strata)].copy()
-
+    common_df = sub[sub["_stratum"].isin(common_strata)].copy()
     total_sub_rows = len(sub)
     common_rows = len(common_df)
     coverage_loss_pct = (1.0 - (common_rows / total_sub_rows)) * 100.0 if total_sub_rows > 0 else 0.0
 
-    # Within common strata, calculate stratum-weighted differences
-    # Equal weight per common stratum
-    stratum_diffs_wr = []
-    stratum_diffs_pnl = []
-    stratum_weights = []
+    if common_rows == 0:
+        return {
+            "group_a": group_a,
+            "group_b": group_b,
+            "total_rows": int(total_sub_rows),
+            "common_support_rows": 0,
+            "common_strata_count": 0,
+            "lost_rows_a": int(lost_rows_a),
+            "lost_rows_b": int(lost_rows_b),
+            "coverage_loss_pct": 100.0,
+            "adjusted_win_rate_diff": 0.0,
+            "adjusted_expectancy_diff_usdc": 0.0,
+            "equal_strata_win_rate_diff": 0.0,
+            "equal_strata_expectancy_diff_usdc": 0.0,
+            "residual_ask_diff_precision": 0.0,
+            "residual_ask_diff_equal": 0.0,
+            "raw_mean_ask_a": 0.0,
+            "raw_mean_ask_b": 0.0,
+            "adjusted_win_rate_diff_ci95": [0.0, 0.0],
+            "adjusted_expectancy_diff_ci95": [0.0, 0.0],
+            "equal_strata_expectancy_diff_ci95": [0.0, 0.0],
+            "residual_ask_diff_precision_ci95": [0.0, 0.0],
+            "residual_ask_diff_equal_ci95": [0.0, 0.0],
+        }
 
-    for name in common_strata:
-        grp = common_df[
-            (common_df["asset"] == name[0]) &
-            (common_df["side"] == name[1]) &
-            (common_df["ask_bin"] == name[2]) &
-            (common_df["calendar_week"] == name[3])
-        ]
-        grp_a = grp[grp[group_col] == group_a]
-        grp_b = grp[grp[group_col] == group_b]
-        
-        wr_a = grp_a["target"].mean()
-        wr_b = grp_b["target"].mean()
-        pnl_a = grp_a["net_pnl_02pct"].mean()
-        pnl_b = grp_b["net_pnl_02pct"].mean()
+    # Calculate stratum aggregates
+    stratum_agg = common_df.groupby(["_stratum", group_col]).agg(
+        n=("target", "count"),
+        wins=("target", "sum"),
+        tot_pnl=("net_pnl_02pct", "sum"),
+        tot_ask=("ask", "sum") if "ask" in common_df.columns else ("target", "count")
+    ).unstack(fill_value=0)
 
-        # Harmonic mean of sample sizes as stratum weight
-        na, nb = len(grp_a), len(grp_b)
-        w = (2.0 * na * nb) / (na + nb)
+    na = stratum_agg[("n", group_a)].values
+    nb = stratum_agg[("n", group_b)].values
+    wra = stratum_agg[("wins", group_a)].values / na
+    wrb = stratum_agg[("wins", group_b)].values / nb
+    pnla = stratum_agg[("tot_pnl", group_a)].values / na
+    pnlb = stratum_agg[("tot_pnl", group_b)].values / nb
+    
+    if "ask" in common_df.columns:
+        aska = stratum_agg[("tot_ask", group_a)].values / na
+        askb = stratum_agg[("tot_ask", group_b)].values / nb
+    else:
+        aska = np.zeros_like(na, dtype=float)
+        askb = np.zeros_like(nb, dtype=float)
 
-        stratum_diffs_wr.append((wr_a - wr_b) * w)
-        stratum_diffs_pnl.append((pnl_a - pnl_b) * w)
-        stratum_weights.append(w)
+    # Weights: harmonic mean of sample sizes
+    w = (2.0 * na * nb) / (na + nb)
+    sum_w = float(np.sum(w))
 
-    sum_w = sum(stratum_weights) if stratum_weights else 0.0
-    adjusted_wr_diff = (sum(stratum_diffs_wr) / sum_w) if sum_w > 0 else 0.0
-    adjusted_pnl_diff = (sum(stratum_diffs_pnl) / sum_w) if sum_w > 0 else 0.0
+    adj_wr_diff = float(np.sum((wra - wrb) * w) / sum_w) if sum_w > 0 else 0.0
+    adj_pnl_diff = float(np.sum((pnla - pnlb) * w) / sum_w) if sum_w > 0 else 0.0
+    eq_wr_diff = float(np.mean(wra - wrb)) if len(wra) > 0 else 0.0
+    eq_pnl_diff = float(np.mean(pnla - pnlb)) if len(pnla) > 0 else 0.0
 
-    # Equal weight per common stratum (Item 21: "привести их к одинаковым весам")
-    unweighted_wr_diff = float(np.mean([d / w for d, w in zip(stratum_diffs_wr, stratum_weights)])) if stratum_weights else 0.0
-    unweighted_pnl_diff = float(np.mean([d / w for d, w in zip(stratum_diffs_pnl, stratum_weights)])) if stratum_weights else 0.0
+    res_ask_prec = float(np.sum((aska - askb) * w) / sum_w) if sum_w > 0 else 0.0
+    res_ask_eq = float(np.mean(aska - askb)) if len(aska) > 0 else 0.0
 
-    return {
+    result: dict[str, Any] = {
         "group_a": group_a,
         "group_b": group_b,
         "total_rows": int(total_sub_rows),
@@ -279,11 +307,91 @@ def compute_stratified_comparison(
         "lost_rows_a": int(lost_rows_a),
         "lost_rows_b": int(lost_rows_b),
         "coverage_loss_pct": round(coverage_loss_pct, 2),
-        "adjusted_win_rate_diff": round(adjusted_wr_diff, 5),
-        "adjusted_expectancy_diff_usdc": round(adjusted_pnl_diff, 5),
-        "equal_strata_win_rate_diff": round(unweighted_wr_diff, 5),
-        "equal_strata_expectancy_diff_usdc": round(unweighted_pnl_diff, 5),
+        "adjusted_win_rate_diff": round(adj_wr_diff, 5),
+        "adjusted_expectancy_diff_usdc": round(adj_pnl_diff, 5),
+        "equal_strata_win_rate_diff": round(eq_wr_diff, 5),
+        "equal_strata_expectancy_diff_usdc": round(eq_pnl_diff, 5),
+        "residual_ask_diff_precision": round(res_ask_prec, 5),
+        "residual_ask_diff_equal": round(res_ask_eq, 5),
+        "raw_mean_ask_a": round(float(common_df[common_df[group_col] == group_a]["ask"].mean()), 4) if "ask" in common_df else 0.0,
+        "raw_mean_ask_b": round(float(common_df[common_df[group_col] == group_b]["ask"].mean()), 4) if "ask" in common_df else 0.0,
     }
+
+    # Day-block bootstrap for confidence intervals
+    if n_boot > 0 and "calendar_date" in common_df.columns:
+        rng = np.random.default_rng(seed)
+        unique_days = np.array(sorted(common_df["calendar_date"].unique()))
+        n_days = len(unique_days)
+        day_indices = {d: np.where(common_df["calendar_date"].values == d)[0] for d in unique_days}
+
+        strata_arr = common_df["_stratum"].values
+        is_a_arr = (common_df[group_col].values == group_a)
+        tgt_arr = common_df["target"].values.astype(float)
+        pnl_arr = common_df["net_pnl_02pct"].values.astype(float)
+        ask_arr = common_df["ask"].values.astype(float) if "ask" in common_df.columns else np.zeros(len(common_df))
+
+        boot_wr = []
+        boot_exp_w = []
+        boot_exp_eq = []
+        boot_ask_w = []
+        boot_ask_eq = []
+
+        for _ in range(n_boot):
+            sample_days = rng.choice(unique_days, size=n_days, replace=True)
+            row_idx = np.concatenate([day_indices[d] for d in sample_days])
+            
+            b_df = pd.DataFrame({
+                "s": strata_arr[row_idx],
+                "a": is_a_arr[row_idx],
+                "t": tgt_arr[row_idx],
+                "p": pnl_arr[row_idx],
+                "k": ask_arr[row_idx],
+            })
+            b_agg = b_df.groupby(["s", "a"]).agg(
+                n=("t", "count"),
+                wins=("t", "sum"),
+                tot_pnl=("p", "sum"),
+                tot_ask=("k", "sum"),
+            ).unstack(fill_value=0)
+
+            valid = (b_agg[("n", True)] > 0) & (b_agg[("n", False)] > 0)
+            if not valid.any():
+                continue
+            b_val = b_agg[valid]
+            b_na = b_val[("n", True)].values
+            b_nb = b_val[("n", False)].values
+            b_wra = b_val[("wins", True)].values / b_na
+            b_wrb = b_val[("wins", False)].values / b_nb
+            b_pnla = b_val[("tot_pnl", True)].values / b_na
+            b_pnlb = b_val[("tot_pnl", False)].values / b_nb
+            b_aska = b_val[("tot_ask", True)].values / b_na
+            b_askb = b_val[("tot_ask", False)].values / b_nb
+
+            bw = (2.0 * b_na * b_nb) / (b_na + b_nb)
+            sum_bw = np.sum(bw)
+            if sum_bw > 0:
+                boot_wr.append(np.sum((b_wra - b_wrb) * bw) / sum_bw)
+                boot_exp_w.append(np.sum((b_pnla - b_pnlb) * bw) / sum_bw)
+                boot_exp_eq.append(np.mean(b_pnla - b_pnlb))
+                boot_ask_w.append(np.sum((b_aska - b_askb) * bw) / sum_bw)
+                boot_ask_eq.append(np.mean(b_aska - b_askb))
+
+        def _ci(arr):
+            if len(arr) == 0:
+                return [0.0, 0.0]
+            return [round(float(np.percentile(arr, 2.5)), 5), round(float(np.percentile(arr, 97.5)), 5)]
+
+        result["adjusted_win_rate_diff_ci95"] = _ci(boot_wr)
+        result["adjusted_expectancy_diff_ci95"] = _ci(boot_exp_w)
+        result["equal_strata_expectancy_diff_ci95"] = _ci(boot_exp_eq)
+        result["residual_ask_diff_precision_ci95"] = _ci(boot_ask_w)
+        result["residual_ask_diff_equal_ci95"] = _ci(boot_ask_eq)
+        if len(boot_exp_eq) > 0:
+            result["p_value_equal_strata_expectancy"] = round(float(np.mean(np.array(boot_exp_eq) <= 0.0)), 4)
+        if len(boot_exp_w) > 0:
+            result["p_value_adjusted_expectancy"] = round(float(np.mean(np.array(boot_exp_w) <= 0.0)), 4)
+
+    return result
 
 
 def run_day_block_bootstrap(
@@ -295,6 +403,10 @@ def run_day_block_bootstrap(
     """
     Day-block paired bootstrap preserving all markets of each calendar day together (Item 25).
     Recomputes sums, counts, ratios and differences independently in each replicate.
+    Disentangles:
+    1. Own policy performance and confidence intervals.
+    2. Stream expectancy difference on the full opportunity universe (0 on skips).
+    3. Trade expectancy difference on selected trades.
     """
     rng = np.random.default_rng(seed)
     unique_days = np.array(sorted(df["calendar_date"].unique()))
@@ -313,36 +425,64 @@ def run_day_block_bootstrap(
     targets = df["target"].values.astype(float)
     net_pnls = df["net_pnl_02pct"].values.astype(float)
     budgets = df["budget_usdc"].values.astype(float)
+    gross_pnls = df["gross_pnl"].values.astype(float) if "gross_pnl" in df.columns else net_pnls
 
-    # Accumulators for bootstrap distributions
+    u_total_orig = len(df)
+    ctrl_name = "Control"
+
+    # 1. Point estimates on the original sample
+    point_stats = {}
+    for p in policy_names:
+        m = policy_masks[p]
+        n_tr = int(np.sum(m))
+        p_targets = targets[m]
+        p_pnls = net_pnls[m]
+        p_gross = gross_pnls[m]
+        wr = float(np.mean(p_targets)) if n_tr > 0 else 0.0
+        tot_pnl = float(np.sum(p_pnls))
+        tot_gross = float(np.sum(p_gross))
+        trade_exp = (tot_pnl / n_tr) if n_tr > 0 else 0.0
+        stream_exp = (tot_pnl / u_total_orig) if u_total_orig > 0 else 0.0
+        gross_trade_exp = (tot_gross / n_tr) if n_tr > 0 else 0.0
+        point_stats[p] = {
+            "n_trades": n_tr,
+            "win_rate": round(wr, 4),
+            "gross_pnl": round(tot_gross, 4),
+            "net_pnl": round(tot_pnl, 4),
+            "trade_expectancy": round(trade_exp, 5),
+            "stream_expectancy": round(stream_exp, 5),
+            "gross_trade_expectancy": round(gross_trade_exp, 5),
+        }
+
+    # 2. Accumulators for bootstrap distributions
     boot_stats = {
         p: {
             "n_trades": np.zeros(n_replicates),
             "win_rate": np.zeros(n_replicates),
             "net_pnl": np.zeros(n_replicates),
-            "expectancy": np.zeros(n_replicates),
+            "trade_expectancy": np.zeros(n_replicates),
+            "stream_expectancy": np.zeros(n_replicates),
         }
         for p in policy_names
     }
 
-    # For paired differences vs Control
-    ctrl_name = "Control"
     diff_stats: dict[str, dict[str, np.ndarray]] = {}
     for p in policy_names:
         if p != ctrl_name:
             diff_stats[f"{p}_minus_{ctrl_name}"] = {
                 "d_win_rate": np.zeros(n_replicates),
                 "d_net_pnl": np.zeros(n_replicates),
-                "d_expectancy": np.zeros(n_replicates),
+                "d_trade_expectancy": np.zeros(n_replicates),
+                "d_stream_expectancy": np.zeros(n_replicates),
             }
 
     for b in range(n_replicates):
         sample_days = rng.choice(unique_days, size=n_days, replace=True)
         sample_row_idx = np.concatenate([day_indices[d] for d in sample_days])
+        b_universe = len(sample_row_idx)
 
         b_targets = targets[sample_row_idx]
         b_pnls = net_pnls[sample_row_idx]
-        b_budgets = budgets[sample_row_idx]
 
         for p in policy_names:
             m = policy_masks[p][sample_row_idx]
@@ -353,30 +493,36 @@ def run_day_block_bootstrap(
                 p_pnls = b_pnls[m]
                 wr = np.sum(p_targets) / n_tr
                 tot_pnl = np.sum(p_pnls)
-                exp = tot_pnl / n_tr
+                t_exp = tot_pnl / n_tr
             else:
                 wr = 0.0
                 tot_pnl = 0.0
-                exp = 0.0
+                t_exp = 0.0
+
+            s_exp = (tot_pnl / b_universe) if b_universe > 0 else 0.0
 
             boot_stats[p]["win_rate"][b] = wr
             boot_stats[p]["net_pnl"][b] = tot_pnl
-            boot_stats[p]["expectancy"][b] = exp
+            boot_stats[p]["trade_expectancy"][b] = t_exp
+            boot_stats[p]["stream_expectancy"][b] = s_exp
 
         if ctrl_name in policy_names:
             c_wr = boot_stats[ctrl_name]["win_rate"][b]
             c_pnl = boot_stats[ctrl_name]["net_pnl"][b]
-            c_exp = boot_stats[ctrl_name]["expectancy"][b]
+            c_t_exp = boot_stats[ctrl_name]["trade_expectancy"][b]
+            c_s_exp = boot_stats[ctrl_name]["stream_expectancy"][b]
             for p in policy_names:
                 if p != ctrl_name:
                     k = f"{p}_minus_{ctrl_name}"
                     diff_stats[k]["d_win_rate"][b] = boot_stats[p]["win_rate"][b] - c_wr
                     diff_stats[k]["d_net_pnl"][b] = boot_stats[p]["net_pnl"][b] - c_pnl
-                    diff_stats[k]["d_expectancy"][b] = boot_stats[p]["expectancy"][b] - c_exp
+                    diff_stats[k]["d_trade_expectancy"][b] = boot_stats[p]["trade_expectancy"][b] - c_t_exp
+                    diff_stats[k]["d_stream_expectancy"][b] = boot_stats[p]["stream_expectancy"][b] - c_s_exp
 
     results: dict[str, Any] = {
         "n_replicates": n_replicates,
         "n_days": int(n_days),
+        "total_universe_trades": u_total_orig,
         "policies": {},
         "paired_differences": {},
     }
@@ -385,40 +531,89 @@ def run_day_block_bootstrap(
         return [round(float(np.percentile(arr, 2.5)), 5), round(float(np.percentile(arr, 97.5)), 5)]
 
     for p in policy_names:
+        own_p_le_zero = float(np.mean(boot_stats[p]["net_pnl"] <= 0.0))
         results["policies"][p] = {
+            "point_estimate": point_stats[p],
             "win_rate_mean": round(float(np.mean(boot_stats[p]["win_rate"])), 4),
             "win_rate_ci95": _ci(boot_stats[p]["win_rate"]),
             "net_pnl_mean": round(float(np.mean(boot_stats[p]["net_pnl"])), 2),
             "net_pnl_ci95": _ci(boot_stats[p]["net_pnl"]),
-            "expectancy_mean": round(float(np.mean(boot_stats[p]["expectancy"])), 5),
-            "expectancy_ci95": _ci(boot_stats[p]["expectancy"]),
+            "expectancy_mean": round(float(np.mean(boot_stats[p]["trade_expectancy"])), 5),
+            "expectancy_ci95": _ci(boot_stats[p]["trade_expectancy"]),
+            "trade_expectancy_mean": round(float(np.mean(boot_stats[p]["trade_expectancy"])), 5),
+            "trade_expectancy_ci95": _ci(boot_stats[p]["trade_expectancy"]),
+            "stream_expectancy_mean": round(float(np.mean(boot_stats[p]["stream_expectancy"])), 5),
+            "stream_expectancy_ci95": _ci(boot_stats[p]["stream_expectancy"]),
+            "p_value_own_profitability": round(own_p_le_zero, 4),
+            "p_value_own_profitability_str": f"< {1.0/n_replicates:.4f}" if own_p_le_zero == 0 else f"{own_p_le_zero:.4f}",
         }
 
-    raw_pvals = {}
+    raw_pvals_trade = {}
+    raw_pvals_stream = {}
+
+    ctrl_point = point_stats.get(ctrl_name, {})
+
     for k, d in diff_stats.items():
-        # Empirical p-value for H0: difference <= 0 (fraction of bootstrap <= 0)
-        # One-sided for superiority, two-sided p:
-        p_superior = float(np.mean(d["d_expectancy"] <= 0.0))
-        p_two_sided = min(1.0, 2.0 * min(p_superior, 1.0 - p_superior))
-        raw_pvals[k] = p_two_sided
+        pol_name = k.replace(f"_minus_{ctrl_name}", "")
+        p_point = point_stats.get(pol_name, {})
+
+        point_diff = {
+            "d_win_rate": round(p_point.get("win_rate", 0.0) - ctrl_point.get("win_rate", 0.0), 4),
+            "d_net_pnl": round(p_point.get("net_pnl", 0.0) - ctrl_point.get("net_pnl", 0.0), 2),
+            "d_trade_expectancy": round(p_point.get("trade_expectancy", 0.0) - ctrl_point.get("trade_expectancy", 0.0), 5),
+            "d_stream_expectancy": round(p_point.get("stream_expectancy", 0.0) - ctrl_point.get("stream_expectancy", 0.0), 5),
+        }
+
+        # Empirical p-values for H0: diff <= 0 (one-sided for superiority, two-sided)
+        p_sup_trade = float(np.mean(d["d_trade_expectancy"] <= 0.0))
+        p_two_trade = min(1.0, 2.0 * min(p_sup_trade, 1.0 - p_sup_trade))
+        raw_pvals_trade[k] = p_two_trade
+
+        p_sup_stream = float(np.mean(d["d_stream_expectancy"] <= 0.0))
+        p_two_stream = min(1.0, 2.0 * min(p_sup_stream, 1.0 - p_sup_stream))
+        raw_pvals_stream[k] = p_two_stream
+
+        min_res_str = f"< {1.0/n_replicates:.4f}"
 
         results["paired_differences"][k] = {
+            "point_estimate": point_diff,
             "d_win_rate_mean": round(float(np.mean(d["d_win_rate"])), 4),
             "d_win_rate_ci95": _ci(d["d_win_rate"]),
             "d_net_pnl_mean": round(float(np.mean(d["d_net_pnl"])), 2),
             "d_net_pnl_ci95": _ci(d["d_net_pnl"]),
-            "d_expectancy_mean": round(float(np.mean(d["d_expectancy"])), 5),
-            "d_expectancy_ci95": _ci(d["d_expectancy"]),
-            "nominal_p_value": round(p_two_sided, 4),
+            # Trade expectancy (selected trades)
+            "d_expectancy_mean": round(float(np.mean(d["d_trade_expectancy"])), 5),
+            "d_expectancy_ci95": _ci(d["d_trade_expectancy"]),
+            "d_trade_expectancy_mean": round(float(np.mean(d["d_trade_expectancy"])), 5),
+            "d_trade_expectancy_ci95": _ci(d["d_trade_expectancy"]),
+            "trade_exp_nominal_p_value": round(p_two_trade, 4),
+            "trade_exp_nominal_p_str": min_res_str if p_two_trade == 0 else f"{p_two_trade:.4f}",
+            # Stream expectancy (full universe, 0 on skips)
+            "d_stream_expectancy_mean": round(float(np.mean(d["d_stream_expectancy"])), 5),
+            "d_stream_expectancy_ci95": _ci(d["d_stream_expectancy"]),
+            "stream_exp_nominal_p_value": round(p_two_stream, 4),
+            "stream_exp_nominal_p_str": min_res_str if p_two_stream == 0 else f"{p_two_stream:.4f}",
+            # Backward compatibility
+            "nominal_p_value": round(p_two_trade, 4),
+            "nominal_p_str": min_res_str if p_two_trade == 0 else f"{p_two_trade:.4f}",
+            "resolution_note": f"Bootstrap replicates B={n_replicates}. Minimum resolution is {1.0/n_replicates:.4f}. H0: diff <= 0.",
         }
 
     # Holm-Bonferroni correction over family of comparisons
-    sorted_comps = sorted(raw_pvals.items(), key=lambda x: x[1])
-    m_comps = len(sorted_comps)
-    for rank, (comp_name, p_val) in enumerate(sorted_comps):
+    m_comps = len(raw_pvals_trade)
+    sorted_comps_trade = sorted(raw_pvals_trade.items(), key=lambda x: x[1])
+    for rank, (comp_name, p_val) in enumerate(sorted_comps_trade):
         adj_p = min(1.0, p_val * (m_comps - rank))
         results["paired_differences"][comp_name]["holm_adj_p_value"] = round(adj_p, 4)
+        results["paired_differences"][comp_name]["trade_exp_holm_adj_p_value"] = round(adj_p, 4)
         results["paired_differences"][comp_name]["is_significant_05"] = bool(adj_p < 0.05)
+        results["paired_differences"][comp_name]["trade_exp_is_significant_05"] = bool(adj_p < 0.05)
+
+    sorted_comps_stream = sorted(raw_pvals_stream.items(), key=lambda x: x[1])
+    for rank, (comp_name, p_val) in enumerate(sorted_comps_stream):
+        adj_p = min(1.0, p_val * (m_comps - rank))
+        results["paired_differences"][comp_name]["stream_exp_holm_adj_p_value"] = round(adj_p, 4)
+        results["paired_differences"][comp_name]["stream_exp_is_significant_05"] = bool(adj_p < 0.05)
 
     return results
 

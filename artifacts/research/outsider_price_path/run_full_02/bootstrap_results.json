@@ -1,8 +1,784 @@
 {
+  "full_stream": {
+    "n_replicates": 1000,
+    "n_days": 58,
+    "total_universe_trades": 5237,
+    "policies": {
+      "Control": {
+        "point_estimate": {
+          "n_trades": 5237,
+          "win_rate": 0.1386,
+          "gross_pnl": -1019.727,
+          "net_pnl": -1030.201,
+          "trade_expectancy": -0.19672,
+          "stream_expectancy": -0.19672,
+          "gross_trade_expectancy": -0.19472
+        },
+        "win_rate_mean": 0.1387,
+        "win_rate_ci95": [
+          0.12682,
+          0.15025
+        ],
+        "net_pnl_mean": -1022.0,
+        "net_pnl_ci95": [
+          -1602.02131,
+          -464.17476
+        ],
+        "expectancy_mean": -0.19765,
+        "expectancy_ci95": [
+          -0.30589,
+          -0.0923
+        ],
+        "trade_expectancy_mean": -0.19765,
+        "trade_expectancy_ci95": [
+          -0.30589,
+          -0.0923
+        ],
+        "stream_expectancy_mean": -0.19765,
+        "stream_expectancy_ci95": [
+          -0.30589,
+          -0.0923
+        ],
+        "p_value_own_profitability": 1.0,
+        "p_value_own_profitability_str": "1.0000"
+      },
+      "CT": {
+        "point_estimate": {
+          "n_trades": 1173,
+          "win_rate": 0.231,
+          "gross_pnl": 78.3833,
+          "net_pnl": 76.0373,
+          "trade_expectancy": 0.06482,
+          "stream_expectancy": 0.01452,
+          "gross_trade_expectancy": 0.06682
+        },
+        "win_rate_mean": 0.2315,
+        "win_rate_ci95": [
+          0.20209,
+          0.26267
+        ],
+        "net_pnl_mean": 78.34,
+        "net_pnl_ci95": [
+          -145.62461,
+          312.08495
+        ],
+        "expectancy_mean": 0.06485,
+        "expectancy_ci95": [
+          -0.1278,
+          0.25734
+        ],
+        "trade_expectancy_mean": 0.06485,
+        "trade_expectancy_ci95": [
+          -0.1278,
+          0.25734
+        ],
+        "stream_expectancy_mean": 0.01474,
+        "stream_expectancy_ci95": [
+          -0.02767,
+          0.05924
+        ],
+        "p_value_own_profitability": 0.252,
+        "p_value_own_profitability_str": "0.2520"
+      },
+      "Former_Favorite": {
+        "point_estimate": {
+          "n_trades": 2957,
+          "win_rate": 0.166,
+          "gross_pnl": -188.2105,
+          "net_pnl": -194.1245,
+          "trade_expectancy": -0.06565,
+          "stream_expectancy": -0.03707,
+          "gross_trade_expectancy": -0.06365
+        },
+        "win_rate_mean": 0.1658,
+        "win_rate_ci95": [
+          0.14731,
+          0.18337
+        ],
+        "net_pnl_mean": -202.2,
+        "net_pnl_ci95": [
+          -578.61452,
+          205.76269
+        ],
+        "expectancy_mean": -0.07098,
+        "expectancy_ci95": [
+          -0.20369,
+          0.07589
+        ],
+        "trade_expectancy_mean": -0.07098,
+        "trade_expectancy_ci95": [
+          -0.20369,
+          0.07589
+        ],
+        "stream_expectancy_mean": -0.03996,
+        "stream_expectancy_ci95": [
+          -0.11548,
+          0.0433
+        ],
+        "p_value_own_profitability": 0.845,
+        "p_value_own_profitability_str": "0.8450"
+      },
+      "Rebound": {
+        "point_estimate": {
+          "n_trades": 1236,
+          "win_rate": 0.2209,
+          "gross_pnl": -90.0753,
+          "net_pnl": -92.5473,
+          "trade_expectancy": -0.07488,
+          "stream_expectancy": -0.01767,
+          "gross_trade_expectancy": -0.07288
+        },
+        "win_rate_mean": 0.2205,
+        "win_rate_ci95": [
+          0.19331,
+          0.24841
+        ],
+        "net_pnl_mean": -91.59,
+        "net_pnl_ci95": [
+          -247.69223,
+          69.75733
+        ],
+        "expectancy_mean": -0.07567,
+        "expectancy_ci95": [
+          -0.21303,
+          0.05507
+        ],
+        "trade_expectancy_mean": -0.07567,
+        "trade_expectancy_ci95": [
+          -0.21303,
+          0.05507
+        ],
+        "stream_expectancy_mean": -0.01774,
+        "stream_expectancy_ci95": [
+          -0.04939,
+          0.01307
+        ],
+        "p_value_own_profitability": 0.867,
+        "p_value_own_profitability_str": "0.8670"
+      },
+      "Joint_Filter": {
+        "point_estimate": {
+          "n_trades": 835,
+          "win_rate": 0.2359,
+          "gross_pnl": -41.1562,
+          "net_pnl": -42.8262,
+          "trade_expectancy": -0.05129,
+          "stream_expectancy": -0.00818,
+          "gross_trade_expectancy": -0.04929
+        },
+        "win_rate_mean": 0.235,
+        "win_rate_ci95": [
+          0.20303,
+          0.26824
+        ],
+        "net_pnl_mean": -45.56,
+        "net_pnl_ci95": [
+          -157.42706,
+          72.37007
+        ],
+        "expectancy_mean": -0.05617,
+        "expectancy_ci95": [
+          -0.20249,
+          0.08535
+        ],
+        "trade_expectancy_mean": -0.05617,
+        "trade_expectancy_ci95": [
+          -0.20249,
+          0.08535
+        ],
+        "stream_expectancy_mean": -0.0089,
+        "stream_expectancy_ci95": [
+          -0.03127,
+          0.01371
+        ],
+        "p_value_own_profitability": 0.777,
+        "p_value_own_profitability_str": "0.7770"
+      }
+    },
+    "paired_differences": {
+      "CT_minus_Control": {
+        "point_estimate": {
+          "d_win_rate": 0.0924,
+          "d_net_pnl": 1106.24,
+          "d_trade_expectancy": 0.26154,
+          "d_stream_expectancy": 0.21124
+        },
+        "d_win_rate_mean": 0.0929,
+        "d_win_rate_ci95": [
+          0.06652,
+          0.11749
+        ],
+        "d_net_pnl_mean": 1100.34,
+        "d_net_pnl_ci95": [
+          655.21153,
+          1572.80223
+        ],
+        "d_expectancy_mean": 0.2625,
+        "d_expectancy_ci95": [
+          0.1239,
+          0.40445
+        ],
+        "d_trade_expectancy_mean": 0.2625,
+        "d_trade_expectancy_ci95": [
+          0.1239,
+          0.40445
+        ],
+        "trade_exp_nominal_p_value": 0.0,
+        "trade_exp_nominal_p_str": "< 0.0010",
+        "d_stream_expectancy_mean": 0.21239,
+        "d_stream_expectancy_ci95": [
+          0.12939,
+          0.30495
+        ],
+        "stream_exp_nominal_p_value": 0.0,
+        "stream_exp_nominal_p_str": "< 0.0010",
+        "nominal_p_value": 0.0,
+        "nominal_p_str": "< 0.0010",
+        "resolution_note": "Bootstrap replicates B=1000. Minimum resolution is 0.0010. H0: diff <= 0.",
+        "holm_adj_p_value": 0.0,
+        "trade_exp_holm_adj_p_value": 0.0,
+        "is_significant_05": true,
+        "trade_exp_is_significant_05": true,
+        "stream_exp_holm_adj_p_value": 0.0,
+        "stream_exp_is_significant_05": true
+      },
+      "Former_Favorite_minus_Control": {
+        "point_estimate": {
+          "d_win_rate": 0.0274,
+          "d_net_pnl": 836.08,
+          "d_trade_expectancy": 0.13107,
+          "d_stream_expectancy": 0.15965
+        },
+        "d_win_rate_mean": 0.0271,
+        "d_win_rate_ci95": [
+          0.01678,
+          0.03843
+        ],
+        "d_net_pnl_mean": 819.8,
+        "d_net_pnl_ci95": [
+          434.96142,
+          1182.11121
+        ],
+        "d_expectancy_mean": 0.12667,
+        "d_expectancy_ci95": [
+          0.03856,
+          0.21298
+        ],
+        "d_trade_expectancy_mean": 0.12667,
+        "d_trade_expectancy_ci95": [
+          0.03856,
+          0.21298
+        ],
+        "trade_exp_nominal_p_value": 0.002,
+        "trade_exp_nominal_p_str": "0.0020",
+        "d_stream_expectancy_mean": 0.15769,
+        "d_stream_expectancy_ci95": [
+          0.08439,
+          0.22086
+        ],
+        "stream_exp_nominal_p_value": 0.0,
+        "stream_exp_nominal_p_str": "< 0.0010",
+        "nominal_p_value": 0.002,
+        "nominal_p_str": "0.0020",
+        "resolution_note": "Bootstrap replicates B=1000. Minimum resolution is 0.0010. H0: diff <= 0.",
+        "holm_adj_p_value": 0.006,
+        "trade_exp_holm_adj_p_value": 0.006,
+        "is_significant_05": true,
+        "trade_exp_is_significant_05": true,
+        "stream_exp_holm_adj_p_value": 0.0,
+        "stream_exp_is_significant_05": true
+      },
+      "Rebound_minus_Control": {
+        "point_estimate": {
+          "d_win_rate": 0.0823,
+          "d_net_pnl": 937.65,
+          "d_trade_expectancy": 0.12184,
+          "d_stream_expectancy": 0.17905
+        },
+        "d_win_rate_mean": 0.0818,
+        "d_win_rate_ci95": [
+          0.06183,
+          0.10452
+        ],
+        "d_net_pnl_mean": 930.42,
+        "d_net_pnl_ci95": [
+          439.10349,
+          1472.74547
+        ],
+        "d_expectancy_mean": 0.12198,
+        "d_expectancy_ci95": [
+          -0.02097,
+          0.25282
+        ],
+        "d_trade_expectancy_mean": 0.12198,
+        "d_trade_expectancy_ci95": [
+          -0.02097,
+          0.25282
+        ],
+        "trade_exp_nominal_p_value": 0.092,
+        "trade_exp_nominal_p_str": "0.0920",
+        "d_stream_expectancy_mean": 0.17991,
+        "d_stream_expectancy_ci95": [
+          0.07768,
+          0.28241
+        ],
+        "stream_exp_nominal_p_value": 0.0,
+        "stream_exp_nominal_p_str": "< 0.0010",
+        "nominal_p_value": 0.092,
+        "nominal_p_str": "0.0920",
+        "resolution_note": "Bootstrap replicates B=1000. Minimum resolution is 0.0010. H0: diff <= 0.",
+        "holm_adj_p_value": 0.184,
+        "trade_exp_holm_adj_p_value": 0.184,
+        "is_significant_05": false,
+        "trade_exp_is_significant_05": false,
+        "stream_exp_holm_adj_p_value": 0.0,
+        "stream_exp_is_significant_05": true
+      },
+      "Joint_Filter_minus_Control": {
+        "point_estimate": {
+          "d_win_rate": 0.0973,
+          "d_net_pnl": 987.37,
+          "d_trade_expectancy": 0.14543,
+          "d_stream_expectancy": 0.18854
+        },
+        "d_win_rate_mean": 0.0963,
+        "d_win_rate_ci95": [
+          0.06656,
+          0.12549
+        ],
+        "d_net_pnl_mean": 976.44,
+        "d_net_pnl_ci95": [
+          423.27907,
+          1558.55857
+        ],
+        "d_expectancy_mean": 0.14148,
+        "d_expectancy_ci95": [
+          -0.02723,
+          0.30214
+        ],
+        "d_trade_expectancy_mean": 0.14148,
+        "d_trade_expectancy_ci95": [
+          -0.02723,
+          0.30214
+        ],
+        "trade_exp_nominal_p_value": 0.096,
+        "trade_exp_nominal_p_str": "0.0960",
+        "d_stream_expectancy_mean": 0.18875,
+        "d_stream_expectancy_ci95": [
+          0.08312,
+          0.29942
+        ],
+        "stream_exp_nominal_p_value": 0.0,
+        "stream_exp_nominal_p_str": "< 0.0010",
+        "nominal_p_value": 0.096,
+        "nominal_p_str": "0.0960",
+        "resolution_note": "Bootstrap replicates B=1000. Minimum resolution is 0.0010. H0: diff <= 0.",
+        "holm_adj_p_value": 0.096,
+        "trade_exp_holm_adj_p_value": 0.096,
+        "is_significant_05": false,
+        "trade_exp_is_significant_05": false,
+        "stream_exp_holm_adj_p_value": 0.0,
+        "stream_exp_is_significant_05": true
+      }
+    }
+  },
+  "sufficient_history": {
+    "n_replicates": 1000,
+    "n_days": 55,
+    "total_universe_trades": 4346,
+    "policies": {
+      "Control": {
+        "point_estimate": {
+          "n_trades": 4346,
+          "win_rate": 0.1427,
+          "gross_pnl": -710.0241,
+          "net_pnl": -718.7161,
+          "trade_expectancy": -0.16537,
+          "stream_expectancy": -0.16537,
+          "gross_trade_expectancy": -0.16337
+        },
+        "win_rate_mean": 0.1424,
+        "win_rate_ci95": [
+          0.12776,
+          0.15528
+        ],
+        "net_pnl_mean": -730.29,
+        "net_pnl_ci95": [
+          -1222.15631,
+          -205.27538
+        ],
+        "expectancy_mean": -0.17002,
+        "expectancy_ci95": [
+          -0.28315,
+          -0.04467
+        ],
+        "trade_expectancy_mean": -0.17002,
+        "trade_expectancy_ci95": [
+          -0.28315,
+          -0.04467
+        ],
+        "stream_expectancy_mean": -0.17002,
+        "stream_expectancy_ci95": [
+          -0.28315,
+          -0.04467
+        ],
+        "p_value_own_profitability": 0.996,
+        "p_value_own_profitability_str": "0.9960"
+      },
+      "CT": {
+        "point_estimate": {
+          "n_trades": 1018,
+          "win_rate": 0.2308,
+          "gross_pnl": 95.9255,
+          "net_pnl": 93.8895,
+          "trade_expectancy": 0.09223,
+          "stream_expectancy": 0.0216,
+          "gross_trade_expectancy": 0.09423
+        },
+        "win_rate_mean": 0.2299,
+        "win_rate_ci95": [
+          0.19155,
+          0.2637
+        ],
+        "net_pnl_mean": 87.84,
+        "net_pnl_ci95": [
+          -120.46749,
+          296.5804
+        ],
+        "expectancy_mean": 0.08439,
+        "expectancy_ci95": [
+          -0.12959,
+          0.29414
+        ],
+        "trade_expectancy_mean": 0.08439,
+        "trade_expectancy_ci95": [
+          -0.12959,
+          0.29414
+        ],
+        "stream_expectancy_mean": 0.02,
+        "stream_expectancy_ci95": [
+          -0.03006,
+          0.0706
+        ],
+        "p_value_own_profitability": 0.229,
+        "p_value_own_profitability_str": "0.2290"
+      },
+      "Former_Favorite": {
+        "point_estimate": {
+          "n_trades": 2957,
+          "win_rate": 0.166,
+          "gross_pnl": -188.2105,
+          "net_pnl": -194.1245,
+          "trade_expectancy": -0.06565,
+          "stream_expectancy": -0.04467,
+          "gross_trade_expectancy": -0.06365
+        },
+        "win_rate_mean": 0.1657,
+        "win_rate_ci95": [
+          0.14734,
+          0.18191
+        ],
+        "net_pnl_mean": -205.82,
+        "net_pnl_ci95": [
+          -571.4672,
+          181.50409
+        ],
+        "expectancy_mean": -0.07164,
+        "expectancy_ci95": [
+          -0.20236,
+          0.06072
+        ],
+        "trade_expectancy_mean": -0.07164,
+        "trade_expectancy_ci95": [
+          -0.20236,
+          0.06072
+        ],
+        "stream_expectancy_mean": -0.04896,
+        "stream_expectancy_ci95": [
+          -0.13802,
+          0.04178
+        ],
+        "p_value_own_profitability": 0.853,
+        "p_value_own_profitability_str": "0.8530"
+      },
+      "Rebound": {
+        "point_estimate": {
+          "n_trades": 1236,
+          "win_rate": 0.2209,
+          "gross_pnl": -90.0753,
+          "net_pnl": -92.5473,
+          "trade_expectancy": -0.07488,
+          "stream_expectancy": -0.02129,
+          "gross_trade_expectancy": -0.07288
+        },
+        "win_rate_mean": 0.2212,
+        "win_rate_ci95": [
+          0.19399,
+          0.24771
+        ],
+        "net_pnl_mean": -90.66,
+        "net_pnl_ci95": [
+          -255.82994,
+          64.72779
+        ],
+        "expectancy_mean": -0.07434,
+        "expectancy_ci95": [
+          -0.21432,
+          0.0567
+        ],
+        "trade_expectancy_mean": -0.07434,
+        "trade_expectancy_ci95": [
+          -0.21432,
+          0.0567
+        ],
+        "stream_expectancy_mean": -0.02102,
+        "stream_expectancy_ci95": [
+          -0.06155,
+          0.01581
+        ],
+        "p_value_own_profitability": 0.848,
+        "p_value_own_profitability_str": "0.8480"
+      },
+      "Joint_Filter": {
+        "point_estimate": {
+          "n_trades": 835,
+          "win_rate": 0.2359,
+          "gross_pnl": -41.1562,
+          "net_pnl": -42.8262,
+          "trade_expectancy": -0.05129,
+          "stream_expectancy": -0.00985,
+          "gross_trade_expectancy": -0.04929
+        },
+        "win_rate_mean": 0.2361,
+        "win_rate_ci95": [
+          0.20212,
+          0.26784
+        ],
+        "net_pnl_mean": -42.23,
+        "net_pnl_ci95": [
+          -157.33993,
+          74.20278
+        ],
+        "expectancy_mean": -0.05169,
+        "expectancy_ci95": [
+          -0.20014,
+          0.08343
+        ],
+        "trade_expectancy_mean": -0.05169,
+        "trade_expectancy_ci95": [
+          -0.20014,
+          0.08343
+        ],
+        "stream_expectancy_mean": -0.0099,
+        "stream_expectancy_ci95": [
+          -0.03786,
+          0.01624
+        ],
+        "p_value_own_profitability": 0.764,
+        "p_value_own_profitability_str": "0.7640"
+      }
+    },
+    "paired_differences": {
+      "CT_minus_Control": {
+        "point_estimate": {
+          "d_win_rate": 0.0881,
+          "d_net_pnl": 812.61,
+          "d_trade_expectancy": 0.2576,
+          "d_stream_expectancy": 0.18697
+        },
+        "d_win_rate_mean": 0.0875,
+        "d_win_rate_ci95": [
+          0.05855,
+          0.11614
+        ],
+        "d_net_pnl_mean": 818.13,
+        "d_net_pnl_ci95": [
+          391.46211,
+          1211.10648
+        ],
+        "d_expectancy_mean": 0.25441,
+        "d_expectancy_ci95": [
+          0.10014,
+          0.41125
+        ],
+        "d_trade_expectancy_mean": 0.25441,
+        "d_trade_expectancy_ci95": [
+          0.10014,
+          0.41125
+        ],
+        "trade_exp_nominal_p_value": 0.002,
+        "trade_exp_nominal_p_str": "0.0020",
+        "d_stream_expectancy_mean": 0.19001,
+        "d_stream_expectancy_ci95": [
+          0.09549,
+          0.28427
+        ],
+        "stream_exp_nominal_p_value": 0.0,
+        "stream_exp_nominal_p_str": "< 0.0010",
+        "nominal_p_value": 0.002,
+        "nominal_p_str": "0.0020",
+        "resolution_note": "Bootstrap replicates B=1000. Minimum resolution is 0.0010. H0: diff <= 0.",
+        "holm_adj_p_value": 0.008,
+        "trade_exp_holm_adj_p_value": 0.008,
+        "is_significant_05": true,
+        "trade_exp_is_significant_05": true,
+        "stream_exp_holm_adj_p_value": 0.0,
+        "stream_exp_is_significant_05": true
+      },
+      "Former_Favorite_minus_Control": {
+        "point_estimate": {
+          "d_win_rate": 0.0233,
+          "d_net_pnl": 524.59,
+          "d_trade_expectancy": 0.09972,
+          "d_stream_expectancy": 0.1207
+        },
+        "d_win_rate_mean": 0.0233,
+        "d_win_rate_ci95": [
+          0.01412,
+          0.0315
+        ],
+        "d_net_pnl_mean": 524.47,
+        "d_net_pnl_ci95": [
+          205.0194,
+          802.66204
+        ],
+        "d_expectancy_mean": 0.09838,
+        "d_expectancy_ci95": [
+          0.0279,
+          0.16527
+        ],
+        "d_trade_expectancy_mean": 0.09838,
+        "d_trade_expectancy_ci95": [
+          0.0279,
+          0.16527
+        ],
+        "trade_exp_nominal_p_value": 0.014,
+        "trade_exp_nominal_p_str": "0.0140",
+        "d_stream_expectancy_mean": 0.12106,
+        "d_stream_expectancy_ci95": [
+          0.04981,
+          0.17588
+        ],
+        "stream_exp_nominal_p_value": 0.0,
+        "stream_exp_nominal_p_str": "< 0.0010",
+        "nominal_p_value": 0.014,
+        "nominal_p_str": "0.0140",
+        "resolution_note": "Bootstrap replicates B=1000. Minimum resolution is 0.0010. H0: diff <= 0.",
+        "holm_adj_p_value": 0.042,
+        "trade_exp_holm_adj_p_value": 0.042,
+        "is_significant_05": true,
+        "trade_exp_is_significant_05": true,
+        "stream_exp_holm_adj_p_value": 0.0,
+        "stream_exp_is_significant_05": true
+      },
+      "Rebound_minus_Control": {
+        "point_estimate": {
+          "d_win_rate": 0.0782,
+          "d_net_pnl": 626.17,
+          "d_trade_expectancy": 0.09049,
+          "d_stream_expectancy": 0.14408
+        },
+        "d_win_rate_mean": 0.0788,
+        "d_win_rate_ci95": [
+          0.05914,
+          0.10083
+        ],
+        "d_net_pnl_mean": 639.63,
+        "d_net_pnl_ci95": [
+          141.19223,
+          1108.77166
+        ],
+        "d_expectancy_mean": 0.09567,
+        "d_expectancy_ci95": [
+          -0.04922,
+          0.24178
+        ],
+        "d_trade_expectancy_mean": 0.09567,
+        "d_trade_expectancy_ci95": [
+          -0.04922,
+          0.24178
+        ],
+        "trade_exp_nominal_p_value": 0.186,
+        "trade_exp_nominal_p_str": "0.1860",
+        "d_stream_expectancy_mean": 0.149,
+        "d_stream_expectancy_ci95": [
+          0.03397,
+          0.25392
+        ],
+        "stream_exp_nominal_p_value": 0.008,
+        "stream_exp_nominal_p_str": "0.0080",
+        "nominal_p_value": 0.186,
+        "nominal_p_str": "0.1860",
+        "resolution_note": "Bootstrap replicates B=1000. Minimum resolution is 0.0010. H0: diff <= 0.",
+        "holm_adj_p_value": 0.186,
+        "trade_exp_holm_adj_p_value": 0.186,
+        "is_significant_05": false,
+        "trade_exp_is_significant_05": false,
+        "stream_exp_holm_adj_p_value": 0.016,
+        "stream_exp_is_significant_05": true
+      },
+      "Joint_Filter_minus_Control": {
+        "point_estimate": {
+          "d_win_rate": 0.0932,
+          "d_net_pnl": 675.89,
+          "d_trade_expectancy": 0.11408,
+          "d_stream_expectancy": 0.15552
+        },
+        "d_win_rate_mean": 0.0937,
+        "d_win_rate_ci95": [
+          0.06475,
+          0.12158
+        ],
+        "d_net_pnl_mean": 688.06,
+        "d_net_pnl_ci95": [
+          174.31328,
+          1194.25146
+        ],
+        "d_expectancy_mean": 0.11832,
+        "d_expectancy_ci95": [
+          -0.05461,
+          0.29132
+        ],
+        "d_trade_expectancy_mean": 0.11832,
+        "d_trade_expectancy_ci95": [
+          -0.05461,
+          0.29132
+        ],
+        "trade_exp_nominal_p_value": 0.178,
+        "trade_exp_nominal_p_str": "0.1780",
+        "d_stream_expectancy_mean": 0.16012,
+        "d_stream_expectancy_ci95": [
+          0.03728,
+          0.27561
+        ],
+        "stream_exp_nominal_p_value": 0.01,
+        "stream_exp_nominal_p_str": "0.0100",
+        "nominal_p_value": 0.178,
+        "nominal_p_str": "0.1780",
+        "resolution_note": "Bootstrap replicates B=1000. Minimum resolution is 0.0010. H0: diff <= 0.",
+        "holm_adj_p_value": 0.356,
+        "trade_exp_holm_adj_p_value": 0.356,
+        "is_significant_05": false,
+        "trade_exp_is_significant_05": false,
+        "stream_exp_holm_adj_p_value": 0.01,
+        "stream_exp_is_significant_05": true
+      }
+    }
+  },
   "n_replicates": 1000,
   "n_days": 58,
+  "total_universe_trades": 5237,
   "policies": {
     "Control": {
+      "point_estimate": {
+        "n_trades": 5237,
+        "win_rate": 0.1386,
+        "gross_pnl": -1019.727,
+        "net_pnl": -1030.201,
+        "trade_expectancy": -0.19672,
+        "stream_expectancy": -0.19672,
+        "gross_trade_expectancy": -0.19472
+      },
       "win_rate_mean": 0.1387,
       "win_rate_ci95": [
         0.12682,
@@ -17,9 +793,30 @@
       "expectancy_ci95": [
         -0.30589,
         -0.0923
-      ]
+      ],
+      "trade_expectancy_mean": -0.19765,
+      "trade_expectancy_ci95": [
+        -0.30589,
+        -0.0923
+      ],
+      "stream_expectancy_mean": -0.19765,
+      "stream_expectancy_ci95": [
+        -0.30589,
+        -0.0923
+      ],
+      "p_value_own_profitability": 1.0,
+      "p_value_own_profitability_str": "1.0000"
     },
     "CT": {
+      "point_estimate": {
+        "n_trades": 1173,
+        "win_rate": 0.231,
+        "gross_pnl": 78.3833,
+        "net_pnl": 76.0373,
+        "trade_expectancy": 0.06482,
+        "stream_expectancy": 0.01452,
+        "gross_trade_expectancy": 0.06682
+      },
       "win_rate_mean": 0.2315,
       "win_rate_ci95": [
         0.20209,
@@ -34,9 +831,30 @@
       "expectancy_ci95": [
         -0.1278,
         0.25734
-      ]
+      ],
+      "trade_expectancy_mean": 0.06485,
+      "trade_expectancy_ci95": [
+        -0.1278,
+        0.25734
+      ],
+      "stream_expectancy_mean": 0.01474,
+      "stream_expectancy_ci95": [
+        -0.02767,
+        0.05924
+      ],
+      "p_value_own_profitability": 0.252,
+      "p_value_own_profitability_str": "0.2520"
     },
     "Former_Favorite": {
+      "point_estimate": {
+        "n_trades": 2957,
+        "win_rate": 0.166,
+        "gross_pnl": -188.2105,
+        "net_pnl": -194.1245,
+        "trade_expectancy": -0.06565,
+        "stream_expectancy": -0.03707,
+        "gross_trade_expectancy": -0.06365
+      },
       "win_rate_mean": 0.1658,
       "win_rate_ci95": [
         0.14731,
@@ -51,9 +869,30 @@
       "expectancy_ci95": [
         -0.20369,
         0.07589
-      ]
+      ],
+      "trade_expectancy_mean": -0.07098,
+      "trade_expectancy_ci95": [
+        -0.20369,
+        0.07589
+      ],
+      "stream_expectancy_mean": -0.03996,
+      "stream_expectancy_ci95": [
+        -0.11548,
+        0.0433
+      ],
+      "p_value_own_profitability": 0.845,
+      "p_value_own_profitability_str": "0.8450"
     },
     "Rebound": {
+      "point_estimate": {
+        "n_trades": 1236,
+        "win_rate": 0.2209,
+        "gross_pnl": -90.0753,
+        "net_pnl": -92.5473,
+        "trade_expectancy": -0.07488,
+        "stream_expectancy": -0.01767,
+        "gross_trade_expectancy": -0.07288
+      },
       "win_rate_mean": 0.2205,
       "win_rate_ci95": [
         0.19331,
@@ -68,9 +907,30 @@
       "expectancy_ci95": [
         -0.21303,
         0.05507
-      ]
+      ],
+      "trade_expectancy_mean": -0.07567,
+      "trade_expectancy_ci95": [
+        -0.21303,
+        0.05507
+      ],
+      "stream_expectancy_mean": -0.01774,
+      "stream_expectancy_ci95": [
+        -0.04939,
+        0.01307
+      ],
+      "p_value_own_profitability": 0.867,
+      "p_value_own_profitability_str": "0.8670"
     },
     "Joint_Filter": {
+      "point_estimate": {
+        "n_trades": 835,
+        "win_rate": 0.2359,
+        "gross_pnl": -41.1562,
+        "net_pnl": -42.8262,
+        "trade_expectancy": -0.05129,
+        "stream_expectancy": -0.00818,
+        "gross_trade_expectancy": -0.04929
+      },
       "win_rate_mean": 0.235,
       "win_rate_ci95": [
         0.20303,
@@ -85,11 +945,29 @@
       "expectancy_ci95": [
         -0.20249,
         0.08535
-      ]
+      ],
+      "trade_expectancy_mean": -0.05617,
+      "trade_expectancy_ci95": [
+        -0.20249,
+        0.08535
+      ],
+      "stream_expectancy_mean": -0.0089,
+      "stream_expectancy_ci95": [
+        -0.03127,
+        0.01371
+      ],
+      "p_value_own_profitability": 0.777,
+      "p_value_own_profitability_str": "0.7770"
     }
   },
   "paired_differences": {
     "CT_minus_Control": {
+      "point_estimate": {
+        "d_win_rate": 0.0924,
+        "d_net_pnl": 1106.24,
+        "d_trade_expectancy": 0.26154,
+        "d_stream_expectancy": 0.21124
+      },
       "d_win_rate_mean": 0.0929,
       "d_win_rate_ci95": [
         0.06652,
@@ -105,11 +983,37 @@
         0.1239,
         0.40445
       ],
+      "d_trade_expectancy_mean": 0.2625,
+      "d_trade_expectancy_ci95": [
+        0.1239,
+        0.40445
+      ],
+      "trade_exp_nominal_p_value": 0.0,
+      "trade_exp_nominal_p_str": "< 0.0010",
+      "d_stream_expectancy_mean": 0.21239,
+      "d_stream_expectancy_ci95": [
+        0.12939,
+        0.30495
+      ],
+      "stream_exp_nominal_p_value": 0.0,
+      "stream_exp_nominal_p_str": "< 0.0010",
       "nominal_p_value": 0.0,
+      "nominal_p_str": "< 0.0010",
+      "resolution_note": "Bootstrap replicates B=1000. Minimum resolution is 0.0010. H0: diff <= 0.",
       "holm_adj_p_value": 0.0,
-      "is_significant_05": true
+      "trade_exp_holm_adj_p_value": 0.0,
+      "is_significant_05": true,
+      "trade_exp_is_significant_05": true,
+      "stream_exp_holm_adj_p_value": 0.0,
+      "stream_exp_is_significant_05": true
     },
     "Former_Favorite_minus_Control": {
+      "point_estimate": {
+        "d_win_rate": 0.0274,
+        "d_net_pnl": 836.08,
+        "d_trade_expectancy": 0.13107,
+        "d_stream_expectancy": 0.15965
+      },
       "d_win_rate_mean": 0.0271,
       "d_win_rate_ci95": [
         0.01678,
@@ -125,11 +1029,37 @@
         0.03856,
         0.21298
       ],
+      "d_trade_expectancy_mean": 0.12667,
+      "d_trade_expectancy_ci95": [
+        0.03856,
+        0.21298
+      ],
+      "trade_exp_nominal_p_value": 0.002,
+      "trade_exp_nominal_p_str": "0.0020",
+      "d_stream_expectancy_mean": 0.15769,
+      "d_stream_expectancy_ci95": [
+        0.08439,
+        0.22086
+      ],
+      "stream_exp_nominal_p_value": 0.0,
+      "stream_exp_nominal_p_str": "< 0.0010",
       "nominal_p_value": 0.002,
+      "nominal_p_str": "0.0020",
+      "resolution_note": "Bootstrap replicates B=1000. Minimum resolution is 0.0010. H0: diff <= 0.",
       "holm_adj_p_value": 0.006,
-      "is_significant_05": true
+      "trade_exp_holm_adj_p_value": 0.006,
+      "is_significant_05": true,
+      "trade_exp_is_significant_05": true,
+      "stream_exp_holm_adj_p_value": 0.0,
+      "stream_exp_is_significant_05": true
     },
     "Rebound_minus_Control": {
+      "point_estimate": {
+        "d_win_rate": 0.0823,
+        "d_net_pnl": 937.65,
+        "d_trade_expectancy": 0.12184,
+        "d_stream_expectancy": 0.17905
+      },
       "d_win_rate_mean": 0.0818,
       "d_win_rate_ci95": [
         0.06183,
@@ -145,11 +1075,37 @@
         -0.02097,
         0.25282
       ],
+      "d_trade_expectancy_mean": 0.12198,
+      "d_trade_expectancy_ci95": [
+        -0.02097,
+        0.25282
+      ],
+      "trade_exp_nominal_p_value": 0.092,
+      "trade_exp_nominal_p_str": "0.0920",
+      "d_stream_expectancy_mean": 0.17991,
+      "d_stream_expectancy_ci95": [
+        0.07768,
+        0.28241
+      ],
+      "stream_exp_nominal_p_value": 0.0,
+      "stream_exp_nominal_p_str": "< 0.0010",
       "nominal_p_value": 0.092,
+      "nominal_p_str": "0.0920",
+      "resolution_note": "Bootstrap replicates B=1000. Minimum resolution is 0.0010. H0: diff <= 0.",
       "holm_adj_p_value": 0.184,
-      "is_significant_05": false
+      "trade_exp_holm_adj_p_value": 0.184,
+      "is_significant_05": false,
+      "trade_exp_is_significant_05": false,
+      "stream_exp_holm_adj_p_value": 0.0,
+      "stream_exp_is_significant_05": true
     },
     "Joint_Filter_minus_Control": {
+      "point_estimate": {
+        "d_win_rate": 0.0973,
+        "d_net_pnl": 987.37,
+        "d_trade_expectancy": 0.14543,
+        "d_stream_expectancy": 0.18854
+      },
       "d_win_rate_mean": 0.0963,
       "d_win_rate_ci95": [
         0.06656,
@@ -165,9 +1121,29 @@
         -0.02723,
         0.30214
       ],
+      "d_trade_expectancy_mean": 0.14148,
+      "d_trade_expectancy_ci95": [
+        -0.02723,
+        0.30214
+      ],
+      "trade_exp_nominal_p_value": 0.096,
+      "trade_exp_nominal_p_str": "0.0960",
+      "d_stream_expectancy_mean": 0.18875,
+      "d_stream_expectancy_ci95": [
+        0.08312,
+        0.29942
+      ],
+      "stream_exp_nominal_p_value": 0.0,
+      "stream_exp_nominal_p_str": "< 0.0010",
       "nominal_p_value": 0.096,
+      "nominal_p_str": "0.0960",
+      "resolution_note": "Bootstrap replicates B=1000. Minimum resolution is 0.0010. H0: diff <= 0.",
       "holm_adj_p_value": 0.096,
-      "is_significant_05": false
+      "trade_exp_holm_adj_p_value": 0.096,
+      "is_significant_05": false,
+      "trade_exp_is_significant_05": false,
+      "stream_exp_holm_adj_p_value": 0.0,
+      "stream_exp_is_significant_05": true
     }
   }
 }

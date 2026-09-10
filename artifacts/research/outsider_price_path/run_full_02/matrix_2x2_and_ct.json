@@ -15,7 +15,9 @@
       "expectancy_roi_pct": -5.1289,
       "total_universe_trades": 5237,
       "stream_expectancy_usdc": -0.00818,
-      "filter_pass_rate_pct": 15.94
+      "filter_pass_rate_pct": 15.94,
+      "gross_expectancy_usdc": -0.04929,
+      "stream_gross_expectancy_usdc": -0.00786
     },
     "ct_reversion": {
       "policy_name": "FORMER_FAVORITE__REBOUND + CT",
@@ -32,7 +34,9 @@
       "expectancy_roi_pct": 5.6663,
       "total_universe_trades": 5237,
       "stream_expectancy_usdc": 0.00314,
-      "filter_pass_rate_pct": 5.54
+      "filter_pass_rate_pct": 5.54,
+      "gross_expectancy_usdc": 0.05866,
+      "stream_gross_expectancy_usdc": 0.00325
     }
   },
   "FORMER_FAVORITE__NO_REBOUND": {
@@ -51,7 +55,9 @@
       "expectancy_roi_pct": -7.13,
       "total_universe_trades": 5237,
       "stream_expectancy_usdc": -0.02889,
-      "filter_pass_rate_pct": 40.52
+      "filter_pass_rate_pct": 40.52,
+      "gross_expectancy_usdc": -0.0693,
+      "stream_gross_expectancy_usdc": -0.02808
     },
     "ct_reversion": {
       "policy_name": "FORMER_FAVORITE__NO_REBOUND + CT",
@@ -68,7 +74,9 @@
       "expectancy_roi_pct": 13.6632,
       "total_universe_trades": 5237,
       "stream_expectancy_usdc": 0.01135,
-      "filter_pass_rate_pct": 8.31
+      "filter_pass_rate_pct": 8.31,
+      "gross_expectancy_usdc": 0.13863,
+      "stream_gross_expectancy_usdc": 0.01152
     }
   },
   "OBSERVED_ALWAYS_OUTSIDER__REBOUND": {
@@ -87,7 +95,9 @@
       "expectancy_roi_pct": -12.3993,
       "total_universe_trades": 5237,
       "stream_expectancy_usdc": -0.00949,
-      "filter_pass_rate_pct": 7.66
+      "filter_pass_rate_pct": 7.66,
+      "gross_expectancy_usdc": -0.12199,
+      "stream_gross_expectancy_usdc": -0.00934
     },
     "ct_reversion": {
       "policy_name": "OBSERVED_ALWAYS_OUTSIDER__REBOUND + CT",
@@ -104,7 +114,9 @@
       "expectancy_roi_pct": -20.8788,
       "total_universe_trades": 5237,
       "stream_expectancy_usdc": -0.00602,
-      "filter_pass_rate_pct": 2.88
+      "filter_pass_rate_pct": 2.88,
+      "gross_expectancy_usdc": -0.20679,
+      "stream_gross_expectancy_usdc": -0.00596
     }
   },
   "OBSERVED_ALWAYS_OUTSIDER__NO_REBOUND": {
@@ -123,7 +135,9 @@
       "expectancy_roi_pct": -48.0638,
       "total_universe_trades": 5237,
       "stream_expectancy_usdc": -0.09068,
-      "filter_pass_rate_pct": 18.87
+      "filter_pass_rate_pct": 18.87,
+      "gross_expectancy_usdc": -0.47864,
+      "stream_gross_expectancy_usdc": -0.0903
     },
     "ct_reversion": {
       "policy_name": "OBSERVED_ALWAYS_OUTSIDER__NO_REBOUND + CT",
@@ -140,7 +154,49 @@
       "expectancy_roi_pct": 34.894,
       "total_universe_trades": 5237,
       "stream_expectancy_usdc": 0.00946,
-      "filter_pass_rate_pct": 2.71
+      "filter_pass_rate_pct": 2.71,
+      "gross_expectancy_usdc": 0.35094,
+      "stream_gross_expectancy_usdc": 0.00952
+    }
+  },
+  "INSUFFICIENT_HISTORY": {
+    "all": {
+      "policy_name": "INSUFFICIENT_HISTORY",
+      "n_trades": 891,
+      "n_days": 46,
+      "mean_ask": 0.1475,
+      "win_count": 106,
+      "win_rate": 0.119,
+      "turnover_usdc": 891.0,
+      "gross_pnl": -309.7029,
+      "net_pnl_02pct": -311.4849,
+      "net_pnl_01pct": -310.5939,
+      "expectancy_usdc": -0.34959,
+      "expectancy_roi_pct": -34.959,
+      "total_universe_trades": 5237,
+      "stream_expectancy_usdc": -0.05948,
+      "filter_pass_rate_pct": 17.01,
+      "gross_expectancy_usdc": -0.34759,
+      "stream_gross_expectancy_usdc": -0.05914
+    },
+    "ct_reversion": {
+      "policy_name": "INSUFFICIENT_HISTORY + CT",
+      "n_trades": 155,
+      "n_days": 29,
+      "mean_ask": 0.2488,
+      "win_count": 36,
+      "win_rate": 0.2323,
+      "turnover_usdc": 155.0,
+      "gross_pnl": -17.5422,
+      "net_pnl_02pct": -17.8522,
+      "net_pnl_01pct": -17.6972,
+      "expectancy_usdc": -0.11518,
+      "expectancy_roi_pct": -11.5175,
+      "total_universe_trades": 5237,
+      "stream_expectancy_usdc": -0.00341,
+      "filter_pass_rate_pct": 2.96,
+      "gross_expectancy_usdc": -0.11318,
+      "stream_gross_expectancy_usdc": -0.00335
     }
   }
 }

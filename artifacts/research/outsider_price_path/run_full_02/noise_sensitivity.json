@@ -15,7 +15,9 @@
     "expectancy_roi_pct": -18.3036,
     "total_universe_trades": 5237,
     "stream_expectancy_usdc": -0.02373,
-    "filter_pass_rate_pct": 12.97
+    "filter_pass_rate_pct": 12.97,
+    "gross_expectancy_usdc": -0.18104,
+    "stream_gross_expectancy_usdc": -0.02347
   },
   "multi_touch": {
     "policy_name": "FORMER_FAVORITE__MULTI_TOUCH",
@@ -32,6 +34,8 @@
     "expectancy_roi_pct": -3.066,
     "total_universe_trades": 5237,
     "stream_expectancy_usdc": -0.01334,
-    "filter_pass_rate_pct": 43.5
+    "filter_pass_rate_pct": 43.5,
+    "gross_expectancy_usdc": -0.02866,
+    "stream_gross_expectancy_usdc": -0.01247
   }
 }

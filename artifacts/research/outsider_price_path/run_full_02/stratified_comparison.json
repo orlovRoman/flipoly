@@ -10,5 +10,31 @@
   "adjusted_win_rate_diff": 0.0223,
   "adjusted_expectancy_diff_usdc": 0.3095,
   "equal_strata_win_rate_diff": 0.00403,
-  "equal_strata_expectancy_diff_usdc": 0.1274
+  "equal_strata_expectancy_diff_usdc": 0.1274,
+  "residual_ask_diff_precision": 0.00182,
+  "residual_ask_diff_equal": 0.00133,
+  "raw_mean_ask_a": 0.1656,
+  "raw_mean_ask_b": 0.1175,
+  "adjusted_win_rate_diff_ci95": [
+    0.00025,
+    0.04537
+  ],
+  "adjusted_expectancy_diff_ci95": [
+    0.05117,
+    0.55888
+  ],
+  "equal_strata_expectancy_diff_ci95": [
+    -0.01298,
+    0.36392
+  ],
+  "residual_ask_diff_precision_ci95": [
+    0.00072,
+    0.00315
+  ],
+  "residual_ask_diff_equal_ci95": [
+    0.00069,
+    0.00292
+  ],
+  "p_value_equal_strata_expectancy": 0.032,
+  "p_value_adjusted_expectancy": 0.012
 }
