@@ -31,6 +31,7 @@ def _training_final_status(training_ok: bool, message: str) -> str:
 import time
 import asyncio
 import multiprocessing
+import os
 
 _probabilities_cache = None
 _probabilities_cache_time = 0.0
@@ -540,7 +541,20 @@ async def _run_training_job(
 
 
 def _run_training_process(asset: str, feature_set: str) -> None:
-    """Process entrypoint: never share uvicorn's async engine/event loop."""
+    """Process entrypoint isolated from uvicorn and deprioritized for PAPER API health."""
+    # A full BTC history can require several hundred MiB and many CPU minutes.
+    # Keep the dashboard/collector responsive on the small production VM.
+    try:
+        os.nice(10)
+    except (AttributeError, OSError):
+        pass
+    try:
+        cpus = os.sched_getaffinity(0)
+        if len(cpus) > 1:
+            os.sched_setaffinity(0, {min(cpus)})
+    except (AttributeError, OSError):
+        pass
+
     async def run() -> None:
         worker_engine = create_async_engine(settings.DATABASE_URL, echo=False)
         worker_session_factory = async_sessionmaker(
