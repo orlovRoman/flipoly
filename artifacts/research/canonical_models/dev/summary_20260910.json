@@ -2,7 +2,9 @@
  "n": 35,
  "provenance": "RECONSTRUCTED_CT",
  "btc_pair_main": {
+  "n_l0_eligible": 7,
   "n": 7,
+  "n_insufficient_excluded": 0,
   "opportunity_ids": [
    "4396496",
    "4396533",
@@ -20,8 +22,9 @@
  },
  "common_sample_check": {
   "identical_opportunity_ids_pre_ct": true,
-  "n_btc_opportunities": 7,
-  "scope": "BTC only (CT spec scope); other assets descriptive"
+  "n_btc_opportunities_l0": 7,
+  "n_btc_opportunities_l1": 7,
+  "scope": "BTC only (CT spec scope); L1 = sufficient data for both; missing data excluded, never zero"
  },
  "by_asset": {
   "DOGE": 8,
@@ -75,7 +78,7 @@
   5.635
  ],
  "n_days": 1,
- "protocol_hash": "68c097c7232b5f325dab4bab8cd591d886c27e23f0178a747aaec13ff3619bca",
+ "protocol_hash": "9f8a5efcfb5f8d0b91bc64d11996399ccbdfca572f4cb36923d697ad76cf5f46",
  "protocol_version": "canonical-models-v1",
  "day": "2026-09-10",
  "excluded_reasons": {

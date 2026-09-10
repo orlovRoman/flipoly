@@ -4,6 +4,7 @@ from polyflip.research.canonical_models.report import STATUSES, final_status
 
 def test_lifecycle_statuses():
     assert "NOT_STARTED" in STATUSES  # final_start=null, pre-freeze marker
+    assert "INCONCLUSIVE" in STATUSES  # thin data / wide CI verdict
 
 
 def test_challenger_margin_and_no_clear():

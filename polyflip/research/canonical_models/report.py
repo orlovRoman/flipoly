@@ -12,7 +12,9 @@ from __future__ import annotations
 
 STATUSES = ("NOT_STARTED", "DATA_BLOCKED", "PENDING_NEW_PERIOD",
             "NO_INCREMENTAL_VALUE", "FORECAST_ONLY", "PROMISING_UNCERTAIN",
-            "PAPER_CANDIDATE")
+            "PAPER_CANDIDATE", "INCONCLUSIVE")
+# INCONCLUSIVE: pre-set final period done but data too thin / CI too wide
+# for any other verdict. Kept as-is; the next period is opened separately.
 # Lifecycle: NOT_STARTED (final_start=null, pre-freeze) -> PENDING_NEW_PERIOD
 # (frozen, awaiting new markets) -> computed status via final_status().
 # final_status() itself never returns NOT_STARTED; the manifest tracks it.

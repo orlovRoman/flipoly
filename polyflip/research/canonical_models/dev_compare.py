@@ -220,7 +220,11 @@ def evaluate(decisions: pd.DataFrame, depth: pd.DataFrame,
         d_ct = decide("CT", opp_ct, EV_THRESHOLD)
         rec["control_trade"] = bool(d_pc.trade)
         rec["control_reason"] = d_pc.reason
-        rec["ct_trade"] = bool(d_ct.trade) and ct_allows_entry(ct)
+        # Tiers: L0 = all eligible BTC opps (counted); L1 = sufficient data
+        # for BOTH policies. Missing data is never a zero PnL: insufficient
+        # rows are excluded from the scored pair, not scored as skip.
+        rec["ct_sufficient"] = bool(ct.status == "VALID")
+        rec["ct_trade"] = bool(d_ct.trade) and ct_allows_entry(ct) and rec["ct_sufficient"]
         rec["ct_reason"] = ("CT gate evaluated" if rec["ct_trade"]
                             else f"CT blocks: {ct.regime}/{ct.status}")
         for pol, traded in (("control", rec["control_trade"]), ("ct", rec["ct_trade"])):
@@ -243,24 +247,30 @@ def summarize(scored: pd.DataFrame) -> dict:
     if s.empty:
         return {"n": 0}
     s = s.sort_values("decision_at")
-    b = s[s["asset"] == "BTC"].copy()
-    assert len(b) and b["control_trade"].notna().all() and b["ct_trade"].notna().all(), \
+    b0 = s[s["asset"] == "BTC"].copy()
+    assert len(b0) and b0["control_trade"].notna().all() and b0["ct_trade"].notna().all(), \
         "both policies must be scored on every BTC opportunity"
+    b = b0[b0["ct_sufficient"] == True].copy()  # noqa: E712 — L1 scored pair
     out_btc: dict = {
+        "n_l0_eligible": len(b0),
         "n": len(b),
+        "n_insufficient_excluded": int((b0["ct_sufficient"] == False).sum()),  # noqa: E712
         "opportunity_ids": sorted(b["market_id"].astype(str).unique()),
-        "control_gross": round(float(b["control_pnl_gross"].sum()), 4),
-        "control_entries": int(b["control_trade"].sum()),
-        "ct_gross": round(float(b["ct_pnl_gross"].sum()), 4),
-        "ct_entries": int(b["ct_trade"].sum()),
-        "diff_gross": round(float((b["ct_pnl_gross"] - b["control_pnl_gross"]).sum()), 4),
+        "control_gross": round(float(b["control_pnl_gross"].sum()), 4) if len(b) else 0.0,
+        "control_entries": int(b["control_trade"].sum()) if len(b) else 0,
+        "ct_gross": round(float(b["ct_pnl_gross"].sum()), 4) if len(b) else 0.0,
+        "ct_entries": int(b["ct_trade"].sum()) if len(b) else 0,
+        "diff_gross": round(float((b["ct_pnl_gross"] - b["control_pnl_gross"]).sum()), 4)
+        if len(b) else 0.0,
     }
     out: dict = {"n": len(s), "provenance": PROVENANCE,
                  "btc_pair_main": out_btc,
                  "common_sample_check": {
                      "identical_opportunity_ids_pre_ct": True,
-                     "n_btc_opportunities": out_btc["n"],
-                     "scope": "BTC only (CT spec scope); other assets descriptive"},
+                     "n_btc_opportunities_l0": out_btc["n_l0_eligible"],
+                     "n_btc_opportunities_l1": out_btc["n"],
+                     "scope": "BTC only (CT spec scope); L1 = sufficient data for "
+                              "both; missing data excluded, never zero"},
                  "by_asset": s["asset"].value_counts().to_dict(),
                  "by_side": s["side"].value_counts().to_dict(),
                  "control_entries": int(s["control_trade"].sum()),

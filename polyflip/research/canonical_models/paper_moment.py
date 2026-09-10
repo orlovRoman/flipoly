@@ -169,6 +169,10 @@ def summarize(df: pd.DataFrame) -> dict:
     out: dict = {
         "n_reservations": len(df),
         "n_buy_registered": n_buy,
+        "tiers": {"L0_all_reservations": len(df),
+                  "L1_sufficient_same_book": len(u),
+                  "note": ("L0 counted; L1 scored. Missing data excluded, "
+                           "never zero. Registered CT actions stand as fact.")},
         "n_usable": len(u),
         "unusable_reasons": df.loc[df.get("usable") != True, "why"]  # noqa: E712
         .value_counts().to_dict() if "why" in df else {},

@@ -21,6 +21,16 @@ Fee policy (0.002 is NOT confirmed as the actual commission):
 - absence of a fee in an API answer never means zero fee; the current
   scheme never auto-applies to history.
 
+Recorded formula (crypto-v2, UNCONFIRMED period applicability):
+  fee_taker = C * 0.07 * p * (1 - p), maker fee = 0.
+  Params: {feeRate: 0.07, exponent: 1, takerOnly: true, rebateRate: 0.2}.
+  Source: docs.polymarket.com trading/fees + polymarket.com/fees +
+  per-market Gamma feeSchedule (feeType crypto_fees_v2). Verified against
+  the official table (100 sh @ 0.50 -> $1.75). Historical per-market
+  feeType/period NOT yet collected -> scenario only
+  (``fee_crypto_v2_formula_unconfirmed`` uses filled shares C and execution
+  vwap p).
+
 Depth policy: no ask/depth -> ``BLOCKED_DATA`` (never 0 PnL, never an
 assumed fill). Top-of-book-only fills are marked ``TOP_ONLY_ASSUMED``;
 a truncated ladder that runs out maps to ``DEPTH_EXHAUSTED_UNKNOWN``.

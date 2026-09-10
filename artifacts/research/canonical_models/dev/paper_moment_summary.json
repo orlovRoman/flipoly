@@ -1,6 +1,11 @@
 {
  "n_reservations": 48,
  "n_buy_registered": 8,
+ "tiers": {
+  "L0_all_reservations": 48,
+  "L1_sufficient_same_book": 42,
+  "note": "L0 counted; L1 scored. Missing data excluded, never zero. Registered CT actions stand as fact."
+ },
  "n_usable": 42,
  "unusable_reasons": {
   "ASK_OUT_OF_RANGE": 5,
@@ -21,6 +26,6 @@
  },
  "control_entries": 42,
  "ct_registered_entries": 8,
- "protocol_hash": "68c097c7232b5f325dab4bab8cd591d886c27e23f0178a747aaec13ff3619bca",
+ "protocol_hash": "9f8a5efcfb5f8d0b91bc64d11996399ccbdfca572f4cb36923d697ad76cf5f46",
  "protocol_version": "canonical-models-v1"
 }

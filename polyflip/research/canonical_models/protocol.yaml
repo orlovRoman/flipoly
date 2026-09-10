@@ -102,6 +102,21 @@ final_status_criteria:
   DATA_BLOCKED: "insufficient canonical labels -> pipeline PENDING_CANONICAL_DATA, no proxy re-run under new name"
   PENDING_NEW_PERIOD: "pipeline + development comparison done; final holdout awaits new markets after fixation"
 
+freeze_ct_final:
+  status: "FROZEN-rules; final_start PENDING activation + record-cycle check"
+  spec: {id: BTC_CT_T5_V1, commit: 2b531a2,
+         spec_hash: a14c4a4b81c3743454842007dc8f2d89e055c93e010ea63c6c73a711cca31c16}
+  code_commit: null  # filled with the full 40-char sha of the freeze commit at activation record
+  comparison: "BTC price control vs BTC price control + CT at the SAME actual CT decision moment (window 210-300 s); identical time/side/book/price-limits/execution"
+  universe: "L0 = all eligible BTC opps pre-CT incl. CT-SKIP (counted); L1 = sufficient data for both (scored). Missing data excluded, never zero. Control is scored even at CT-SKIP."
+  budget: "$1 purchase cost; fee on top (total may exceed $1); identical for both policies"
+  fee: "UNKNOWN -> confirmed_net_pnl=null; signed scenarios 0/0.001/0.002; formula fee=C*0.07*p*(1-p) taker-only, maker 0 (params {0.07, exp 1, takerOnly}; source docs+Gamma feeSchedule; period applicability UNCONFIRMED)"
+  execution: "full observed ladder walk (is_truncated=false) else TOP_ONLY_ASSUMED on snapshot top ask; ask gate [0.01,0.40]; parity tol 1e-4; live staleness<=15 s; recon ages recorded; Polygon gas separate (0 observed in dev)"
+  final_window: "final_start = next 15m-contract start boundary AFTER frozen-code activation + successful record-cycle check (commit time is NOT readiness). final_end = final_start + 14x24h. Inclusion [final_start, final_end) by CONTRACT START (UTC). No early stop on PnL. After final_end await resolution; no new markets; collection failures in coverage; no replacement/extension."
+  metrics: ["CT own PnL", "CT-control diff on L1", "turnover", "coverage L0/L1/BUY/fills(full/partial/missing)", "daily results", "top-win concentration", "day-block uncertainty"]
+  decision_rule: "wide CI / too little data -> INCONCLUSIVE (keep first period, open next separately). First period estimates, does not prove edge."
+  strict_T5: "historical research variant only, not frozen"
+
 compute:
   allowed_host: "local Windows disk only; NOT \\\\sshfs..., NOT server"
   train_bootstrap_allowed_on: ["local"]
