@@ -233,15 +233,39 @@ def evaluate(decisions: pd.DataFrame, depth: pd.DataFrame,
 
 
 def summarize(scored: pd.DataFrame) -> dict:
-    """Aggregate a common-sample comparison (development only)."""
+    """Aggregate a common-sample comparison (development only).
+
+    MAIN pair: BTC-only control vs BTC control+CT on IDENTICAL opportunity
+    ids (self-checked below). Five-asset control stays as a descriptive
+    table only (asset mix would confound the CT effect).
+    """
     s = scored[scored["in_sample"] == True].copy()  # noqa: E712
     if s.empty:
         return {"n": 0}
     s = s.sort_values("decision_at")
+    b = s[s["asset"] == "BTC"].copy()
+    assert len(b) and b["control_trade"].notna().all() and b["ct_trade"].notna().all(), \
+        "both policies must be scored on every BTC opportunity"
+    out_btc: dict = {
+        "n": len(b),
+        "opportunity_ids": sorted(b["market_id"].astype(str).unique()),
+        "control_gross": round(float(b["control_pnl_gross"].sum()), 4),
+        "control_entries": int(b["control_trade"].sum()),
+        "ct_gross": round(float(b["ct_pnl_gross"].sum()), 4),
+        "ct_entries": int(b["ct_trade"].sum()),
+        "diff_gross": round(float((b["ct_pnl_gross"] - b["control_pnl_gross"]).sum()), 4),
+    }
     out: dict = {"n": len(s), "provenance": PROVENANCE,
+                 "btc_pair_main": out_btc,
+                 "common_sample_check": {
+                     "identical_opportunity_ids_pre_ct": True,
+                     "n_btc_opportunities": out_btc["n"],
+                     "scope": "BTC only (CT spec scope); other assets descriptive"},
                  "by_asset": s["asset"].value_counts().to_dict(),
                  "by_side": s["side"].value_counts().to_dict(),
                  "control_entries": int(s["control_trade"].sum()),
+                 "control_all_assets_descriptive": "5-asset control is descriptive only; "
+                                                  "do not compare with BTC-scoped CT",
                  "ct_entries": int(s["ct_trade"].sum()),
                  "ct_regimes": s["ct_regime"].value_counts().to_dict()}
     for pol in ("control", "ct"):

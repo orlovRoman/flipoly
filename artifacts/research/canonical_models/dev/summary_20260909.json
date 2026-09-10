@@ -1,6 +1,35 @@
 {
  "n": 79,
  "provenance": "RECONSTRUCTED_CT",
+ "btc_pair_main": {
+  "n": 14,
+  "opportunity_ids": [
+   "4360307",
+   "4360369",
+   "4363435",
+   "4363710",
+   "4363886",
+   "4364169",
+   "4364375",
+   "4364709",
+   "4364886",
+   "4368474",
+   "4370482",
+   "4372701",
+   "4373601",
+   "4374904"
+  ],
+  "control_gross": 1.1905,
+  "control_entries": 14,
+  "ct_gross": 7.1905,
+  "ct_entries": 4,
+  "diff_gross": 6.0
+ },
+ "common_sample_check": {
+  "identical_opportunity_ids_pre_ct": true,
+  "n_btc_opportunities": 14,
+  "scope": "BTC only (CT spec scope); other assets descriptive"
+ },
  "by_asset": {
   "DOGE": 18,
   "XRP": 18,
@@ -13,6 +42,7 @@
   "DOWN": 34
  },
  "control_entries": 79,
+ "control_all_assets_descriptive": "5-asset control is descriptive only; do not compare with BTC-scoped CT",
  "ct_entries": 4,
  "ct_regimes": {
   "UNCERTAIN": 74,
