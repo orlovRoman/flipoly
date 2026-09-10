@@ -45,3 +45,4 @@
 - `canonical_depth_20260909.csv.gz` 106,660 rows — `21ce24f3…7082f`
 - SQL: `export_live.sql`, `export_snap.sql`, `export_depth.sql` (COPY needed-columns, day-chunked, read-only + statement_timeout; gzip+compose-cp+scp, no PS binary redirect).
 - Slice registry: 525 markets, all resolved (253 YES / 272 NO); token map 100% OK; durations MIXED (15m + multi-hour — duration per market from `end_time_est`); derived decision window [285,300]s hits 121 markets; depth history ≥3 obs on both legs in 92 markets.
+- Gate (`registry.coverage_gate` on slice): 525 registry + 0 issues reconciled; CT track FEASIBLE; model track DATA_BLOCKED_retrospective_strike_unproven.
