@@ -12,16 +12,18 @@
  "server_coverage": {
   "snapshots": {
    "days": 77,
-   "rows": 6911405,
+   "rows_exact_groupby": 8366033,
+   "note": "pg_class reltuples 6911405 was stale; authoritative per-day GROUP BY sums to manifest exactly",
    "from": "2026-06-25T17:26:53Z",
-   "to": "2026-09-10T06:00:13Z",
-   "gap_day": "2026-09-05"
+   "gap_day": "2026-09-05 (proven 0 rows)",
+   "partial_tail": "2026-09-10 (in progress)"
   },
   "depth_days": [
    "2026-09-09",
    "2026-09-10"
   ],
-  "ct_reservations_rows": 48
+  "ct_reservations_rows": 48,
+  "partial_tail": "2026-09-10 exported to watermark 2026-09-10T06:23:28Z"
  },
  "pipeline_validation_day": "2026-09-09",
  "chunks": [
@@ -895,6 +897,18 @@
    "sql": "export/sql/export_snap_day.sql"
   },
   {
+   "table": "market_snapshots",
+   "bounds": [
+    "2026-09-10T00:00:00Z",
+    "2026-09-10T06:23:28Z"
+   ],
+   "rows": 28522,
+   "sha256": "e564a456e38c293fa2a969796c4826c9ee098e42d2ef6af715d1a5e42f36faef",
+   "file": "canonical_snap_20260910p.csv.gz",
+   "sql": "export/sql/export_tail.sql",
+   "status": "partial-closed-watermark"
+  },
+  {
    "table": "orderbook_depth_snapshots",
    "bounds": [
     "2026-09-09T00:00:00Z",
@@ -904,6 +918,18 @@
    "sha256": "21ce24f39b07c1399f6436191c3b6d68960490dfe1ed2dc56b06f34368f7082f",
    "file": "canonical_depth_20260909.csv.gz",
    "sql": "export/sql/export_depth_day.sql"
+  },
+  {
+   "table": "orderbook_depth_snapshots",
+   "bounds": [
+    "2026-09-10T00:00:00Z",
+    "2026-09-10T06:23:28Z"
+   ],
+   "rows": 57044,
+   "sha256": "3a7920e43e7be0afbe8cccee7ae1a7b7d33881d9d1e08e39b919edcca39abab9",
+   "file": "canonical_depth_20260910p.csv.gz",
+   "sql": "export/sql/export_tail.sql",
+   "status": "partial-closed-watermark"
   }
  ]
 }
