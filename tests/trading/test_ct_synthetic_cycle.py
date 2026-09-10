@@ -34,7 +34,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from polyflip.db.models import LiveMarket, TradeHistory, CTDecisionReservation, MarketSnapshot
+from polyflip.db.models import LiveMarket, TradeHistory, CTDecisionReservation, MarketSnapshot, OrderbookDepthSnapshot
 from polyflip.db.execution_models import (
     ExecutionRequest,
     ExecutionAttempt,
@@ -375,6 +375,106 @@ async def test_02_synthetic_down_outsider_buy_and_full_fill_win(db_session, base
     assert trade.position_status == "CLOSED"
     # PnL = 3.99202 * 1.0 - 1.00000 = +2.99202 USDC
     assert math.isclose(float(trade.realized_pnl_usdc), 2.99202, abs_tol=1e-4)
+
+
+@pytest.mark.asyncio
+async def test_02b_down_history_falls_back_to_orderbook_depth(
+    db_session, base_decision_time
+):
+    # Regression: live collector already stores both token books in
+    # OrderbookDepthSnapshot, while legacy MarketSnapshot rows may have only
+    # the YES alias populated. DOWN must not be reported as missing history.
+    dec_at = base_decision_time
+    market = _make_live_market(
+        db_session,
+        market_id="mkt_down_depth_fallback",
+        end_time=dec_at + timedelta(seconds=250),
+    )
+    await db_session.commit()
+
+    up_prices = [0.78, 0.72, 0.79, 0.73, 0.77, 0.71, 0.78, 0.72]
+    down_prices = [0.22, 0.28, 0.21, 0.27, 0.23, 0.29, 0.22, 0.28]
+    for i, up_price in enumerate(up_prices):
+        t = dec_at - timedelta(minutes=len(up_prices) - 1 - i)
+        db_session.add(
+            MarketSnapshot(
+                market_id=market.market_id,
+                asset="BTC",
+                recorded_at=t,
+                market_timestamp=t,
+                received_timestamp=t,
+                mid_price=up_price,
+                poly_up_mid=up_price,
+                poly_down_mid=None,
+                time_left_min=4.0,
+                volume_5min=100.0,
+                price_velocity=0.0,
+                hour_of_day=t.hour,
+                final_outcome="PENDING",
+            )
+        )
+        down_price = down_prices[i]
+        db_session.add(
+            OrderbookDepthSnapshot(
+                market_id=market.market_id,
+                token_id=market.no_token_id,
+                outcome_side="NO",
+                event_at=t,
+                received_at=t,
+                bids=[{"price": down_price - 0.005, "size": 50.0}],
+                asks=[{"price": down_price + 0.005, "size": 50.0}],
+                quality_status="VALID",
+                best_bid_price=down_price - 0.005,
+                best_ask_price=down_price + 0.005,
+                best_bid_size=50.0,
+                best_ask_size=50.0,
+            )
+        )
+    await db_session.commit()
+
+    class DepthFallbackClient:
+        async def get_market_prices(self, tok, **kwargs):
+            if tok == market.no_token_id:
+                return {
+                    "best_ask": 0.25,
+                    "best_bid": 0.24,
+                    "current_no_price": 0.25,
+                    "event_at": dec_at - timedelta(seconds=1),
+                    "received_at": dec_at - timedelta(seconds=1),
+                }
+            return {
+                "best_ask": 0.76,
+                "best_bid": 0.74,
+                "best_ask_no": 0.25,
+                "best_bid_no": 0.24,
+                "current_yes_price": 0.75,
+                "current_no_price": 0.25,
+                "event_at": dec_at - timedelta(seconds=1),
+                "received_at": dec_at - timedelta(seconds=1),
+            }
+
+    async def quote_provider(_tok: str):
+        return {
+            "asks": [{"price": 0.25, "size": 50.0}],
+            "bids": [{"price": 0.24, "size": 50.0}],
+            "best_ask": 0.25,
+            "best_bid": 0.24,
+        }
+
+    trade, dec_res = await _run_production_paper_cycle(
+        db_session,
+        market,
+        DepthFallbackClient(),
+        dec_at,
+        quote_provider=quote_provider,
+        fee_rate=Decimal("0.002"),
+    )
+
+    assert dec_res is not None
+    assert dec_res.decision_obj is not None
+    assert dec_res.decision_obj.action == "BUY_NO"
+    assert dec_res.decision_obj.direction_value == "DOWN"
+    assert trade is not None
 
 
 def test_03_synthetic_parity_skip(base_decision_time):
@@ -1775,6 +1875,50 @@ async def test_19_market_guards_immutability_and_skip_reason_preservation():
     assert guard_res.existing_skipped == existing_skip
     # Original error_msg on the record is untouched
     assert existing_skip.error_msg == "REGIME_NOT_REVERSION: TREND"
+
+
+@pytest.mark.asyncio
+async def test_19b_market_guards_preserve_ct_skip_after_window():
+    """A later heartbeat outside [T-300,T-210] must not overwrite CT's decision."""
+    from unittest.mock import AsyncMock, MagicMock
+    from polyflip.trading.market_guards import check_market_guards
+    from polyflip.trading.trading_config import parse_trading_settings
+    from polyflip.db.models import TradeHistory
+
+    mock_db = AsyncMock()
+    cfg = parse_trading_settings({"TRADING_MODE": "ct_outsider"})
+
+    class DummyMarket:
+        market_id = "mkt_immutable_outside"
+        asset = "BTC"
+        yes_token_id = "tok_yes"
+        no_token_id = "tok_no"
+
+    existing_skip = TradeHistory(
+        market_id="mkt_immutable_outside",
+        asset="BTC",
+        status="SKIPPED",
+        error_msg="REGIME_NOT_REVERSION: UNCERTAIN",
+        strategy_name="BTC_CT_T5_V1",
+        strategy_type="CT_OUTSIDER",
+    )
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = existing_skip
+    mock_db.execute = AsyncMock(return_value=mock_result)
+
+    guard_res = await check_market_guards(
+        db_session=mock_db,
+        market=DummyMarket(),
+        cfg=cfg,
+        asset_mode="ct_outsider",
+        time_left_sec=149.0,
+        start_time=datetime.now(timezone.utc),
+    )
+
+    assert guard_res.passed is False
+    assert guard_res.skip_reason == "guard: Decision already recorded in window (SKIP)"
+    assert guard_res.existing_skipped is existing_skip
+    assert existing_skip.error_msg == "REGIME_NOT_REVERSION: UNCERTAIN"
 
 
 @pytest.mark.asyncio

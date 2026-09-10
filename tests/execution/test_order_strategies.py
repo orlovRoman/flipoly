@@ -111,6 +111,61 @@ async def test_maker_accepts_first_submission_without_quote():
     assert result.maker_best_bid is None
     assert result.maker_best_ask is None
 
+@pytest.mark.asyncio
+async def test_maker_uses_paper_gateway_quote_before_first_submit():
+    """A stale decision limit is repriced to the current best bid first."""
+
+    from polyflip.execution.gateways.fake import FakeExecutionGateway
+
+    quote_calls = 0
+
+    async def quote_provider(token_id):
+        nonlocal quote_calls
+        quote_calls += 1
+        assert token_id == "token-1"
+        return {
+            "best_bid": "0.12",
+            "best_ask": "0.13",
+            "asks": [{"price": "0.13", "size": "20"}],
+            "bids": [{"price": "0.12", "size": "20"}],
+        }
+
+    gateway = FakeExecutionGateway(
+        profile="LIVE_PARITY",
+        quote_provider=quote_provider,
+        fee_rate="0",
+        maker_fee_rate="0",
+    )
+    order = GatewayOrder(
+        attempt_id=uuid4(),
+        market_id="market-1",
+        asset="BTC",
+        outcome_to_buy="YES",
+        token_id="token-1",
+        side="BUY",
+        limit_price="0.19",
+        requested_shares="5.26",
+        max_spend_usdc="1",
+        max_acceptable_price="0.19",
+    )
+
+    result = await execute_maker_limit(
+        gateway,
+        order,
+        max_acceptable_price=Decimal("0.19"),
+        max_reprice_attempts=1,
+    )
+
+    assert result.accepted is True
+    assert result.maker_status == "RESTING"
+    assert result.maker_attempts == 1
+    assert result.submitted_limit_price == Decimal("0.12")
+    assert result.maker_best_bid == Decimal("0.12")
+    assert result.maker_best_ask == Decimal("0.13")
+    assert quote_calls >= 2  # preparation + venue submission
+    assert result.provider_status == "RESTING"
+
+
 def test_maker_price_uses_best_bid_for_buy_and_never_crosses_ask():
     order = GatewayOrder(
         attempt_id=uuid4(), market_id="market-1", asset="BTC",
@@ -593,7 +648,7 @@ async def test_fake_fak_allows_equal_ask_with_modeled_slippage():
 
 
 @pytest.mark.asyncio
-async def test_maker_retry_recalculates_edge_before_resubmit():
+async def test_maker_retry_does_not_recheck_edge_before_resubmit():
     gateway = _PostOnlyRejectGateway()
     gateway.submit = AsyncMock(side_effect=[
         SubmissionResult(
@@ -625,19 +680,21 @@ async def test_maker_retry_recalculates_edge_before_resubmit():
             limit_price="0.36",
             requested_shares="3.7",
             max_spend_usdc="1",
-            max_acceptable_price="0.303",
+            max_acceptable_price="0.40",
         ),
         api_client=_Prices(),
-        max_acceptable_price=Decimal("0.303"),
+        max_acceptable_price=Decimal("0.40"),
         max_reprice_attempts=3,
-        edge_policy=_outsider_dynamic_edge_policy(),
+        # Deliberately use an edge which would fail if the maker path
+        # re-evaluated it.  Maker repricing is quote/cap logic only.
+        edge_policy=_outsider_dynamic_edge_policy("0.34"),
         require_edge_revalidation=True,
     )
 
     assert result.accepted is True
     assert result.maker_attempts == 2
-    assert result.fak_retry_dynamic_edge_checked is True
-    assert result.fak_retry_dynamic_net_edge == Decimal("0.05")
+    assert result.fak_retry_dynamic_edge_checked is False
+    assert result.fak_retry_dynamic_net_edge is None
     second_order = gateway.submit.await_args_list[1].args[0]
     assert second_order.limit_price == Decimal("0.33")
     assert second_order.requested_shares == Decimal("1") / Decimal("0.33")
@@ -645,13 +702,20 @@ async def test_maker_retry_recalculates_edge_before_resubmit():
 
 
 @pytest.mark.asyncio
-async def test_maker_retry_stops_when_fresh_edge_is_spent():
+async def test_maker_retry_uses_fresh_passive_price_without_edge_check():
     gateway = _PostOnlyRejectGateway()
-    gateway.submit = AsyncMock(return_value=SubmissionResult(
-        accepted=False,
-        provider_status="POST_ONLY_REJECTED",
-        error_message="order crosses book",
-    ))
+    gateway.submit = AsyncMock(side_effect=[
+        SubmissionResult(
+            accepted=False,
+            provider_status="POST_ONLY_REJECTED",
+            error_message="order crosses book",
+        ),
+        SubmissionResult(
+            accepted=True,
+            provider_order_id="maker-edge-3",
+            provider_status="OPEN",
+        ),
+    ])
 
     class _Prices:
         async def get_market_prices(self, token_id):
@@ -669,21 +733,20 @@ async def test_maker_retry_stops_when_fresh_edge_is_spent():
             limit_price="0.36",
             requested_shares="3.7",
             max_spend_usdc="1",
-            max_acceptable_price="0.303",
+            max_acceptable_price="0.40",
         ),
         api_client=_Prices(),
-        max_acceptable_price=Decimal("0.303"),
+        max_acceptable_price=Decimal("0.40"),
         max_reprice_attempts=3,
-        edge_policy=_outsider_dynamic_edge_policy("0.38"),
+        edge_policy=_outsider_dynamic_edge_policy("0.34"),
         require_edge_revalidation=True,
     )
 
-    assert result.accepted is False
-    assert result.provider_status == "PRICE_MOVED"
-    assert result.rejection_code == "DYNAMIC_EDGE_REJECTED"
-    assert result.fak_retry_dynamic_net_edge == Decimal("0.03")
-    assert result.maker_attempts == 1
-    gateway.submit.assert_awaited_once()
+    assert result.accepted is True
+    assert result.provider_status == "OPEN"
+    assert result.maker_attempts == 2
+    assert result.fak_retry_dynamic_edge_checked is False
+    assert gateway.submit.await_count == 2
 
 
 @pytest.mark.asyncio

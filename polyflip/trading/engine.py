@@ -44,6 +44,35 @@ def _get_crypto_predictor():
 _ACTIVE_MARKETS = set()
 
 
+def _should_persist_guard_skip(asset_mode: str, skip_reason: str | None) -> bool:
+    """Return whether a guard observation belongs in ``trade_history``.
+
+    CT is evaluated only once inside its pinned T-5 window.  Before that
+    window, the scheduler is merely polling an eligible market; persisting
+    one ``Outside time window`` row every 15 seconds creates fake trade
+    decisions and obscures the eventual CT result.  Other strategies retain
+    their existing guard telemetry.
+    """
+    if skip_reason is None:
+        return False
+    if str(asset_mode or "").lower() in ("ct", "ct_outsider"):
+        if skip_reason == "guard: Outside time window":
+            return False
+        if skip_reason in (
+            "guard: Time left <= 0",
+            "guard: Trade already exists",
+            "guard: Decision already recorded in window (SKIP)",
+            "guard: Decision already recorded in window",
+        ):
+            return False
+    return skip_reason not in (
+        "guard: Time left <= 0",
+        "guard: Trade already exists",
+        "guard: Decision already recorded in window (SKIP)",
+        "guard: Decision already recorded in window",
+    )
+
+
 def _settings_for_asset(raw_settings: dict[str, str], asset: str) -> dict[str, str]:
     """Resolve an optional per-asset trading mode without mutating the base map.
 
@@ -179,12 +208,7 @@ async def trade_worker_cycle(db_session: AsyncSession, api_client: PolymarketCli
                 )
 
                 if not guard_res.passed:
-                    if guard_res.skip_reason and guard_res.skip_reason not in (
-                        "guard: Time left <= 0",
-                        "guard: Trade already exists",
-                        "guard: Decision already recorded in window (SKIP)",
-                        "guard: Decision already recorded in window",
-                    ):
+                    if _should_persist_guard_skip(asset_mode, guard_res.skip_reason):
                         await save_or_update_skipped_trade(
                             db_session,
                             market,

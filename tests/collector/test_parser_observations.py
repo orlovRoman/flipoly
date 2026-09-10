@@ -95,6 +95,8 @@ async def test_run_collector_cycle_records_and_flushes_strike(db_session: AsyncS
         "current_spread": 0.02,
         "best_bid": 0.51,
         "best_ask": 0.53,
+        "best_bid_no": 0.47,
+        "best_ask_no": 0.49,
     }
 
     with patch("polyflip.collector.parser.PolymarketClient") as MockClient:
@@ -105,6 +107,15 @@ async def test_run_collector_cycle_records_and_flushes_strike(db_session: AsyncS
         MockClient.return_value = instance
 
         await run_collector_cycle(db_session)
+
+    snapshot_res = await db_session.execute(
+        select(MarketSnapshot).where(MarketSnapshot.market_id == "test_m_btc")
+    )
+    snapshot = snapshot_res.scalar_one()
+    assert snapshot.poly_up_mid == 0.52
+    assert snapshot.poly_down_mid == 0.48
+    assert snapshot.poly_up_best_bid == 0.51
+    assert snapshot.poly_down_best_ask == 0.49
 
     # Check that strike was flushed and is in underlying_observations
     repo = ObservationRepository(db_session)

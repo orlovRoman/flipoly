@@ -181,11 +181,23 @@ async def run_collector_cycle(db_session: AsyncSession):
                 db_session.add(live_m)
 
             # 4. Сохраняем Snapshot (saved even if mid_price or spread is None, Point 6/7/P0)
+            # Persist both token sides explicitly. The legacy mid_price and
+            # best_* fields are YES aliases; CT_OUTSIDER history also needs the
+            # real NO quote returned by get_market_prices(..., no_token_id=...).
+            no_mid_price = prices.get("current_no_price")
             snapshot = MarketSnapshot(
                 asset=m_data["asset"],
+                polymarket_id=market_id,
                 market_id=market_id,
                 time_left_min=time_left_min,
+                time_left_seconds=int(round(time_left_min * 60.0)),
                 mid_price=mid_price,
+                poly_up_mid=mid_price,
+                poly_up_best_bid=prices.get("best_bid"),
+                poly_up_best_ask=prices.get("best_ask"),
+                poly_down_mid=no_mid_price,
+                poly_down_best_bid=prices.get("best_bid_no"),
+                poly_down_best_ask=prices.get("best_ask_no"),
                 spread=spread,
                 best_bid=prices.get("best_bid"),
                 best_ask=prices.get("best_ask"),
@@ -196,6 +208,8 @@ async def run_collector_cycle(db_session: AsyncSession):
                 final_outcome="PENDING",
                 flip_vs_final=False,
                 recorded_at=current_time,
+                market_timestamp=current_time,
+                received_timestamp=current_time,
                 strike_value=strike_val,
                 strike_source=strike_src,
                 strike_effective_at=strike_eff,

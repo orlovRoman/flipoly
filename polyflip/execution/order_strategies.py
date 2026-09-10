@@ -175,14 +175,49 @@ def calculate_maker_price(
     return maker_price, best_bid, best_ask, None
 
 
-async def _fresh_prices(api_client: Any, token_id: str) -> dict[str, Any] | None:
-    if api_client is None or not hasattr(api_client, "get_market_prices"):
-        return None
-    try:
-        return await asyncio.wait_for(api_client.get_market_prices(token_id), timeout=2.0)
-    except Exception as exc:
-        logger.warning("maker_reprice_quote_failed", token_id=token_id, error=str(exc))
-        return None
+async def _fresh_prices(
+    api_client: Any,
+    token_id: str,
+    gateway: Any = None,
+) -> dict[str, Any] | None:
+    """Read a fresh book for a maker order.
+
+    PAPER's parity gateway owns the quote provider, while LIVE uses the
+    Polymarket API client.  Keep both sources here so a PAPER post-only order
+    is repriced before it is submitted instead of being rejected on a stale
+    decision-time limit.
+    """
+    if api_client is not None and hasattr(api_client, "get_market_prices"):
+        try:
+            prices = await asyncio.wait_for(
+                api_client.get_market_prices(token_id), timeout=2.0
+            )
+            if prices:
+                return prices
+        except Exception as exc:
+            logger.warning(
+                "maker_reprice_quote_failed",
+                token_id=token_id,
+                source="api_client",
+                error=str(exc),
+            )
+
+    quote_provider = getattr(gateway, "quote_provider", None)
+    if callable(quote_provider):
+        try:
+            prices = await asyncio.wait_for(
+                quote_provider(token_id), timeout=2.0
+            )
+            if prices:
+                return prices
+        except Exception as exc:
+            logger.warning(
+                "maker_reprice_quote_failed",
+                token_id=token_id,
+                source="gateway",
+                error=str(exc),
+            )
+    return None
 
 
 async def execute_maker_limit(
@@ -197,11 +232,11 @@ async def execute_maker_limit(
     edge_policy: FAKRetryEdgePolicy | None = None,
     require_edge_revalidation: bool = False,
 ) -> SubmissionResult:
-    """Submit a post-only GTC/GTD order and reprice after a book cross.
+    """Submit a post-only GTC/GTD order at a fresh passive quote.
 
-    For BUY orders on the dynamic route, every reprice is checked against the
-    saved probability and the fresh maker quote. A stale quote is never
-    submitted again when that revalidation is required.
+    The first submission and every cross retry use the current best bid/ask
+    and stay within the saved execution cap.  Maker repricing does not run a
+    second predictive-edge check; that policy belongs to FAK_RETRY.
     """
     attempts_allowed = 1 + max(
         0, min(int(max_reprice_attempts), MAX_MAKER_REPRICE_MAX_RETRIES)
@@ -232,6 +267,56 @@ async def execute_maker_limit(
                 ),
             }
         )
+
+    # Align the first post-only submission with the current maker quote.
+    # The decision-time limit can already be stale by the time the worker
+    # reaches the venue.  For BUY this means resting at best_bid (never at
+    # best_ask), while still respecting the original execution cap.
+    if (
+        api_client is not None
+        or callable(getattr(gateway, "quote_provider", None))
+    ):
+        prices = await _fresh_prices(api_client, current_order.token_id, gateway)
+        if prices:
+            maker_price, best_bid, best_ask, failure = calculate_maker_price(
+                current_order,
+                prices,
+                max_acceptable_price=max_acceptable_price,
+                tick_size=tick_size,
+            )
+            last_best_bid = best_bid
+            last_best_ask = best_ask
+            if maker_price is None:
+                status = failure or "MAKER_NOT_POSTABLE"
+                return _with_dynamic_edge_telemetry(
+                    SubmissionResult(
+                        accepted=False,
+                        provider_status=status,
+                        rejection_code=status,
+                        error_message=status,
+                        maker_attempts=0,
+                        maker_status=status,
+                        maker_best_bid=best_bid,
+                        maker_best_ask=best_ask,
+                    )
+                )
+            requested_shares = current_order.requested_shares
+            if current_order.side.upper() == "BUY" and current_order.max_spend_usdc:
+                requested_shares = current_order.max_spend_usdc / maker_price
+            current_order = current_order.model_copy(
+                update={
+                    "limit_price": maker_price,
+                    "requested_shares": requested_shares,
+                }
+            )
+            logger.info(
+                "maker_order_prepared_at_fresh_quote",
+                token_id=current_order.token_id,
+                order_type=order_type,
+                best_bid=str(best_bid),
+                best_ask=str(best_ask),
+                maker_price=str(maker_price),
+            )
 
     for attempt_no in range(1, attempts_allowed + 1):
         try:
@@ -283,7 +368,10 @@ async def execute_maker_limit(
                 "maker_attempts": attempt_no,
             }))
 
-        if api_client is None:
+        if (
+            api_client is None
+            and not callable(getattr(gateway, "quote_provider", None))
+        ):
             error_message = str(result.error_message or "")
             if "POST_ONLY_REJECTED" not in error_message:
                 error_message = f"POST_ONLY_REJECTED: {error_message}".rstrip()
@@ -306,15 +394,13 @@ async def execute_maker_limit(
                 "maker_status": "MAKER_NOT_POSTABLE",
             }))
 
-        prices = await _fresh_prices(api_client, current_order.token_id)
+        prices = await _fresh_prices(api_client, current_order.token_id, gateway)
         maker_price, best_bid, best_ask, failure = calculate_maker_price(
             current_order,
             prices,
-            max_acceptable_price=(
-                None
-                if edge_policy is not None and current_order.side.upper() == "BUY"
-                else max_acceptable_price
-            ),
+            # A maker reprice is constrained by the saved execution cap.
+            # It does not need a second model/edge decision.
+            max_acceptable_price=max_acceptable_price,
             tick_size=tick_size,
         )
         last_best_bid = best_bid
@@ -331,52 +417,9 @@ async def execute_maker_limit(
                 "maker_best_ask": best_ask,
             }))
 
-        if current_order.side.upper() == "BUY" and (
-            edge_policy is not None or require_edge_revalidation
-        ):
-            dynamic_edge_checked = True
-            if edge_policy is None:
-                edge_error = (
-                    "Dynamic edge policy unavailable; maker retry was not submitted"
-                )
-                logger.info(
-                    "maker_dynamic_edge_unavailable",
-                    attempt=attempt_no,
-                    fresh_price=str(maker_price),
-                    reason=edge_error,
-                )
-                return _with_dynamic_edge_telemetry(result.model_copy(update={
-                    "provider_status": "PRICE_MOVED",
-                    "rejection_code": "DYNAMIC_EDGE_UNAVAILABLE",
-                    "error_message": edge_error,
-                    "maker_attempts": attempt_no,
-                    "maker_status": "DYNAMIC_EDGE_UNAVAILABLE",
-                }))
-            edge_ok, dynamic_net_edge, edge_error = evaluate_fak_retry_buy_price(
-                edge_policy,
-                maker_price,
-            )
-            if not edge_ok:
-                logger.info(
-                    "maker_dynamic_edge_rejected",
-                    attempt=attempt_no,
-                    fresh_price=str(maker_price),
-                    net_edge=(
-                        str(dynamic_net_edge)
-                        if dynamic_net_edge is not None
-                        else None
-                    ),
-                    min_net_edge=str(edge_policy.min_net_edge),
-                    reason=edge_error,
-                )
-                return _with_dynamic_edge_telemetry(result.model_copy(update={
-                    "provider_status": "PRICE_MOVED",
-                    "rejection_code": "DYNAMIC_EDGE_REJECTED",
-                    "error_message": edge_error or "DYNAMIC_EDGE_REJECTED",
-                    "maker_attempts": attempt_no,
-                    "maker_status": "DYNAMIC_EDGE_REJECTED",
-                }))
-
+        # Do not re-evaluate predictive edge on a maker reprice.  The
+        # price is moved to a passive best bid/ask and remains under the
+        # original execution cap; FAK_RETRY keeps its separate edge policy.
         requested_shares = current_order.requested_shares
         if current_order.side.upper() == "BUY" and current_order.max_spend_usdc:
             requested_shares = current_order.max_spend_usdc / maker_price
@@ -384,8 +427,6 @@ async def execute_maker_limit(
             "limit_price": maker_price,
             "requested_shares": requested_shares,
         }
-        if edge_policy is not None and current_order.side.upper() == "BUY":
-            updates["max_acceptable_price"] = edge_policy.max_permitted_price
         current_order = current_order.model_copy(update=updates)
         logger.info(
             "maker_order_repriced",

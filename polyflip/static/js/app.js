@@ -670,7 +670,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Train Model
   document.querySelectorAll(".btn-train-asset").forEach((btn) => {
     btn.addEventListener("click", async (e) => {
-      requestNotificationPermission();
+      window.requestNotificationPermission?.();
       const asset = e.target.getAttribute("data-asset");
       const featureSet = document.getElementById("logreg-feature-set")?.value || "AUTO";
       const featureSetQuery = encodeURIComponent(featureSet);
@@ -723,7 +723,7 @@ document.addEventListener("DOMContentLoaded", () => {
         } else {
           title = `❌ Ошибка обучения ${asset}`;
         }
-        showNotification(title, data.message);
+        window.showNotification?.(title, data.message);
         
         alert(data.message);
         loadSummary();
