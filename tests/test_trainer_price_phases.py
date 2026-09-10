@@ -206,16 +206,17 @@ async def test_trigger_training_schedules_worker_and_sets_running_status(db_sess
     from unittest.mock import patch
 
     bg = BackgroundTasks()
-    with patch("polyflip.api.analytics.async_session") as mock_session_ctx:
-        mock_session_ctx.return_value.__aenter__.return_value = db_session
-
+    with patch("polyflip.api.analytics.multiprocessing.Process") as process_cls:
+        process = process_cls.return_value
+        process.pid = 12345
         resp = await trigger_training("BTC", bg, db_session)
+        assert resp == {"status": "running", "asset": "BTC"}
+        assert len(bg.tasks) == 1
+        # Execute only the short launcher, never the heavy training target.
+        bg.tasks[0].func()
+        process_cls.assert_called_once()
+        process.start.assert_called_once()
 
-    assert resp == {"status": "running", "asset": "BTC"}
-    assert len(bg.tasks) == 1
-    # The task is asyncio.to_thread, so heavy preparation cannot block API
-    # requests.  The worker itself is exercised by the end-to-end deployment
-    # check; this unit test only verifies scheduling and the durable marker.
     status_data = await get_training_status(db_session, "BTC")
     assert status_data["status"] == "running"
 

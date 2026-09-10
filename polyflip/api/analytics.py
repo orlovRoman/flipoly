@@ -8,7 +8,7 @@ import structlog
 import json
 from datetime import datetime, timezone, timedelta
 
-from polyflip.db.connection import get_db_session, async_session
+from polyflip.db.connection import get_db_session
 from polyflip.api.auth import verify_api_key
 from polyflip.db.models import MarketSnapshot, ModelRegistry, RuntimeSettings, TradeHistory
 
@@ -30,6 +30,7 @@ def _training_final_status(training_ok: bool, message: str) -> str:
 # --- Analytics ---
 import time
 import asyncio
+import multiprocessing
 
 _probabilities_cache = None
 _probabilities_cache_time = 0.0
@@ -496,10 +497,67 @@ async def get_training_status(session: AsyncSession, asset: str) -> Dict[str, An
             pass
     return {"status": "idle", "message": "", "last_run": None}
 
+async def _run_training_job(
+    asset: str,
+    feature_set: str,
+    session_factory,
+) -> None:
+    """Run one LogReg job using a session factory owned by the worker."""
+    logger.info("train_single_asset_started", asset=asset)
+    try:
+        async with session_factory() as bg_session:
+            trainer = ModelTrainer(bg_session)
+            try:
+                training_ok = await trainer.train_model(asset, feature_set=feature_set)
+                msg = trainer.status_messages.get(asset, "Статус неизвестен")
+            except Exception as e:
+                logger.exception("train_model_failed_for_asset", asset=asset, error=str(e))
+                msg = f"Ошибка: {str(e)}"
+                training_ok = False
+
+            logger.info("train_single_asset_completed", asset=asset, status=msg)
+            await set_training_status(
+                bg_session,
+                asset,
+                _training_final_status(training_ok, msg),
+                f"{asset}: {msg}",
+                datetime.now(timezone.utc).isoformat(),
+            )
+            invalidate_models_cache()
+            await invalidate_analytics_cache()
+    except Exception as e:
+        logger.exception("train_single_asset_failed", asset=asset, error=str(e))
+        async with session_factory() as bg_session:
+            await set_training_status(
+                bg_session,
+                asset,
+                "error",
+                f"Ошибка: {str(e)}",
+                datetime.now(timezone.utc).isoformat(),
+            )
+            invalidate_models_cache()
+            await invalidate_analytics_cache()
+
+
+def _run_training_process(asset: str, feature_set: str) -> None:
+    """Process entrypoint: never share uvicorn's async engine/event loop."""
+    async def run() -> None:
+        worker_engine = create_async_engine(settings.DATABASE_URL, echo=False)
+        worker_session_factory = async_sessionmaker(
+            worker_engine, class_=AsyncSession, expire_on_commit=False
+        )
+        try:
+            await _run_training_job(asset, feature_set, worker_session_factory)
+        finally:
+            await worker_engine.dispose()
+
+    asyncio.run(run())
+
+
 @router.post("/analytics/train/{asset}", dependencies=[Depends(verify_api_key)])
 async def trigger_training(asset: str, background_tasks: BackgroundTasks,
                            feature_set: str = "AUTO", db: AsyncSession = Depends(get_db_session)):
-    """Ручной запуск обучения моделей для конкретного актива"""
+    """Queue manual LogReg training in a process isolated from the API."""
     asset = asset.upper()
     # Preserve the pre-feature_set direct-call signature:
     # trigger_training(asset, background_tasks, db_session). FastAPI always
@@ -513,79 +571,39 @@ async def trigger_training(asset: str, background_tasks: BackgroundTasks,
         raise HTTPException(status_code=400, detail="feature_set must be AUTO, A, B or C")
     if asset not in settings.asset_list:
         raise HTTPException(status_code=400, detail=f"Актив {asset} не настроен в системе")
-    
+
     now_iso = datetime.now(timezone.utc).isoformat()
     await set_training_status(db, asset, "running", f"Обучение для {asset} началось...", now_iso)
-    
-    # Чтобы не блокировать API-запрос, обучаем асинхронно
-    async def train_single_asset(session_factory):
-        logger.info("train_single_asset_started", asset=asset)
-        try:
-            async with session_factory() as bg_session:
-                trainer = ModelTrainer(bg_session)
-                try:
-                    training_ok = await trainer.train_model(asset, feature_set=feature_set)
-                    msg = trainer.status_messages.get(asset, "Статус неизвестен")
-                except Exception as e:
-                    logger.exception("train_model_failed_for_asset", asset=asset, error=str(e))
-                    msg = f"Ошибка: {str(e)}"
-                    training_ok = False
-                
-                logger.info("train_single_asset_completed", asset=asset, status=msg)
 
-                final_status = _training_final_status(training_ok, msg)
+    def launch_training_process() -> None:
+        process = multiprocessing.Process(
+            target=_run_training_process,
+            args=(asset, feature_set),
+            name=f"logreg-training-{asset.lower()}",
+            daemon=True,
+        )
+        process.start()
+        logger.info(
+            "train_single_asset_process_started",
+            asset=asset,
+            feature_set=feature_set,
+            pid=process.pid,
+        )
 
-                await set_training_status(
-                    bg_session,
-                    asset,
-                    final_status,
-                    f"{asset}: {msg}",
-                    datetime.now(timezone.utc).isoformat(),
-                )
-                invalidate_models_cache()
-                await invalidate_analytics_cache()
-        except Exception as e:
-            logger.exception("train_single_asset_failed", asset=asset, error=str(e))
-            async with session_factory() as bg_session:
-                await set_training_status(
-                    bg_session,
-                    asset,
-                    "error",
-                    f"Ошибка: {str(e)}",
-                    datetime.now(timezone.utc).isoformat(),
-                )
-                invalidate_models_cache()
-                await invalidate_analytics_cache()
-            
-    # ModelTrainer performs sizeable data preparation before its inner fit
-    # offload.  Running the coroutine directly as a Starlette background task
-    # would execute that preparation on the API event loop and can make the
-    # health endpoint unavailable for the duration of training.  Run the
-    # complete coroutine in a worker thread with its own async session/event
-    # loop so the API remains responsive while status is polled.
-    def run_training_in_worker() -> None:
-        async def run() -> None:
-            # The API's global async engine is bound to its event loop.  A
-            # worker thread needs its own engine/session factory; sharing the
-            # API factory causes asyncpg "Future attached to a different loop".
-            worker_engine = create_async_engine(settings.DATABASE_URL, echo=False)
-            worker_session_factory = async_sessionmaker(
-                worker_engine, class_=AsyncSession, expire_on_commit=False
-            )
-            try:
-                await train_single_asset(worker_session_factory)
-            finally:
-                await worker_engine.dispose()
-
-        asyncio.run(run())
-
-    background_tasks.add_task(asyncio.to_thread, run_training_in_worker)
+    # Process creation is short; the heavy data load and fit happen outside
+    # uvicorn and cannot consume its GIL or event loop.
+    background_tasks.add_task(launch_training_process)
     return {"status": "running", "asset": asset}
+
 
 @router.get("/analytics/train_status/{asset}")
 async def get_train_status(asset: str, db: AsyncSession = Depends(get_db_session)):
     """Возвращает статус последнего запущенного обучения для конкретного актива"""
-    return await get_training_status(db, asset)
+    status = await get_training_status(db, asset)
+    if status.get("status") in {"success", "partial", "error"}:
+        invalidate_models_cache()
+        await invalidate_analytics_cache()
+    return status
 
 @router.get("/analytics/train_status")
 async def get_train_status_all(db: AsyncSession = Depends(get_db_session)):
