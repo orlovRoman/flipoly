@@ -1,0 +1,3 @@
+SET statement_timeout TO '120s';
+\copy (SELECT id, asset, version, length(model_blob) AS blob_bytes, length(model_weights) AS weights_bytes, features, training_params, model_metadata, decision_threshold, decision_threshold_down, training_window_start, training_window_end, train_samples, ece, brier_score FROM model_registry WHERE id IN (827,828,1043,838,839,840,850,851,852,862,863,864,874,875,876) ORDER BY id) TO '/tmp/legacy_artifacts_meta.csv' WITH (FORMAT CSV, HEADER)
+\copy (SELECT id, encode(model_blob, 'hex') AS blob_hex FROM model_registry WHERE id IN (827,828,1043,838,839,840,850,851,852,862,863,864,874,875,876) ORDER BY id) TO '/tmp/legacy_artifacts_blob.csv' WITH (FORMAT CSV, HEADER)

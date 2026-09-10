@@ -1,0 +1,53 @@
+{
+ "reference": {
+  "registry_id": 827,
+  "asset": "BTC_leaning",
+  "version": 11,
+  "trained_at": "2026-08-16T03:03:48Z",
+  "is_active": true
+ },
+ "basis": "PAPER +15.92 USDC / 1001 trades; registry backtest +16.34 / 294 trades; ECE 0.0038",
+ "basis_source": "PAPER loop (user-pinned; backtest corroboration only, not the selection criterion)",
+ "artifact_hash": "sha256:bfc8ec943644f0cf2cad53d2e9dca18a443418ee1c0a2b26f711c343985218c8",
+ "comparison_group": {
+  "OLD": [
+   827
+  ],
+  "SUCCESSOR": [
+   828
+  ],
+  "CURRENT_BTC": [
+   1043
+  ],
+  "peers": {
+   "ETH_leaning": [
+    838,
+    839,
+    840
+   ],
+   "SOL_leaning": [
+    850,
+    851,
+    852
+   ],
+   "XRP_leaning": [
+    862,
+    863,
+    864
+   ],
+   "DOGE_leaning": [
+    874,
+    875,
+    876
+   ]
+  },
+  "peer_primary": {
+   "ETH_leaning": 838,
+   "SOL_leaning": 850,
+   "XRP_leaning": 862,
+   "DOGE_leaning": 874
+  },
+  "note": "peers = contemporary triplets; primary = earliest of triplet; siblings kept for variant analysis, not averaged silently"
+ },
+ "artifact_note": "model_blob 854 bytes (imputer+scaler+classifier+calibrator inside one pickle); model_weights NULL; features=[mid_price,spread,time_left_min]; C=0.1"
+}
