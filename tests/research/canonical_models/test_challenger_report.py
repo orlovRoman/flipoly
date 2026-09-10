@@ -13,6 +13,7 @@ def test_challenger_margin_and_no_clear():
 
 def test_status_computed_not_fitted():
     assert final_status({"n_canonical": 0}) == "DATA_BLOCKED"
+    assert final_status({"n_canonical": 10, "final_has_new_data": False}) == "PENDING_NEW_PERIOD"
     assert final_status({"n_canonical": 10, "challenger_margin_ok": False,
                          "forecast_better": True}) == "NO_INCREMENTAL_VALUE"
     assert final_status({"n_canonical": 10, "challenger_margin_ok": True,

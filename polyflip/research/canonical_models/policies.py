@@ -44,7 +44,10 @@ def pick_outsider_side(opp: Opportunity) -> tuple[str | None, str]:
 
 
 def ev_net(p: float, ask: float, fee_rate: float = 0.0) -> float:
-    """Expected net per $1 of contracts bought at ask (fee on cost)."""
+    """Expected net per $1 of PURCHASE COST bought at ask.
+
+    Gate-time default fee_rate=0.0 (gross gate: fee is UNKNOWN, never assumed).
+    Net evaluation happens separately in signed fee scenarios (economics)."""
     if ask <= 0 or ask >= 1:
         return float("-inf")
     shares_per_dollar = 1.0 / (ask * (1.0 + fee_rate))
@@ -64,7 +67,8 @@ def decide(policy: str, opp: Opportunity, ev_threshold: float,
         # price control trades every valid outsider (baseline universe)
         return PolicyDecision(True, side, ask, "price-control: valid outsider")
     if policy == "CT":
-        if opp.ct_regime in ("TREND_UP", "TREND_DOWN"):
+        # BTC_CT_T5_V1 entry: strictly REVERSION (see ct_feature.ct_allows_entry).
+        if opp.ct_regime == "REVERSION":
             return PolicyDecision(True, side, ask, f"CT gate: {opp.ct_regime}")
         return PolicyDecision(False, side, ask, f"CT blocks: {opp.ct_regime}")
     # model policies: EV gate on the chosen outsider side
@@ -72,7 +76,7 @@ def decide(policy: str, opp: Opportunity, ev_threshold: float,
     if p is None:
         return PolicyDecision(False, side, ask, "NO_MODEL_P")
     if policy == "challenger_plus_CT":
-        if opp.ct_regime not in ("TREND_UP", "TREND_DOWN"):
+        if opp.ct_regime != "REVERSION":
             return PolicyDecision(False, side, ask, f"CT blocks: {opp.ct_regime}")
     if ev_net(p, ask, fee_rate) >= ev_threshold:
         return PolicyDecision(True, side, ask, f"EV {ev_net(p, ask, fee_rate):.4f}>=thr {ev_threshold}")

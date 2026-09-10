@@ -10,15 +10,18 @@ Status is COMPUTED from pre-set criteria, never fitted to a liked result.
 from __future__ import annotations
 
 
-STATUSES = ("DATA_BLOCKED", "NO_INCREMENTAL_VALUE", "FORECAST_ONLY",
-            "PROMISING_UNCERTAIN", "PAPER_CANDIDATE")
+STATUSES = ("DATA_BLOCKED", "PENDING_NEW_PERIOD", "NO_INCREMENTAL_VALUE",
+            "FORECAST_ONLY", "PROMISING_UNCERTAIN", "PAPER_CANDIDATE")
 
 
 def final_status(summary: dict) -> str:
     """summary keys: n_canonical, challenger_margin_ok, forecast_better,
-    net_pnl, ci_lo, ci_hi, n_days, max_drawdown_ok, concentrated_ok."""
+    net_pnl, ci_lo, ci_hi, n_days, max_drawdown_ok, concentrated_ok,
+    final_has_new_data."""
     if summary.get("n_canonical", 0) <= 0:
         return "DATA_BLOCKED"
+    if summary.get("final_has_new_data") is False:
+        return "PENDING_NEW_PERIOD"
     if not summary.get("challenger_margin_ok"):
         return "NO_INCREMENTAL_VALUE"
     if not summary.get("forecast_better"):

@@ -4,6 +4,10 @@
   "workdir_is_local": true,
   "workdir": "C:\\Users\\orlov\\OneDrive\\Документы\\Default Project\\flipoly",
   "protocol_version": "canonical-models-v1",
-  "protocol_hash": "f933e6985f956be1b4f8a1b3f0b88093f24316484b081d7562a561f409cb97a0",
+  "protocol_hash": "68c097c7232b5f325dab4bab8cd591d886c27e23f0178a747aaec13ff3619bca",
+  "protocol_note": "v2: CT BTC_CT_T5_V1 pinned (2b531a2), budget = $1 purchase cost + fee separately, fee UNKNOWN + scenarios, PENDING_NEW_PERIOD rule.",
+  "ct_spec": "BTC_CT_T5_V1",
+  "ct_commit": "2b531a2",
+  "economics_engine": "polyflip/research/orderbook_execution.py (vendored 2b531a2)",
   "note": "Heavy ops local only; server for collection + limited export; refuses SSHFS/server train."
 }

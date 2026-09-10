@@ -41,8 +41,10 @@ def load_protocol(path: Path | None = None) -> dict:
     tu = data["trading_universe"]
     if not (tu.get("ask_min_inclusive") == 0.01 and tu.get("ask_max_inclusive") == 0.40):
         raise ValueError("outsider ask range must be [0.01, 0.40] inclusive")
-    if tu.get("budget_usd") != 1.0 or tu.get("budget_fee_included") is not True:
-        raise ValueError("budget must be $1 fee-inclusive")
+    if tu.get("budget_usd") != 1.0 or tu.get("budget_fee_included") is not False:
+        raise ValueError("budget must be $1 purchase cost, fee accounted separately")
+    if "PURCHASE COST" not in tu.get("budget_semantics", ""):
+        raise ValueError("budget_semantics must pin purchase-cost semantics")
     return data
 
 

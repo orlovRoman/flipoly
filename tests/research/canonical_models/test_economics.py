@@ -1,4 +1,6 @@
-from polyflip.research.canonical_models.economics import execute
+from polyflip.research.canonical_models.economics import (
+    breakeven_fee_rate, execute, scenario_pnls,
+)
 from polyflip.research.canonical_models.policies import (
     Opportunity, decide, ev_net, pick_outsider_side,
 )
@@ -27,6 +29,18 @@ def test_unknown_fee_null_and_blocked_not_zero():
     b = execute(1.0, None, 0.0, True)
     assert b.net_pnl is None and b.status == "BLOCKED_DATA"
     assert b.payout == 0 and b.shares == 0
+
+
+def test_fee_scenarios_breakeven_and_top_only_flag():
+    sc = scenario_pnls(1.0, 0.2, True)
+    assert set(sc) == {0.0, 0.001, 0.002}
+    assert sc[0.0] == 4.0 and sc[0.002] < sc[0.0]
+    # breakeven: p/ask - 1
+    assert abs((breakeven_fee_rate(0.8, 0.2) or 0) - 3.0) < 1e-9
+    f = execute(1.0, 0.2, 0.0, True)
+    assert f.data_status == "TOP_ONLY_ASSUMED" and f.fee_status == "CONFIRMED"
+    u = execute(1.0, 0.2, None, True)
+    assert u.fee_status == "UNKNOWN" and u.gross_pnl == 4.0
 
 
 def test_side_selection_parity_and_no_lookahead():

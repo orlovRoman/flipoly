@@ -1,47 +1,86 @@
-"""Step 17: CT as a separate policy feature (fixed implementation).
+"""Step 17: CT as a separate policy feature via the FIXED implementation.
 
-Contract:
-- Uses the FIXED CT realization and the REAL history of the CHOSEN token.
-- Persists version, params, n_obs, history source.
-- A known historical example must reproduce (golden test).
-- Missing NO-history yields status NO_DATA (never a 'trend' regime).
+Fixed realization (do NOT replace):
+- spec: BTC_CT_T5_V1 from ``polyflip.trading.ct_policy`` (branch
+  ``feature/paper-ct-outsider``, commit ``2b531a2``; files vendored
+  byte-identical into this tree).
+- wrapper: ``compute_token_ct_regime`` with the SPEC's own
+  ``min_observations=3`` (note: ``classify_local_regime`` alone defaults to
+  4 — always call through the wrapper, never the classifier directly).
+- history: previous 900 s of the CHOSEN token, causal (<= decision_at).
+- entry only on REVERSION; states are REVERSION/TREND/QUIET/UNCERTAIN.
 
-The trading strategy wires the real CT profile here via ``register_ct``;
-until then ``compute_ct`` returns NO_DATA instead of fabricating a regime.
+Scope note: the spec asset is BTC. Other assets keep ct_regime=UNCERTAIN
+with reason ASSET_OUT_OF_CT_SCOPE until a per-asset spec is pinned.
+
+Statuses INSUFFICIENT_HISTORY / INVALID_SERIES / CALCULATION_ERROR are
+kept verbatim (never mapped to a trend regime).
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
+from datetime import datetime
+from typing import Any, Sequence
 
-CT_VERSION = "ct-v1-placeholder"
-CT_PARAMS = {"profile": "existing-CT-profile-not-optimized", "window": "as-fixed"}
+from polyflip.trading.ct_policy import (
+    compute_token_ct_regime,
+    get_btc_ct_t5_v1_spec,
+)
 
-_Impl = None  # type: ignore
+CT_SPEC_ID = "BTC_CT_T5_V1"
+CT_SPEC_COMMIT = "2b531a2"
 
 
 @dataclass(frozen=True)
 class CTResult:
-    signal: float | None  # e.g. trend score in [-1, 1]
-    regime: str           # TREND_UP | TREND_DOWN | RANGE | NO_DATA
-    version: str
+    signal: str | None  # regime state: REVERSION | TREND | QUIET | UNCERTAIN
+    regime: str          # same as signal (kept for policy readability)
+    status: str          # VALID | INSUFFICIENT_HISTORY | INVALID_SERIES | CALCULATION_ERROR | ASSET_OUT_OF_SCOPE | NO_HISTORY
+    version: str         # spec_id
+    spec_hash: str
     params: dict
     n_obs: int
     source: str
 
 
-def register_ct(fn: Callable[[list[float], dict], CTResult]) -> None:
-    global _Impl
-    _Impl = fn
+def _spec():
+    return get_btc_ct_t5_v1_spec()
 
 
-def compute_ct(history: list[float] | None, meta: dict | None = None) -> CTResult:
-    meta = meta or {}
+def compute_ct(history: Sequence[Any] | None,
+               meta: dict | None = None,
+               decision_at: datetime | None = None) -> CTResult:
+    meta = dict(meta or {})
+    spec = _spec()
+    asset = str(meta.get("asset", spec.asset)).upper()
+    source = str(meta.get("source", "unknown"))
+    if asset != spec.asset.upper():
+        return CTResult(None, "UNCERTAIN", "ASSET_OUT_OF_SCOPE",
+                        spec.spec_id, spec.spec_hash,
+                        dict(spec.classifier_params), 0, source)
     if not history:
-        return CTResult(None, "NO_DATA", CT_VERSION, dict(CT_PARAMS),
-                        0, meta.get("source", "unknown"))
-    if _Impl is None:
-        # No real CT wired in this scaffold: refuse to invent a regime.
-        return CTResult(None, "NO_DATA", CT_VERSION, dict(CT_PARAMS),
-                        len(history), meta.get("source", "unknown"))
-    return _Impl(list(history), dict(meta))
+        return CTResult(None, "UNCERTAIN", "NO_HISTORY",
+                        spec.spec_id, spec.spec_hash,
+                        dict(spec.classifier_params), 0, source)
+    if decision_at is None:
+        # Without a causal boundary the wrapper cannot run: refuse, do not
+        # invent a timestamp (step 12: unknown time is never zeroed).
+        return CTResult(None, "UNCERTAIN", "NO_HISTORY",
+                        spec.spec_id, spec.spec_hash,
+                        dict(spec.classifier_params), len(history), source)
+    res = compute_token_ct_regime(
+        observations=history,
+        decision_at=decision_at,
+        window_sec=spec.ct_history_window_sec,
+        min_observations=spec.min_observations,
+        classifier_params=dict(spec.classifier_params),
+    )
+    return CTResult(res.state, res.state, res.status,
+                    spec.spec_id, spec.spec_hash,
+                    dict(spec.classifier_params),
+                    res.observations_count, source)
+
+
+def ct_allows_entry(result: CTResult) -> bool:
+    """Entry only on a VALID REVERSION signal (spec.required_signal)."""
+    return result.status == "VALID" and result.regime == _spec().required_signal

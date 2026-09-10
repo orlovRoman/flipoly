@@ -1,25 +1,40 @@
-from polyflip.research.canonical_models import ct_feature
-from polyflip.research.canonical_models.ct_feature import CTResult, compute_ct
+from datetime import datetime, timedelta, timezone
+
+from polyflip.research.canonical_models.ct_feature import (
+    CT_SPEC_ID, compute_ct, ct_allows_entry,
+)
+from polyflip.trading.ct_policy import get_btc_ct_t5_v1_spec
+
+DEC = datetime(2026, 1, 1, 0, 10, tzinfo=timezone.utc)
 
 
-def test_missing_history_is_no_data():
-    r = compute_ct([], {"source": "clob"})
-    assert r.regime == "NO_DATA" and r.signal is None
+def _saw(n=30):
+    return [(DEC - timedelta(seconds=900 - i * 30),
+             0.5 + (0.2 if i % 2 else -0.2)) for i in range(n)]
 
 
-def test_unwired_impl_never_invents_regime():
-    ct_feature._Impl = None
-    r = compute_ct([0.1, 0.2, 0.3], {"source": "clob"})
-    assert r.regime == "NO_DATA"
+def _trend(n=30):
+    return [(DEC - timedelta(seconds=900 - i * 30), 0.3 + 0.01 * i)
+            for i in range(n)]
 
 
-def test_golden_reproduces_once_wired():
-    def golden(hist, meta):
-        return CTResult(1.0, "TREND_UP", "ct-v1-test", {}, len(hist), "test")
-    ct_feature.register_ct(golden)
-    try:
-        r = compute_ct([0.5, 0.6, 0.7], {"source": "test"})
-        assert (r.signal, r.regime, r.n_obs) == (1.0, "TREND_UP", 3)
-        assert compute_ct(None) == compute_ct([])
-    finally:
-        ct_feature._Impl = None
+def test_golden_saw_is_reversion_trend_is_not():
+    # Fixed spec, fixed wrapper params (min_observations=3 from spec, NOT the
+    # classifier default of 4): deterministic golden.
+    r = compute_ct(_saw(), {"asset": "BTC", "source": "test"}, DEC)
+    assert (r.regime, r.status, r.version) == ("REVERSION", "VALID", CT_SPEC_ID)
+    assert r.n_obs == 30 and r.spec_hash == get_btc_ct_t5_v1_spec().spec_hash
+    assert ct_allows_entry(r) is True
+    t = compute_ct(_trend(), {"asset": "BTC"}, DEC)
+    assert (t.regime, t.status) == ("TREND", "VALID")
+    assert ct_allows_entry(t) is False
+
+
+def test_missing_out_of_scope_and_no_boundary_never_trend():
+    assert compute_ct([], {"asset": "BTC"}, DEC).status == "NO_HISTORY"
+    assert compute_ct(_saw(), {"asset": "ETH"}, DEC).status == "ASSET_OUT_OF_SCOPE"
+    # no causal boundary -> refuse instead of inventing a timestamp
+    assert compute_ct(_saw(), {"asset": "BTC"}, None).status == "NO_HISTORY"
+    for res in (compute_ct([], {"asset": "BTC"}, DEC),
+                compute_ct(_saw(), {"asset": "ETH"}, DEC)):
+        assert res.regime == "UNCERTAIN" and ct_allows_entry(res) is False
