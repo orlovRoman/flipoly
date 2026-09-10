@@ -25,8 +25,8 @@ import pandas as pd
 
 from polyflip.research.canonical_models.ct_feature import CT_SPEC_ID
 from polyflip.research.canonical_models.dev_compare import (
-    ASK_MAX, ASK_MIN, BUDGET, _ct_history, _depth_mid, _parse_ladder,
-    compute_ct,
+    ASK_MAX, ASK_MIN, BUDGET, MAX_BOOK_AGE_SEC, _ct_history, _depth_mid,
+    _parse_ladder, compute_ct,
 )
 from polyflip.research.orderbook_execution import simulate_orderbook_execution
 
@@ -91,11 +91,18 @@ def run(paper: pd.DataFrame, snaps: pd.DataFrame, depth: pd.DataFrame,
                 down = q.iloc[-1]
         if up is None or down is None or pd.isna(up.get("mid_price")) \
                 or pd.isna(up.get("best_ask")):
-            out.append({**base, "usable": False, "why": "NO_SAME_BOOK"})
+            out.append({**base, "usable": False, "why": "MISSING_BOOK"})
             continue
         down_mid = _depth_mid(down)
         if down_mid is None or pd.isna(down.get("best_ask_price")):
-            out.append({**base, "usable": False, "why": "NO_SAME_BOOK"})
+            out.append({**base, "usable": False, "why": "MISSING_BOOK"})
+            continue
+        up_age = (dec - up["recorded_at"]).total_seconds()
+        down_age = (dec - down["received_at"]).total_seconds()
+        if up_age > MAX_BOOK_AGE_SEC or down_age > MAX_BOOK_AGE_SEC:
+            out.append({**base, "usable": False, "why": "STALE_BOOK",
+                        "detail": f"UP {up_age:.1f}s / DOWN {down_age:.1f}s vs "
+                                  f"limit {MAX_BOOK_AGE_SEC}s"})
             continue
         up_mid, up_ask = float(up["mid_price"]), float(up["best_ask"])
         dn_mid, dn_ask = float(down_mid), float(down["best_ask_price"])
@@ -105,7 +112,9 @@ def run(paper: pd.DataFrame, snaps: pd.DataFrame, depth: pd.DataFrame,
         side = "UP" if up_mid < dn_mid else "DOWN"
         ask = up_ask if side == "UP" else dn_ask
         if not (ASK_MIN <= ask <= ASK_MAX):
-            out.append({**base, "usable": False, "why": "ASK_OUT_OF_RANGE"})
+            # Fresh book (STALE filtered above): ask outside range. No claim
+            # about the direction of any price movement.
+            out.append({**base, "usable": False, "why": "PRICE_OUT_OF_RANGE"})
             continue
         # --- reconstruction diagnostics (match flags only) ---
         token_side = "YES" if side == "UP" else "NO"
@@ -133,8 +142,8 @@ def run(paper: pd.DataFrame, snaps: pd.DataFrame, depth: pd.DataFrame,
         gross = payout - fill.spent_usdc
         ct_trades = (str(r.get("action")) == "BUY")
         rec = {**base, "usable": True, "side": side, "ask": ask,
-               "up_age_sec": round((dec - up["recorded_at"]).total_seconds(), 3),
-               "down_age_sec": round((dec - down["received_at"]).total_seconds(), 3),
+               "up_age_sec": round(up_age, 3),
+               "down_age_sec": round(down_age, 3),
                "paper_regime": paper_regime,
                "recon_regime": ct.regime, "recon_status": ct.status,
                "recon_n_obs": ct.n_obs,
@@ -177,6 +186,9 @@ def summarize(df: pd.DataFrame) -> dict:
         "unusable_reasons": df.loc[df.get("usable") != True, "why"]  # noqa: E712
         .value_counts().to_dict() if "why" in df else {},
         "buy_overlap": buy_overlap,
+        "ct_source": ("CT PnL uses REGISTERED_PAPER actions; recon regime/side/ask "
+                      "are diagnostics only (RECONSTRUCTED_CT). pre-registered actions "
+                      "stand as fact; book must be fresh (<=15 s both legs) to score."),
         "action_agreement_note": ("Final BUY/SKIP action matched on overlapping markets; "
                                   "match of decision time, inputs, reasons, and execution "
                                   "is NOT established. With 0 BUY overlaps, SKIP agreement "

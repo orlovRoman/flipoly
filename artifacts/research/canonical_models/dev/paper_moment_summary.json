@@ -3,29 +3,31 @@
  "n_buy_registered": 8,
  "tiers": {
   "L0_all_reservations": 48,
-  "L1_sufficient_same_book": 42,
+  "L1_sufficient_same_book": 15,
   "note": "L0 counted; L1 scored. Missing data excluded, never zero. Registered CT actions stand as fact."
  },
- "n_usable": 42,
+ "n_usable": 15,
  "unusable_reasons": {
-  "ASK_OUT_OF_RANGE": 5,
-  "NO_SAME_BOOK": 1
+  "STALE_BOOK": 30,
+  "PRICE_OUT_OF_RANGE": 2,
+  "MISSING_BOOK": 1
  },
- "buy_overlap": 8,
+ "buy_overlap": 3,
+ "ct_source": "CT PnL uses REGISTERED_PAPER actions; recon regime/side/ask are diagnostics only (RECONSTRUCTED_CT). pre-registered actions stand as fact; book must be fresh (<=15 s both legs) to score.",
  "action_agreement_note": "Final BUY/SKIP action matched on overlapping markets; match of decision time, inputs, reasons, and execution is NOT established. With 0 BUY overlaps, SKIP agreement alone is weak evidence for transfer fidelity.",
  "loop": "working PAPER loop (paper trade records; live exchange orders not asserted)",
  "side_match_rate": 1.0,
- "regime_match_rate": 0.6429,
- "buy_among_usable": 8,
- "control_gross": -7.0427,
- "ct_registered_gross": -4.1538,
+ "regime_match_rate": 0.6667,
+ "buy_among_usable": 3,
+ "control_gross": 3.1319,
+ "ct_registered_gross": 0.8462,
  "ct_registered_fee_scenarios": {
-  "0.0": -4.1538,
-  "0.001": -4.1618,
-  "0.002": -4.1698
+  "0.0": 0.8462,
+  "0.001": 0.8432,
+  "0.002": 0.8402
  },
- "control_entries": 42,
- "ct_registered_entries": 8,
+ "control_entries": 15,
+ "ct_registered_entries": 3,
  "protocol_hash": "9f8a5efcfb5f8d0b91bc64d11996399ccbdfca572f4cb36923d697ad76cf5f46",
  "protocol_version": "canonical-models-v1"
 }

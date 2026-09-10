@@ -24,14 +24,33 @@ def main() -> int:
     assert_train_allowed(a.chunk_dir)
     cd, out = Path(a.chunk_dir), Path(a.out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    snaps = pd.concat(
-        [pd.read_csv(f, low_memory=False) for f in sorted(cd.glob("canonical_snap_*.csv.gz"))],
-        ignore_index=True)
-    depth = pd.concat(
-        [pd.read_csv(f) for f in sorted(cd.glob("canonical_depth_*.csv.gz"))],
-        ignore_index=True)
-    live = pd.read_csv(cd / "canonical_live_markets.csv.gz", low_memory=False)
     paper = pd.read_csv(cd / "canonical_ct_reservations.csv.gz")
+    paper["decision_at"] = pd.to_datetime(paper["decision_at"], utc=True, format="mixed")
+    lo = (paper["decision_at"].min() - pd.Timedelta(days=1)).date().isoformat()
+    hi = paper["decision_at"].max().date().isoformat()
+    # Load only chunks overlapping the reservation window (chunked discipline;
+    # a full-history concat blows memory).
+    day_tags = []
+    d0 = pd.Timestamp(lo).date()
+    d1 = pd.Timestamp(hi).date()
+    while d0 <= d1:
+        day_tags.append(d0.strftime("%Y%m%d"))
+        d0 += pd.Timedelta(days=1)
+    snap_usecols = ["market_id", "recorded_at", "mid_price", "best_bid",
+                    "best_ask", "final_outcome"]
+    snaps = pd.concat(
+        [pd.read_csv(cd / f"canonical_snap_{t}.csv.gz", low_memory=False,
+                     usecols=lambda c: c in snap_usecols)
+         for t in day_tags if (cd / f"canonical_snap_{t}.csv.gz").exists()]
+        + [pd.read_csv(cd / f"canonical_snap_{t}p.csv.gz", low_memory=False,
+                       usecols=lambda c: c in snap_usecols)
+           for t in day_tags if (cd / f"canonical_snap_{t}p.csv.gz").exists()],
+        ignore_index=True)
+    depth_files = [cd / f"canonical_depth_{t}.csv.gz" for t in day_tags]
+    depth_files += [cd / f"canonical_depth_{t}p.csv.gz" for t in day_tags]
+    depth = pd.concat([pd.read_csv(f) for f in depth_files if f.exists()],
+                      ignore_index=True)
+    live = pd.read_csv(cd / "canonical_live_markets.csv.gz", low_memory=False)
     df = run(paper, snaps, depth, live)
     summary = attach_hash(summarize(df))
     df.to_pickle(out / "paper_moment_scored.pkl")

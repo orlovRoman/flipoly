@@ -39,6 +39,7 @@ from polyflip.research.orderbook_execution import simulate_orderbook_execution
 
 ASK_MIN, ASK_MAX = 0.01, 0.40
 BUDGET = 1.0
+MAX_BOOK_AGE_SEC = 15.0  # frozen spec limit; older books are STALE, not scored
 CT_HISTORY_SEC = 900.0
 PROVENANCE = "RECONSTRUCTED_CT"
 EV_THRESHOLD = 0.02  # gross gate, pre-registered (protocol)
@@ -120,19 +121,29 @@ def build_decisions(snaps: pd.DataFrame, depth: pd.DataFrame,
                 down = no.iloc[-1]
         if down is None:
             out.append({"market_id": mid, "asset": lm["asset"], "status": "SKIP",
-                        "reason": "NO_DOWN_QUOTE", "decision_at": decision_at})
+                        "reason": "MISSING_BOOK", "detail": "no DOWN depth",
+                        "decision_at": decision_at})
             continue
         down_mid = _depth_mid(down)
         down_ask = down.get("best_ask_price")
         if down_mid is None or down_ask is None or pd.isna(down_ask):
             out.append({"market_id": mid, "asset": lm["asset"], "status": "SKIP",
-                        "reason": "BAD_DOWN_QUOTE", "decision_at": decision_at})
+                        "reason": "MISSING_BOOK", "detail": "invalid DOWN values",
+                        "decision_at": decision_at})
+            continue
+        down_age = (decision_at - down["received_at"]).total_seconds()
+        if down_age > MAX_BOOK_AGE_SEC:
+            out.append({"market_id": mid, "asset": lm["asset"], "status": "SKIP",
+                        "reason": "STALE_BOOK", "detail": f"DOWN age {down_age:.1f}s",
+                        "decision_at": decision_at})
             continue
         out.append({
             "market_id": mid, "asset": lm["asset"], "status": "OK",
             "decision_at": decision_at, "end_at": end,
             "up_mid": up_mid, "up_ask": up_ask,
+            "up_age_sec": 0.0,  # decision IS the UP snapshot (by construction)
             "down_mid": float(down_mid), "down_ask": float(down_ask),
+            "down_age_sec": float(down_age),
             "down_depth_row": down.to_dict(),
             "target_up": 1 if outcome == "YES" else 0,
             "up_token_id": lm.get("yes_token_id"), "down_token_id": lm.get("no_token_id"),
@@ -177,7 +188,9 @@ def evaluate(decisions: pd.DataFrame, depth: pd.DataFrame,
             continue
         ask = float(r["up_ask"] if side == "UP" else r["down_ask"])
         if not (ASK_MIN <= ask <= ASK_MAX):
-            rows.append({**base, "in_sample": False, "reason": "ASK_OUT_OF_RANGE"})
+            # Book is fresh here (STALE filtered in build_decisions): fresh-book
+            # ask outside range. No claim about price direction of movement.
+            rows.append({**base, "in_sample": False, "reason": "PRICE_OUT_OF_RANGE"})
             continue
         token_side = "YES" if side == "UP" else "NO"
         hist = _ct_history(depth, str(r["market_id"]), token_side, r["decision_at"])
@@ -204,6 +217,8 @@ def evaluate(decisions: pd.DataFrame, depth: pd.DataFrame,
         scen["fee_crypto_v2_formula_unconfirmed"] = (
             gross - fill.filled_shares * 0.07 * vwap * (1.0 - vwap))
         rec = {**base, "in_sample": True, "side": side, "ask": ask,
+               "up_age_sec": float(r.get("up_age_sec", 0.0)),
+               "down_age_sec": float(r.get("down_age_sec", 0.0)),
                "vwap": vwap, "shares": fill.filled_shares,
                "spent": fill.spent_usdc, "payout": payout, "gross": gross,
                "win": bool(win), "fill_status": fill.fill_status,
@@ -264,6 +279,8 @@ def summarize(scored: pd.DataFrame) -> dict:
         if len(b) else 0.0,
     }
     out: dict = {"n": len(s), "provenance": PROVENANCE,
+                 "ct_source": ("RECONSTRUCTED_CT recomputed signals; NOT registered "
+                               "PAPER actions (see paper_moment summaries)"),
                  "btc_pair_main": out_btc,
                  "common_sample_check": {
                      "identical_opportunity_ids_pre_ct": True,

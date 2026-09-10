@@ -1,6 +1,7 @@
 {
  "n": 79,
  "provenance": "RECONSTRUCTED_CT",
+ "ct_source": "RECONSTRUCTED_CT recomputed signals; NOT registered PAPER actions (see paper_moment summaries)",
  "btc_pair_main": {
   "n_l0_eligible": 14,
   "n": 14,
@@ -91,7 +92,7 @@
  "day": "2026-09-09",
  "excluded_reasons": {
   "NO_DECISION_SNAPSHOT": 404,
-  "NO_DOWN_QUOTE": 29
+  "MISSING_BOOK": 29
  },
  "data_status_mix": {
   "TOP_ONLY_ASSUMED": 45,

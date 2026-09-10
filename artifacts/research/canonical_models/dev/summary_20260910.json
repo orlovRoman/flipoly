@@ -1,6 +1,7 @@
 {
  "n": 35,
  "provenance": "RECONSTRUCTED_CT",
+ "ct_source": "RECONSTRUCTED_CT recomputed signals; NOT registered PAPER actions (see paper_moment summaries)",
  "btc_pair_main": {
   "n_l0_eligible": 7,
   "n": 7,
