@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy import select, func, cast, Integer, Numeric, update, delete, text
 from typing import Dict, Any
 import pickle
@@ -18,6 +18,14 @@ from polyflip.models.trainer import ModelTrainer
 logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/api", tags=["Analytics & Settings"])
+
+
+def _training_final_status(training_ok: bool, message: str) -> str:
+    """Map trainer output to the durable dashboard status."""
+    if not training_ok:
+        return "error"
+    partial_markers = ("failed:", "skipped", "auc_too_low")
+    return "partial" if any(marker in message for marker in partial_markers) else "success"
 
 # --- Analytics ---
 import time
@@ -510,10 +518,10 @@ async def trigger_training(asset: str, background_tasks: BackgroundTasks,
     await set_training_status(db, asset, "running", f"Обучение для {asset} началось...", now_iso)
     
     # Чтобы не блокировать API-запрос, обучаем асинхронно
-    async def train_single_asset():
+    async def train_single_asset(session_factory):
         logger.info("train_single_asset_started", asset=asset)
         try:
-            async with async_session() as bg_session:
+            async with session_factory() as bg_session:
                 trainer = ModelTrainer(bg_session)
                 try:
                     training_ok = await trainer.train_model(asset, feature_set=feature_set)
@@ -525,18 +533,7 @@ async def trigger_training(asset: str, background_tasks: BackgroundTasks,
                 
                 logger.info("train_single_asset_completed", asset=asset, status=msg)
 
-                partial_markers = (
-                    "failed:",
-                    "skipped",
-                    "auc_too_low",
-                )
-
-                if not training_ok:
-                    final_status = "error"
-                elif any(marker in msg for marker in partial_markers):
-                    final_status = "partial"
-                else:
-                    final_status = "success"
+                final_status = _training_final_status(training_ok, msg)
 
                 await set_training_status(
                     bg_session,
@@ -549,7 +546,7 @@ async def trigger_training(asset: str, background_tasks: BackgroundTasks,
                 await invalidate_analytics_cache()
         except Exception as e:
             logger.exception("train_single_asset_failed", asset=asset, error=str(e))
-            async with async_session() as bg_session:
+            async with session_factory() as bg_session:
                 await set_training_status(
                     bg_session,
                     asset,
@@ -567,7 +564,20 @@ async def trigger_training(asset: str, background_tasks: BackgroundTasks,
     # complete coroutine in a worker thread with its own async session/event
     # loop so the API remains responsive while status is polled.
     def run_training_in_worker() -> None:
-        asyncio.run(train_single_asset())
+        async def run() -> None:
+            # The API's global async engine is bound to its event loop.  A
+            # worker thread needs its own engine/session factory; sharing the
+            # API factory causes asyncpg "Future attached to a different loop".
+            worker_engine = create_async_engine(settings.DATABASE_URL, echo=False)
+            worker_session_factory = async_sessionmaker(
+                worker_engine, class_=AsyncSession, expire_on_commit=False
+            )
+            try:
+                await train_single_asset(worker_session_factory)
+            finally:
+                await worker_engine.dispose()
+
+        asyncio.run(run())
 
     background_tasks.add_task(asyncio.to_thread, run_training_in_worker)
     return {"status": "running", "asset": asset}
