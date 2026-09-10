@@ -1,6 +1,6 @@
 {
   "run_id": "run_full_02",
-  "protocol_hash": "ac4b3e3ad8eb9d0630b38652f26daff717b8f8f4f8a5c095726fae20626a2e49",
+  "protocol_hash": "119f507a0452f4e72e4bbd2e0a52c47d7273f2d79b1d0434a12e26f3143fa988",
   "total_markets_in_db": 34863,
   "markets_with_snapshots": 34863,
   "total_evaluated_records": 34863,
@@ -30,5 +30,12 @@
   "quality_breakdown": {
     "VALID": 4346,
     "INSUFFICIENT_HISTORY": 891
+  },
+  "quality_exclusions_by_asset": {
+    "ETH": 6155,
+    "BTC": 6135,
+    "DOGE": 6105,
+    "XRP": 6061,
+    "SOL": 6061
   }
 }

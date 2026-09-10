@@ -1,113 +1,36 @@
 {
   "chosen_candidate": "NO_CLEAR_CANDIDATE",
   "candidate_evaluations": {
-    "CT": {
-      "d_expectancy_mean": 0.24899,
-      "holm_adj_p_value": 0.0,
-      "is_significant": true,
-      "net_pnl_02pct": 66.609,
-      "positive_week_pct": 55.6,
-      "pnl_without_best_day": 20.8312,
-      "passes_rule": false
-    },
     "Former_Favorite": {
-      "d_expectancy_mean": 0.13515,
-      "holm_adj_p_value": 0.0,
+      "d_expectancy_mean": 0.12667,
+      "holm_adj_p_value": 0.006,
       "is_significant": true,
-      "net_pnl_02pct": -158.7438,
-      "positive_week_pct": 44.4,
-      "pnl_without_best_day": -246.1853,
+      "net_pnl_02pct": -194.1245,
+      "positive_week_pct": 36.4,
+      "pnl_without_best_day": -281.5661,
       "passes_rule": false
     },
     "Rebound": {
-      "d_expectancy_mean": 0.108,
-      "holm_adj_p_value": 0.174,
+      "d_expectancy_mean": 0.12198,
+      "holm_adj_p_value": 0.184,
       "is_significant": false,
-      "net_pnl_02pct": -100.1233,
-      "positive_week_pct": 55.6,
-      "pnl_without_best_day": -130.6999,
+      "net_pnl_02pct": -92.5473,
+      "positive_week_pct": 54.5,
+      "pnl_without_best_day": -123.1238,
       "passes_rule": false
     },
     "Joint_Filter": {
-      "d_expectancy_mean": 0.14393,
-      "holm_adj_p_value": 0.276,
+      "d_expectancy_mean": 0.14148,
+      "holm_adj_p_value": 0.096,
       "is_significant": false,
-      "net_pnl_02pct": -38.03,
-      "positive_week_pct": 33.3,
-      "pnl_without_best_day": -60.7027,
+      "net_pnl_02pct": -42.8262,
+      "positive_week_pct": 27.3,
+      "pnl_without_best_day": -65.4989,
       "passes_rule": false
     }
   },
   "holdout_results": {
-    "Control": {
-      "policy_name": "Control",
-      "n_trades": 211,
-      "n_days": 3,
-      "mean_ask": 0.1563,
-      "win_count": 33,
-      "win_rate": 0.1564,
-      "turnover_usdc": 211.0,
-      "gross_pnl": -63.9184,
-      "net_pnl_02pct": -64.3404,
-      "net_pnl_01pct": -64.1294,
-      "expectancy_usdc": -0.30493,
-      "expectancy_roi_pct": -30.4931
-    },
-    "CT": {
-      "policy_name": "CT",
-      "n_trades": 50,
-      "n_days": 2,
-      "mean_ask": 0.2306,
-      "win_count": 16,
-      "win_rate": 0.32,
-      "turnover_usdc": 50.0,
-      "gross_pnl": 9.5283,
-      "net_pnl_02pct": 9.4283,
-      "net_pnl_01pct": 9.4783,
-      "expectancy_usdc": 0.18857,
-      "expectancy_roi_pct": 18.8566
-    },
-    "Former_Favorite": {
-      "policy_name": "Former_Favorite",
-      "n_trades": 144,
-      "n_days": 3,
-      "mean_ask": 0.1712,
-      "win_count": 26,
-      "win_rate": 0.1806,
-      "turnover_usdc": 144.0,
-      "gross_pnl": -35.0927,
-      "net_pnl_02pct": -35.3807,
-      "net_pnl_01pct": -35.2367,
-      "expectancy_usdc": -0.2457,
-      "expectancy_roi_pct": -24.5699
-    },
-    "Rebound": {
-      "policy_name": "Rebound",
-      "n_trades": 60,
-      "n_days": 3,
-      "mean_ask": 0.2441,
-      "win_count": 17,
-      "win_rate": 0.2833,
-      "turnover_usdc": 60.0,
-      "gross_pnl": 10.4467,
-      "net_pnl_02pct": 10.3267,
-      "net_pnl_01pct": 10.3867,
-      "expectancy_usdc": 0.17211,
-      "expectancy_roi_pct": 17.2111
-    },
-    "Joint_Filter": {
-      "policy_name": "Joint_Filter",
-      "n_trades": 47,
-      "n_days": 3,
-      "mean_ask": 0.2527,
-      "win_count": 12,
-      "win_rate": 0.2553,
-      "turnover_usdc": 47.0,
-      "gross_pnl": -3.0726,
-      "net_pnl_02pct": -3.1666,
-      "net_pnl_01pct": -3.1196,
-      "expectancy_usdc": -0.06737,
-      "expectancy_roi_pct": -6.7375
-    }
+    "status": "PENDING_NEW_PERIOD",
+    "reason": "\u0412\u0441\u0435 \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b\u0435 \u0438\u0441\u0442\u043e\u0440\u0438\u0447\u0435\u0441\u043a\u0438\u0435 \u0434\u0430\u043d\u043d\u044b\u0435 (\u0432\u043a\u043b\u044e\u0447\u0430\u044f \u0430\u0432\u0433\u0443\u0441\u0442 \u0438 \u0441\u0435\u043d\u0442\u044f\u0431\u0440\u044c 2026) \u0443\u0436\u0435 \u0438\u0441\u0441\u043b\u0435\u0434\u043e\u0432\u0430\u043b\u0438\u0441\u044c \u0432 \u043f\u0440\u0435\u0434\u0432\u0430\u0440\u0438\u0442\u0435\u043b\u044c\u043d\u044b\u0445 \u0440\u0430\u0443\u043d\u0434\u0430\u0445 \u0438 \u0438\u0441\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u043d\u044b \u0434\u043b\u044f \u0430\u043d\u0430\u043b\u0438\u0437\u0430 \u043c\u0435\u0445\u0430\u043d\u0438\u0437\u043c\u0430. \u0420\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442\u044b \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d\u0438\u044f \u043d\u0430 \u043f\u043e\u0441\u043b\u0435\u0434\u0443\u044e\u0449\u0435\u043c \u043f\u0435\u0440\u0438\u043e\u0434\u0435 \u043e\u0436\u0438\u0434\u0430\u044e\u0442 \u043f\u043e\u044f\u0432\u043b\u0435\u043d\u0438\u044f \u043d\u043e\u0432\u044b\u0445 \u0442\u043e\u0440\u0433\u043e\u0432\u044b\u0445 \u0434\u043d\u0435\u0439."
   }
 }

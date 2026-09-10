@@ -1,0 +1,37 @@
+{
+  "former_favorite_total": 2957,
+  "single_touch": {
+    "policy_name": "FORMER_FAVORITE__SINGLE_TOUCH",
+    "n_trades": 679,
+    "n_days": 51,
+    "mean_ask": 0.1313,
+    "win_count": 90,
+    "win_rate": 0.1325,
+    "turnover_usdc": 679.0,
+    "gross_pnl": -122.9232,
+    "net_pnl_02pct": -124.2812,
+    "net_pnl_01pct": -123.6022,
+    "expectancy_usdc": -0.18304,
+    "expectancy_roi_pct": -18.3036,
+    "total_universe_trades": 5237,
+    "stream_expectancy_usdc": -0.02373,
+    "filter_pass_rate_pct": 12.97
+  },
+  "multi_touch": {
+    "policy_name": "FORMER_FAVORITE__MULTI_TOUCH",
+    "n_trades": 2278,
+    "n_days": 54,
+    "mean_ask": 0.1878,
+    "win_count": 401,
+    "win_rate": 0.176,
+    "turnover_usdc": 2278.0,
+    "gross_pnl": -65.2873,
+    "net_pnl_02pct": -69.8433,
+    "net_pnl_01pct": -67.5653,
+    "expectancy_usdc": -0.03066,
+    "expectancy_roi_pct": -3.066,
+    "total_universe_trades": 5237,
+    "stream_expectancy_usdc": -0.01334,
+    "filter_pass_rate_pct": 43.5
+  }
+}

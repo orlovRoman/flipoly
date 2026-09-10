@@ -94,11 +94,14 @@ class ResearchProtocol:
     rebound_drawdown_thresh: float = 0.05
     rebound_rebound_thresh: float = 0.02
 
-    # Period split (Item 4)
+    # Period split & confirmation status (Item 4)
+    # The entire currently examined dataset is used for mechanism analysis.
+    # No unexamined subsequent period is currently available.
     exploratory_start_utc: str = "2026-06-25T00:00:00+00:00"
-    exploratory_end_utc: str = "2026-08-31T23:59:59+00:00"
-    holdout_start_utc: str = "2026-09-01T00:00:00+00:00"
-    holdout_end_utc: str = "2026-09-09T23:59:59+00:00"
+    exploratory_end_utc: str = "2026-09-09T23:59:59+00:00"
+    holdout_status: str = "PENDING_NEW_PERIOD"
+    holdout_start_utc: Optional[str] = None
+    holdout_end_utc: Optional[str] = None
 
     def canonical_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -178,6 +181,8 @@ class OpportunityRecord:
     net_pnl_02pct: float
     fee_01pct: float
     net_pnl_01pct: float
+    confirmed_net_pnl: Optional[float]
+    execution_type: str
 
     # Selection status
     selection_status: str  # "OK", "PRICE_FILTER", "DELAY_TOO_LARGE", "PARITY", "MISSING_QUOTE", "UNRESOLVED"
@@ -270,6 +275,8 @@ def process_single_market(
             net_pnl_02pct=0.0,
             fee_01pct=0.0,
             net_pnl_01pct=0.0,
+            confirmed_net_pnl=None,
+            execution_type="TOP_OF_BOOK_ASK",
             selection_status=status,
             skip_reason=reason,
         )
@@ -429,6 +436,8 @@ def process_single_market(
         net_pnl_02pct=econ.net_pnl_02pct,
         fee_01pct=econ.fee_01pct,
         net_pnl_01pct=econ.net_pnl_01pct,
+        confirmed_net_pnl=econ.confirmed_net_pnl,
+        execution_type=econ.execution_type,
         selection_status="OK",
         skip_reason="",
     )

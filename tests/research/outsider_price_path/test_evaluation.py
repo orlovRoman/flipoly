@@ -56,12 +56,15 @@ def _make_sample_df() -> pd.DataFrame:
 
 def test_summarize_policy():
     df = _make_sample_df()
-    summ = summarize_policy(df, "All_Markets")
+    summ = summarize_policy(df, "All_Markets", total_universe_trades=400)
     assert summ.n_trades == 200
     assert summ.n_days == 20
     assert 0.0 <= summ.win_rate <= 1.0
     assert summ.turnover_usdc == 200.0
     assert summ.expectancy_usdc == summ.net_pnl_02pct / 200
+    assert summ.total_universe_trades == 400
+    assert abs(summ.stream_expectancy_usdc - (summ.net_pnl_02pct / 400)) < 1e-6
+    assert summ.filter_pass_rate_pct == 50.0
 
 
 def test_stratified_comparison():
@@ -71,6 +74,8 @@ def test_stratified_comparison():
     assert "coverage_loss_pct" in res
     assert "adjusted_win_rate_diff" in res
     assert "adjusted_expectancy_diff_usdc" in res
+    assert "equal_strata_win_rate_diff" in res
+    assert "equal_strata_expectancy_diff_usdc" in res
 
 
 def test_day_block_bootstrap():
@@ -96,3 +101,5 @@ def test_concentration_audit():
     assert "best_day" in audit
     assert "weekly_summary" in audit
     assert audit["weekly_summary"]["total_weeks"] > 0
+    assert "by_side" in audit
+    assert len(audit["by_side"]) > 0

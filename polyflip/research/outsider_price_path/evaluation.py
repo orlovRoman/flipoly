@@ -19,10 +19,12 @@ from typing import Sequence, Mapping, Any, Optional
 import numpy as np
 import pandas as pd
 
+from polyflip.research.trade_economics.pnl import apply_fee_to_budget, calculate_net_pnl
+
 
 @dataclass(frozen=True)
 class OpportunityEconomics:
-    """Economics of a single opportunity with $1 budget."""
+    """Economics of a single opportunity with $1 budget using verified trade_economics."""
     ask: float
     target: int  # 1 for win, 0 for loss
     budget_usdc: float = 1.0
@@ -32,27 +34,64 @@ class OpportunityEconomics:
     net_pnl_02pct: float = 0.0
     fee_01pct: float = 0.0
     net_pnl_01pct: float = 0.0
+    confirmed_net_pnl: Optional[float] = None  # None indicates exchange fee schedule unconfirmed
+    execution_type: str = "TOP_OF_BOOK_ASK"  # Depth simulation unavailable in historical snapshots
 
     @classmethod
     def compute(cls, ask: float, target: int, budget: float = 1.0) -> OpportunityEconomics:
         if ask <= 0.0 or not math.isfinite(ask):
             return cls(ask=ask, target=target, budget_usdc=budget)
-        shares = budget / ask
-        gross_pnl = shares * (target - ask)
-        fee_02 = budget * 0.002
-        net_02 = gross_pnl - fee_02
-        fee_01 = budget * 0.001
-        net_01 = gross_pnl - fee_01
+        
+        # Use verified trade_economics module
+        actual_cost_02, shares, fee_02 = apply_fee_to_budget(
+            total_budget=budget,
+            commission_rate=0.002,
+            price=ask,
+            mode='exclusive'
+        )
+        payout = float(shares) if target == 1 else 0.0
+        net_02 = calculate_net_pnl(
+            sale_proceeds=0.0,
+            settlement_proceeds=payout,
+            purchase_cash=budget,
+            platform_fees=float(fee_02),
+            attributable_network_costs=0.0,
+            confirmed_rebates=0.0,
+            is_fully_closed=True,
+            fee_is_uncertain=False
+        ) or 0.0
+
+        _, _, fee_01 = apply_fee_to_budget(
+            total_budget=budget,
+            commission_rate=0.001,
+            price=ask,
+            mode='exclusive'
+        )
+        net_01 = calculate_net_pnl(
+            sale_proceeds=0.0,
+            settlement_proceeds=payout,
+            purchase_cash=budget,
+            platform_fees=float(fee_01),
+            attributable_network_costs=0.0,
+            confirmed_rebates=0.0,
+            is_fully_closed=True,
+            fee_is_uncertain=False
+        ) or 0.0
+
+        gross_pnl = payout - budget
+
         return cls(
             ask=round(ask, 6),
             target=target,
             budget_usdc=budget,
-            shares=round(shares, 6),
+            shares=round(float(shares), 6),
             gross_pnl=round(gross_pnl, 6),
-            fee_02pct=round(fee_02, 6),
+            fee_02pct=round(float(fee_02), 6),
             net_pnl_02pct=round(net_02, 6),
-            fee_01pct=round(fee_01, 6),
+            fee_01pct=round(float(fee_01), 6),
             net_pnl_01pct=round(net_01, 6),
+            confirmed_net_pnl=None,
+            execution_type="TOP_OF_BOOK_ASK",
         )
 
 
@@ -70,6 +109,9 @@ class PolicySummary:
     net_pnl_01pct: float
     expectancy_usdc: float
     expectancy_roi_pct: float
+    total_universe_trades: int = 0
+    stream_expectancy_usdc: float = 0.0
+    filter_pass_rate_pct: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -85,15 +127,20 @@ class PolicySummary:
             "net_pnl_01pct": round(self.net_pnl_01pct, 4),
             "expectancy_usdc": round(self.expectancy_usdc, 5),
             "expectancy_roi_pct": round(self.expectancy_roi_pct, 4),
+            "total_universe_trades": self.total_universe_trades,
+            "stream_expectancy_usdc": round(self.stream_expectancy_usdc, 5),
+            "filter_pass_rate_pct": round(self.filter_pass_rate_pct, 2),
         }
 
 
 def summarize_policy(
     df_trades: pd.DataFrame,
     policy_name: str,
+    total_universe_trades: Optional[int] = None,
 ) -> PolicySummary:
-    """Computes summary statistics for a trade selection."""
+    """Computes summary statistics for a trade selection, including total-stream expectancy (Items 22 & 23)."""
     n = len(df_trades)
+    u_total = total_universe_trades if total_universe_trades is not None and total_universe_trades > 0 else n
     if n == 0:
         return PolicySummary(
             policy_name=policy_name,
@@ -108,6 +155,9 @@ def summarize_policy(
             net_pnl_01pct=0.0,
             expectancy_usdc=0.0,
             expectancy_roi_pct=0.0,
+            total_universe_trades=u_total,
+            stream_expectancy_usdc=0.0,
+            filter_pass_rate_pct=0.0,
         )
 
     days = df_trades["calendar_date"].nunique() if "calendar_date" in df_trades else 0
@@ -120,6 +170,8 @@ def summarize_policy(
     net_01 = float(df_trades["net_pnl_01pct"].sum()) if "net_pnl_01pct" in df_trades else (gross - turnover * 0.001)
     exp_usdc = net_02 / n
     exp_roi = (net_02 / turnover * 100.0) if turnover > 0 else 0.0
+    stream_exp = net_02 / u_total if u_total > 0 else 0.0
+    pass_rate = (n / u_total * 100.0) if u_total > 0 else 100.0
 
     return PolicySummary(
         policy_name=policy_name,
@@ -134,6 +186,9 @@ def summarize_policy(
         net_pnl_01pct=net_01,
         expectancy_usdc=exp_usdc,
         expectancy_roi_pct=exp_roi,
+        total_universe_trades=u_total,
+        stream_expectancy_usdc=stream_exp,
+        filter_pass_rate_pct=pass_rate,
     )
 
 
@@ -211,6 +266,10 @@ def compute_stratified_comparison(
     adjusted_wr_diff = (sum(stratum_diffs_wr) / sum_w) if sum_w > 0 else 0.0
     adjusted_pnl_diff = (sum(stratum_diffs_pnl) / sum_w) if sum_w > 0 else 0.0
 
+    # Equal weight per common stratum (Item 21: "привести их к одинаковым весам")
+    unweighted_wr_diff = float(np.mean([d / w for d, w in zip(stratum_diffs_wr, stratum_weights)])) if stratum_weights else 0.0
+    unweighted_pnl_diff = float(np.mean([d / w for d, w in zip(stratum_diffs_pnl, stratum_weights)])) if stratum_weights else 0.0
+
     return {
         "group_a": group_a,
         "group_b": group_b,
@@ -222,6 +281,8 @@ def compute_stratified_comparison(
         "coverage_loss_pct": round(coverage_loss_pct, 2),
         "adjusted_win_rate_diff": round(adjusted_wr_diff, 5),
         "adjusted_expectancy_diff_usdc": round(adjusted_pnl_diff, 5),
+        "equal_strata_win_rate_diff": round(unweighted_wr_diff, 5),
+        "equal_strata_expectancy_diff_usdc": round(unweighted_pnl_diff, 5),
     }
 
 
@@ -371,6 +432,7 @@ def compute_concentration_audit(
     - Stress test without the most profitable calendar day
     - Weekly stability
     - Asset breakdown
+    - Side breakdown (Item 26: распределение выигрышей между активами и сторонами)
     """
     if len(df_trades) == 0:
         return {}
@@ -381,6 +443,8 @@ def compute_concentration_audit(
     wins = df_trades[df_trades["target"] == 1].sort_values("net_pnl_02pct", ascending=False)
     top5 = wins.head(5)
     top5_sum = float(top5["net_pnl_02pct"].sum())
+    total_wins_pnl = float(wins["net_pnl_02pct"].sum())
+    top5_share_of_wins_pct = (top5_sum / total_wins_pnl * 100.0) if total_wins_pnl > 0 else 0.0
     top5_share_pct = (top5_sum / total_net * 100.0) if total_net > 0 else 0.0
 
     # Best day exclusion stress test
@@ -399,7 +463,7 @@ def compute_concentration_audit(
     pos_weeks = int((weekly["net_pnl"] > 0).sum())
     total_weeks = len(weekly)
 
-    # Asset breakdown
+    # Asset breakdown (Item 26)
     by_asset = df_trades.groupby("asset").agg(
         trades=("market_id", "count"),
         wins=("target", "sum"),
@@ -407,11 +471,25 @@ def compute_concentration_audit(
         mean_ask=("ask", "mean"),
     ).reset_index()
     by_asset["win_rate"] = by_asset["wins"] / by_asset["trades"]
+    total_all_wins = int(df_trades["target"].sum())
+    by_asset["win_share_pct"] = (by_asset["wins"] / total_all_wins * 100.0) if total_all_wins > 0 else 0.0
+
+    # Side breakdown (Item 26)
+    by_side = df_trades.groupby("side").agg(
+        trades=("market_id", "count"),
+        wins=("target", "sum"),
+        net_pnl=("net_pnl_02pct", "sum"),
+        mean_ask=("ask", "mean"),
+    ).reset_index()
+    by_side["win_rate"] = by_side["wins"] / by_side["trades"]
+    by_side["win_share_pct"] = (by_side["wins"] / total_all_wins * 100.0) if total_all_wins > 0 else 0.0
 
     return {
         "total_net_pnl": round(total_net, 4),
+        "total_wins_pnl": round(total_wins_pnl, 4),
         "top5_wins_sum": round(top5_sum, 4),
         "top5_share_of_total_pct": round(top5_share_pct, 2),
+        "top5_share_of_wins_pct": round(top5_share_of_wins_pct, 2),
         "best_day": best_day,
         "best_day_pnl": round(best_day_pnl, 4),
         "pnl_without_best_day": round(pnl_without_best_day, 4),
@@ -422,4 +500,5 @@ def compute_concentration_audit(
             "weeks": weekly.to_dict("records"),
         },
         "by_asset": by_asset.to_dict("records"),
+        "by_side": by_side.to_dict("records"),
     }

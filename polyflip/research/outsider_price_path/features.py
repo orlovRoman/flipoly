@@ -138,11 +138,11 @@ def compute_trajectory_features(
         range_pos = 0.5
 
     # 4. Peak -> Subsequent Trough -> Current Price sequence
-    # Find peak mid and earliest timestamp at which it occurred
+    # Find peak mid and latest timestamp at which it occurred (ensures no trough before peak is selected)
     peak_mid = max_mid
     peak_idx = -1
-    for i, o in enumerate(valid_obs):
-        if abs(o.mid_price - peak_mid) < 1e-9:
+    for i in range(len(valid_obs) - 1, -1, -1):
+        if abs(valid_obs[i].mid_price - peak_mid) < 1e-9:
             peak_idx = i
             break
 
@@ -150,11 +150,12 @@ def compute_trajectory_features(
     peak_time = peak_obs.timestamp
 
     # Search for subsequent trough STRICTLY at or after peak_idx
+    # Use latest occurrence of minimum after peak to anchor rebound baseline
     subsequent_obs = valid_obs[peak_idx:]
     subsequent_trough_mid = min(o.mid_price for o in subsequent_obs)
     trough_idx_rel = -1
-    for i, o in enumerate(subsequent_obs):
-        if abs(o.mid_price - subsequent_trough_mid) < 1e-9:
+    for i in range(len(subsequent_obs) - 1, -1, -1):
+        if abs(subsequent_obs[i].mid_price - subsequent_trough_mid) < 1e-9:
             trough_idx_rel = i
             break
 

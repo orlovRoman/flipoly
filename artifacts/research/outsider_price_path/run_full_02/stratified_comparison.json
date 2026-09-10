@@ -1,12 +1,14 @@
 {
   "group_a": "FORMER_FAVORITE",
   "group_b": "OBSERVED_ALWAYS_OUTSIDER",
-  "total_rows": 4149,
-  "common_support_rows": 3905,
-  "common_strata_count": 285,
-  "lost_rows_a": 237,
-  "lost_rows_b": 7,
-  "coverage_loss_pct": 5.88,
-  "adjusted_win_rate_diff": 0.02484,
-  "adjusted_expectancy_diff_usdc": 0.32991
+  "total_rows": 4346,
+  "common_support_rows": 4054,
+  "common_strata_count": 310,
+  "lost_rows_a": 283,
+  "lost_rows_b": 9,
+  "coverage_loss_pct": 6.72,
+  "adjusted_win_rate_diff": 0.0223,
+  "adjusted_expectancy_diff_usdc": 0.3095,
+  "equal_strata_win_rate_diff": 0.00403,
+  "equal_strata_expectancy_diff_usdc": 0.1274
 }

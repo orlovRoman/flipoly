@@ -113,6 +113,40 @@ def test_trough_before_peak_not_used():
     assert abs(feat.rebound - 0.05) < 1e-6
 
 
+def test_multiple_peaks_trough_not_leaked():
+    """
+    CRITICAL CHECK: When peak price is reached multiple times, a trough between
+    the peaks must NEVER be used as subsequent trough for the latest drop.
+    e.g. 0.80 at t=0, drops to 0.10 at t=60, rises back to 0.80 at t=180, then drops to 0.20 at t=300..595.
+    The subsequent trough after the 0.80 peak must be 0.20, NOT 0.10!
+    Rebound must be 0.00, NOT 0.10, and must NOT be classified as REBOUND.
+    """
+    decision_at = _dt(600)
+    snaps = [
+        Observation(_dt(0), 0.80),    # First peak
+        Observation(_dt(60), 0.10),   # Trough between peaks
+        Observation(_dt(120), 0.50),
+        Observation(_dt(180), 0.80),  # Second peak
+        Observation(_dt(240), 0.60),
+        Observation(_dt(300), 0.40),
+        Observation(_dt(360), 0.20),  # Subsequent trough after latest peak
+        Observation(_dt(420), 0.20),
+        Observation(_dt(480), 0.20),
+        Observation(_dt(540), 0.20),
+        Observation(_dt(595), 0.20),  # Current price is 0.20 (no rebound after 2nd peak)
+    ]
+    feat = compute_trajectory_features(snaps, decision_at)
+    assert feat is not None
+    assert feat.peak_mid == 0.80
+    assert feat.subsequent_trough_mid == 0.20  # Must be 0.20, NEVER the 0.10 between peaks!
+    assert feat.current_mid == 0.20
+    assert abs(feat.drawdown - 0.60) < 1e-6
+    assert abs(feat.rebound - 0.00) < 1e-6
+    assert feat.recovery_fraction == 0.0
+    assert feat.is_rebound is False
+    assert feat.rebound_category == "NO_REBOUND"
+
+
 def test_flat_series_no_movement():
     """Test series with constant price."""
     decision_at = _dt(600)

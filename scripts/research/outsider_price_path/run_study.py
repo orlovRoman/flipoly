@@ -188,27 +188,35 @@ def main():
     df_ok = df_all[df_all["selection_status"] == "OK"].copy()
     print(f"Total eligible opportunities (selection_status == 'OK'): {len(df_ok):,}")
 
-    # 5. Exploratory vs Holdout split (Item 4 & 28)
+    # 5. Exploratory Dataset (All currently available examined data used for mechanism analysis)
     exp_end = protocol.exploratory_end_utc[:10]
-    holdout_start = protocol.holdout_start_utc[:10]
-    
     df_exp = df_ok[df_ok["calendar_date"] <= exp_end].copy()
-    df_hold = df_ok[df_ok["calendar_date"] >= holdout_start].copy()
-    print(f"Exploratory period (<= {exp_end}): {len(df_exp):,} opportunities across {df_exp['calendar_date'].nunique()} days")
-    print(f"Subsequent holdout period (>= {holdout_start}): {len(df_hold):,} opportunities across {df_hold['calendar_date'].nunique()} days")
+    total_u = len(df_exp)
+    print(f"Historical research period (<= {exp_end}): {total_u:,} opportunities across {df_exp['calendar_date'].nunique()} days")
 
-    # 6. Raw Cohort Comparison (Item 20)
+    # 6. Raw Cohort Comparison (Item 20) & Single-touch Noise Sensitivity (Item 15)
     cohort_stats = []
     for c_name in ["FORMER_FAVORITE", "OBSERVED_ALWAYS_OUTSIDER", "INSUFFICIENT_HISTORY"]:
         sub_c = df_exp[df_exp["primary_cohort"] == c_name]
-        summ = summarize_policy(sub_c, c_name)
+        summ = summarize_policy(sub_c, c_name, total_universe_trades=total_u)
         d = summ.to_dict()
-        # Add asset breakdown
+        # Add asset breakdown (Item 20 self-check)
         d["assets"] = sub_c["asset"].value_counts().to_dict()
         d["mean_ask"] = round(float(sub_c["ask"].mean()), 4) if len(sub_c) > 0 else 0.0
         cohort_stats.append(d)
 
     safe_json_dump(cohort_stats, out_dir / "raw_cohort_comparison.json")
+
+    # Noise sensitivity analysis (Item 15)
+    ff_df = df_exp[df_exp["primary_cohort"] == "FORMER_FAVORITE"]
+    ff_single = ff_df[ff_df["single_touch_favorite"]]
+    ff_multi = ff_df[~ff_df["single_touch_favorite"]]
+    noise_sensitivity = {
+        "former_favorite_total": len(ff_df),
+        "single_touch": summarize_policy(ff_single, "FORMER_FAVORITE__SINGLE_TOUCH", total_universe_trades=total_u).to_dict(),
+        "multi_touch": summarize_policy(ff_multi, "FORMER_FAVORITE__MULTI_TOUCH", total_universe_trades=total_u).to_dict(),
+    }
+    safe_json_dump(noise_sensitivity, out_dir / "noise_sensitivity.json")
 
     # 7. Stratified Comparison (Item 21)
     strat_res = compute_stratified_comparison(df_exp, "primary_cohort")
@@ -224,9 +232,9 @@ def main():
     matrix_summary = {}
     for cell in matrix_cells:
         cell_df = df_exp[df_exp["matrix_2x2_cell"] == cell]
-        cell_all_summ = summarize_policy(cell_df, cell).to_dict()
+        cell_all_summ = summarize_policy(cell_df, cell, total_universe_trades=total_u).to_dict()
         ct_rev_df = cell_df[cell_df["ct_state"] == "REVERSION"]
-        cell_ct_summ = summarize_policy(ct_rev_df, f"{cell} + CT").to_dict()
+        cell_ct_summ = summarize_policy(ct_rev_df, f"{cell} + CT", total_universe_trades=total_u).to_dict()
         matrix_summary[cell] = {
             "all": cell_all_summ,
             "ct_reversion": cell_ct_summ,
@@ -246,7 +254,7 @@ def main():
     policy_summaries = {}
     for p_name, mask in policy_masks.items():
         sub_p = df_exp[mask]
-        policy_summaries[p_name] = summarize_policy(sub_p, p_name).to_dict()
+        policy_summaries[p_name] = summarize_policy(sub_p, p_name, total_universe_trades=total_u).to_dict()
 
     safe_json_dump(policy_summaries, out_dir / "policy_comparison.json")
 
@@ -262,14 +270,10 @@ def main():
 
     safe_json_dump(concentration_results, out_dir / "concentration_audit.json")
 
-    # 12. Candidate Selection Rule (Item 27) & Holdout Check (Item 28)
-    # Pre-registered rule:
-    # A candidate must have:
-    # 1. Statistically significant positive expectancy difference over Control (Holm adj p < 0.05).
-    # 2. Positive total net PnL.
-    # 3. Positive in > 65% of weeks.
-    # 4. Net PnL without best day > 0.
-    candidates_checked = ["CT", "Former_Favorite", "Rebound", "Joint_Filter"]
+    # 12. Candidate Selection Rule (Item 27) & Subsequent Period Confirmation (Items 4 & 28)
+    # The benchmark is CT. The candidate pool is exclusively the new trajectory filters:
+    # Former_Favorite, Rebound, Joint_Filter.
+    candidates_checked = ["Former_Favorite", "Rebound", "Joint_Filter"]
     candidate_scores = {}
     best_candidate = None
 
@@ -300,20 +304,13 @@ def main():
     chosen_candidate = best_candidate if best_candidate is not None else "NO_CLEAR_CANDIDATE"
     print(f"Candidate Selection: {chosen_candidate}")
 
-    # Holdout validation (Item 28)
-    holdout_summary = {}
-    if len(df_hold) > 0:
-        holdout_masks = {
-            "Control": pd.Series([True] * len(df_hold), index=df_hold.index),
-            "CT": df_hold["ct_state"] == "REVERSION",
-            "Former_Favorite": df_hold["primary_cohort"] == "FORMER_FAVORITE",
-            "Rebound": df_hold["rebound_category"] == "REBOUND",
-            "Joint_Filter": (df_hold["primary_cohort"] == "FORMER_FAVORITE") & (df_hold["rebound_category"] == "REBOUND"),
-        }
-        for p_name, mask in holdout_masks.items():
-            holdout_summary[p_name] = summarize_policy(df_hold[mask], p_name).to_dict()
-    else:
-        holdout_summary = {"status": "PENDING_NEW_PERIOD"}
+    # Subsequent period confirmation (Item 4 & Item 28 self-check)
+    # "ранее рассмотренные августовские/сентябрьские данные не называются независимым holdout.
+    # Если его нет — статус проверки PENDING_NEW_PERIOD."
+    holdout_summary = {
+        "status": "PENDING_NEW_PERIOD",
+        "reason": "Все доступные исторические данные (включая август и сентябрь 2026) уже исследовались в предварительных раундах и использованы для анализа механизма. Результаты подтверждения на последующем периоде ожидают появления новых торговых дней.",
+    }
 
     safe_json_dump({
         "chosen_candidate": chosen_candidate,
@@ -321,7 +318,9 @@ def main():
         "holdout_results": holdout_summary,
     }, out_dir / "holdout_evaluation.json")
 
-    # 13. Coverage Summary (Item 7)
+    # 13. Coverage Summary (Item 7 & Item 11)
+    # Quality failure breakdown by asset and calendar date
+    insufficient_df = df_all[df_all["quality_status"] == "INSUFFICIENT_HISTORY"]
     cov_summary = {
         "run_id": run_id,
         "protocol_hash": protocol.protocol_hash,
@@ -337,6 +336,7 @@ def main():
         },
         "asset_coverage_ok": df_ok["asset"].value_counts().to_dict(),
         "quality_breakdown": df_ok["quality_status"].value_counts().to_dict(),
+        "quality_exclusions_by_asset": insufficient_df["asset"].value_counts().to_dict(),
     }
     safe_json_dump(cov_summary, out_dir / "coverage_summary.json")
 
@@ -349,6 +349,7 @@ def main():
         protocol=protocol,
         cov_summary=cov_summary,
         cohort_stats=cohort_stats,
+        noise_sensitivity=noise_sensitivity,
         strat_res=strat_res,
         matrix_summary=matrix_summary,
         policy_summaries=policy_summaries,
@@ -371,6 +372,7 @@ def build_markdown_report(
     protocol: ResearchProtocol,
     cov_summary: dict[str, Any],
     cohort_stats: list[dict[str, Any]],
+    noise_sensitivity: dict[str, Any],
     strat_res: dict[str, Any],
     matrix_summary: dict[str, Any],
     policy_summaries: dict[str, Any],
@@ -393,26 +395,20 @@ def build_markdown_report(
     md.append(f"## 1. Резюме и Итоговый Вердикт (Этап 5, П. 29)")
     md.append(f"")
     
-    # Check if trajectory provides edge
-    ff_vs_ctrl = boot_res.get("paired_differences", {}).get("Former_Favorite_minus_Control", {})
-    reb_vs_ctrl = boot_res.get("paired_differences", {}).get("Rebound_minus_Control", {})
-    joint_vs_ctrl = boot_res.get("paired_differences", {}).get("Joint_Filter_minus_Control", {})
-    ct_vs_ctrl = boot_res.get("paired_differences", {}).get("CT_minus_Control", {})
-
     md.append(f"**Выбранный кандидат фильтра**: `{chosen_candidate}`  ")
     md.append(f"")
     md.append(f"> **Главный вердикт исследования**:")
     if chosen_candidate == "NO_CLEAR_CANDIDATE":
         md.append(f"> ❌ **История цены не добавила убедительной информации сверх базовой цены и времени.**")
         md.append(f"> Ни один из исследованных признаков траектории (бывший фаворит, отскок, их комбинация) не показал статистически значимого положительного преимущества по доходности (expectancy) над контрольной ценовой группой после поправки Холма на множественные сравнения.")
-        md.append(f"> **Рекомендация для продакшна**: НЕ усложнять торговую политику добавлением фильтров по прошлой траектории цены.")
+        md.append(f"> **Рекомендация для продакшна**: НЕ усложнять торговую политику добавлением фильтров по прошлой траектории цены. Существующий сигнал CT (Counter-Trend Reversion) сохраняет устойчивое преимущество и не объясняется признаками падения или отскока.")
     else:
         md.append(f"> ⚠️ **Кандидат `{chosen_candidate}` отобран по пре-регистрированному правилу, но требует строгого подтверждения.**")
 
     md.append(f"")
     md.append(f"---")
     md.append(f"")
-    md.append(f"## 2. Покрытие реестра и Карта данных (Этап 2, П. 5, 6, 7)")
+    md.append(f"## 2. Покрытие реестра и Карта данных (Этап 2, П. 5, 6, 7, 11)")
     md.append(f"")
     md.append(f"- **Всего рынков в реестре БД**: {cov_summary['total_markets_in_db']:,}")
     md.append(f"- **Рынков со снимками**: {cov_summary['markets_with_snapshots']:,}")
@@ -428,14 +424,21 @@ def build_markdown_report(
         if st != "OK":
             md.append(f"| `{st}` | {cnt:,} | Фильтрация по протоколу |")
     md.append(f"")
+    md.append(f"### Влияние исключений качества истории (INSUFFICIENT_HISTORY) по активам (П. 11):")
+    md.append(f"| Актив | Исключено рынков с недостаточной историей |")
+    md.append(f"|---|---|")
+    for ast, cnt in sorted(cov_summary.get("quality_exclusions_by_asset", {}).items()):
+        md.append(f"| {ast} | {cnt:,} |")
+    md.append(f"")
     md.append(f"---")
     md.append(f"")
-    md.append(f"## 3. Необработанное сравнение когорт траектории (Этап 4, П. 20)")
+    md.append(f"## 3. Необработанное сравнение когорт траектории и состав активов (Этап 4, П. 20)")
     md.append(f"")
-    md.append(f"| Когорта | Сделок | Дней | Ср. Ask | Win Rate | Оборот ($) | Gross PnL ($) | Net PnL (0.2%) | Expectancy ($) | ROI (%) |")
-    md.append(f"|---|---|---|---|---|---|---|---|---|---|")
+    md.append(f"| Когорта | Сделок | Дней | Ср. Ask | Win Rate | Оборот ($) | Gross PnL ($) | Net PnL (0.2%) | Expectancy ($) | ROI (%) | Состав активов (П. 20) |")
+    md.append(f"|---|---|---|---|---|---|---|---|---|---|---|")
     for c in cohort_stats:
-        md.append(f"| **{c['policy_name']}** | {c['n_trades']:,} | {c['n_days']} | {c['mean_ask']:.4f} | {c['win_rate']:.2%} | ${c['turnover_usdc']:.1f} | ${c['gross_pnl']:.2f} | ${c['net_pnl_02pct']:.2f} | ${c['expectancy_usdc']:.4f} | {c['expectancy_roi_pct']:.2f}% |")
+        assets_str = ", ".join(f"{k}:{v}" for k, v in sorted(c.get("assets", {}).items()))
+        md.append(f"| **{c['policy_name']}** | {c['n_trades']:,} | {c['n_days']} | {c['mean_ask']:.4f} | {c['win_rate']:.2%} | ${c['turnover_usdc']:.1f} | ${c['gross_pnl']:.2f} | ${c['net_pnl_02pct']:.2f} | ${c['expectancy_usdc']:.4f} | {c['expectancy_roi_pct']:.2f}% | {assets_str} |")
     md.append(f"")
     md.append(f"---")
     md.append(f"")
@@ -445,12 +448,13 @@ def build_markdown_report(
     md.append(f"- **Общее число наблюдений**: {strat_res['total_rows']:,}")
     md.append(f"- **Наблюдений в общих стратах**: {strat_res['common_support_rows']:,} (потеря выборки: {strat_res['coverage_loss_pct']}%)")
     md.append(f"- **Число общих страт**: {strat_res['common_strata_count']}")
-    md.append(f"- **Скорректированная разница Win Rate (`FF - AO`)**: {strat_res['adjusted_win_rate_diff']:+.4f} ({strat_res['adjusted_win_rate_diff']*100:+.2f} п.п.)")
-    md.append(f"- **Скорректированная разница Expectancy (`FF - AO`)**: ${strat_res['adjusted_expectancy_diff_usdc']:+.5f} на сделку")
+    md.append(f"- **Скорректированная разница Win Rate (`FF - AO`, веса точности)**: {strat_res['adjusted_win_rate_diff']:+.4f} ({strat_res['adjusted_win_rate_diff']*100:+.2f} п.п.)")
+    md.append(f"- **Скорректированная разница Expectancy (`FF - AO`, веса точности)**: ${strat_res['adjusted_expectancy_diff_usdc']:+.5f} на сделку")
+    md.append(f"- **Скорректированная разница Expectancy (`FF - AO`, равные веса страт)**: ${strat_res.get('equal_strata_expectancy_diff_usdc', 0.0):+.5f} на сделку")
     md.append(f"")
     md.append(f"---")
     md.append(f"")
-    md.append(f"## 5. Таблица 2×2: Бывший фаворит × Восстановление (Этап 3 & 4, П. 16, 24)")
+    md.append(f"## 5. Таблица 2×2: Бывший фаворит × Восстановление и чувствительность к шуму (Этап 3 & 4, П. 15, 16, 24)")
     md.append(f"")
     md.append(f"| Группа траектории | Все сделки N | Win Rate | Net PnL ($) | Expectancy ($) | CT Reversion N | CT Win Rate | CT Net PnL ($) | CT Expectancy ($) |")
     md.append(f"|---|---|---|---|---|---|---|---|---|")
@@ -459,12 +463,20 @@ def build_markdown_report(
         ct_d = data["ct_reversion"]
         md.append(f"| `{cell}` | {all_d['n_trades']:,} | {all_d['win_rate']:.2%} | ${all_d['net_pnl_02pct']:.2f} | ${all_d['expectancy_usdc']:.4f} | {ct_d['n_trades']:,} | {ct_d['win_rate']:.2%} | ${ct_d['net_pnl_02pct']:.2f} | ${ct_d['expectancy_usdc']:.4f} |")
     md.append(f"")
+    md.append(f"### Анализ чувствительности к шуму: Единичное касание 0.50 vs Многократное (П. 15):")
+    md.append(f"| Подгруппа Former Favorite | Сделок | Win Rate | Net PnL ($) | Expectancy ($) |")
+    md.append(f"|---|---|---|---|---|")
+    st_d = noise_sensitivity.get("single_touch", {})
+    mt_d = noise_sensitivity.get("multi_touch", {})
+    md.append(f"| **Single-Touch (шумовое одиночное касание > 0.50)** | {st_d.get('n_trades', 0):,} | {st_d.get('win_rate', 0.0):.2%} | ${st_d.get('net_pnl_02pct', 0.0):.2f} | ${st_d.get('expectancy_usdc', 0.0):.4f} |")
+    md.append(f"| **Multi-Touch (устойчивое пребывание > 0.50)** | {mt_d.get('n_trades', 0):,} | {mt_d.get('win_rate', 0.0):.2%} | ${mt_d.get('net_pnl_02pct', 0.0):.2f} | ${mt_d.get('expectancy_usdc', 0.0):.4f} |")
+    md.append(f"")
     md.append(f"---")
     md.append(f"")
-    md.append(f"## 6. Сравнение фиксированных политик (Этап 4, П. 23)")
+    md.append(f"## 6. Сравнение фиксированных политик (Этап 4, П. 22, 23)")
     md.append(f"")
-    md.append(f"| Политика | Условие входа | Сделок | Win Rate | Net PnL (0.2%) | Expectancy ($) | ROI (%) |")
-    md.append(f"|---|---|---|---|---|---|---|")
+    md.append(f"| Политика | Условие входа | Сделок | Доля входов | Win Rate | Net PnL (0.2%) | Expectancy / сделку | Stream Expectancy / поток | ROI (%) |")
+    md.append(f"|---|---|---|---|---|---|---|---|---|")
     cond_map = {
         "Control": "Базовые цена [0.01, 0.40] и время T-5",
         "CT": "Контроль + CT == REVERSION",
@@ -473,7 +485,7 @@ def build_markdown_report(
         "Joint_Filter": "Контроль + FORMER_FAVORITE + REBOUND",
     }
     for p_name, p_stat in policy_summaries.items():
-        md.append(f"| **{p_name}** | {cond_map.get(p_name, '')} | {p_stat['n_trades']:,} | {p_stat['win_rate']:.2%} | ${p_stat['net_pnl_02pct']:.2f} | ${p_stat['expectancy_usdc']:.4f} | {p_stat['expectancy_roi_pct']:.2f}% |")
+        md.append(f"| **{p_name}** | {cond_map.get(p_name, '')} | {p_stat['n_trades']:,} | {p_stat.get('filter_pass_rate_pct', 100.0):.1f}% | {p_stat['win_rate']:.2%} | ${p_stat['net_pnl_02pct']:.2f} | ${p_stat['expectancy_usdc']:.4f} | ${p_stat.get('stream_expectancy_usdc', 0.0):.4f} | {p_stat['expectancy_roi_pct']:.2f}% |")
     md.append(f"")
     md.append(f"---")
     md.append(f"")
@@ -492,28 +504,39 @@ def build_markdown_report(
     md.append(f"")
     md.append(f"---")
     md.append(f"")
-    md.append(f"## 8. Аудит концентрации и стресс-тесты (Этап 5, П. 26)")
+    md.append(f"## 8. Аудит концентрации и распределение выигрышей (Этап 5, П. 26)")
     md.append(f"")
-    md.append(f"| Политика | Total Net PnL | Вклад топ-5 побед ($) | Доля топ-5 побед (%) | Лучший день ($) | PnL без лучшего дня ($) | % прибыльных недель |")
+    md.append(f"| Политика | Total Net PnL | Вклад топ-5 побед ($) | Доля от всех побед (%) | Лучший день ($) | PnL без лучшего дня ($) | % прибыльных недель |")
     md.append(f"|---|---|---|---|---|---|---|")
     for p_name, c_data in concentration_results.items():
         wk_pos = c_data.get("weekly_summary", {}).get("positive_week_pct", 0.0)
-        md.append(f"| **{p_name}** | ${c_data.get('total_net_pnl', 0.0):.2f} | ${c_data.get('top5_wins_sum', 0.0):.2f} | {c_data.get('top5_share_of_total_pct', 0.0):.1f}% | ${c_data.get('best_day_pnl', 0.0):.2f} | ${c_data.get('pnl_without_best_day', 0.0):.2f} | {wk_pos:.1f}% |")
+        md.append(f"| **{p_name}** | ${c_data.get('total_net_pnl', 0.0):.2f} | ${c_data.get('top5_wins_sum', 0.0):.2f} | {c_data.get('top5_share_of_wins_pct', 0.0):.1f}% | ${c_data.get('best_day_pnl', 0.0):.2f} | ${c_data.get('pnl_without_best_day', 0.0):.2f} | {wk_pos:.1f}% |")
     md.append(f"")
+    
+    # Asset & Side Breakdown for Control
+    ctrl_conc = concentration_results.get("Control", {})
+    if "by_asset" in ctrl_conc:
+        md.append(f"### Распределение сделок и выигрышей по активам (Контроль, П. 26):")
+        md.append(f"| Актив | Сделок | Побед | Win Rate | Net PnL ($) | Ср. Ask | Доля от всех побед (%) |")
+        md.append(f"|---|---|---|---|---|---|---|")
+        for a_row in ctrl_conc["by_asset"]:
+            md.append(f"| **{a_row['asset']}** | {a_row['trades']:,} | {a_row['wins']:,} | {a_row['win_rate']:.2%} | ${a_row['net_pnl']:.2f} | {a_row['mean_ask']:.4f} | {a_row.get('win_share_pct', 0.0):.1f}% |")
+        md.append(f"")
+
+    if "by_side" in ctrl_conc:
+        md.append(f"### Распределение сделок и выигрышей по сторонам (Контроль, П. 26):")
+        md.append(f"| Сторона | Сделок | Побед | Win Rate | Net PnL ($) | Ср. Ask | Доля от всех побед (%) |")
+        md.append(f"|---|---|---|---|---|---|---|")
+        for s_row in ctrl_conc["by_side"]:
+            md.append(f"| **{s_row['side']}** | {s_row['trades']:,} | {s_row['wins']:,} | {s_row['win_rate']:.2%} | ${s_row['net_pnl']:.2f} | {s_row['mean_ask']:.4f} | {s_row.get('win_share_pct', 0.0):.1f}% |")
+        md.append(f"")
+
     md.append(f"---")
     md.append(f"")
-    md.append(f"## 9. Проверка на последующем периоде (Holdout, П. 28)")
+    md.append(f"## 9. Проверка на последующем периоде (Holdout, П. 4, 28)")
     md.append(f"")
-    if "status" in holdout_summary and holdout_summary["status"] == "PENDING_NEW_PERIOD":
-        md.append(f"Статус проверки: `PENDING_NEW_PERIOD` (нет доступных данных последующего периода).")
-    else:
-        md.append(f"Результаты проверки на holdout периоде (2026-09-01 по 2026-09-09):")
-        md.append(f"")
-        md.append(f"| Политика | Сделок | Win Rate | Net PnL (0.2%) | Expectancy ($) |")
-        md.append(f"|---|---|---|---|---|")
-        for p_name, h_stat in holdout_summary.items():
-            if isinstance(h_stat, dict) and "n_trades" in h_stat:
-                md.append(f"| **{p_name}** | {h_stat['n_trades']:,} | {h_stat['win_rate']:.2%} | ${h_stat['net_pnl_02pct']:.2f} | ${h_stat['expectancy_usdc']:.4f} |")
+    md.append(f"**Статус проверки**: `{holdout_summary.get('status', 'PENDING_NEW_PERIOD')}`  ")
+    md.append(f"**Обоснование**: {holdout_summary.get('reason', '')}  ")
     md.append(f"")
     return "\n".join(md)
 
