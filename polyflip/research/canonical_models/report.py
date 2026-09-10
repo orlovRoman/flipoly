@@ -10,8 +10,12 @@ Status is COMPUTED from pre-set criteria, never fitted to a liked result.
 from __future__ import annotations
 
 
-STATUSES = ("DATA_BLOCKED", "PENDING_NEW_PERIOD", "NO_INCREMENTAL_VALUE",
-            "FORECAST_ONLY", "PROMISING_UNCERTAIN", "PAPER_CANDIDATE")
+STATUSES = ("NOT_STARTED", "DATA_BLOCKED", "PENDING_NEW_PERIOD",
+            "NO_INCREMENTAL_VALUE", "FORECAST_ONLY", "PROMISING_UNCERTAIN",
+            "PAPER_CANDIDATE")
+# Lifecycle: NOT_STARTED (final_start=null, pre-freeze) -> PENDING_NEW_PERIOD
+# (frozen, awaiting new markets) -> computed status via final_status().
+# final_status() itself never returns NOT_STARTED; the manifest tracks it.
 
 
 def final_status(summary: dict) -> str:

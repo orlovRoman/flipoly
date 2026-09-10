@@ -1,5 +1,9 @@
 from polyflip.research.canonical_models.challenger import pick_challenger
-from polyflip.research.canonical_models.report import final_status
+from polyflip.research.canonical_models.report import STATUSES, final_status
+
+
+def test_lifecycle_statuses():
+    assert "NOT_STARTED" in STATUSES  # final_start=null, pre-freeze marker
 
 
 def test_challenger_margin_and_no_clear():
