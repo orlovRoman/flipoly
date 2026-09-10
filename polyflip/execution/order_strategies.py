@@ -232,11 +232,11 @@ async def execute_maker_limit(
     edge_policy: FAKRetryEdgePolicy | None = None,
     require_edge_revalidation: bool = False,
 ) -> SubmissionResult:
-    """Submit a post-only GTC/GTD order and reprice after a book cross.
+    """Submit a post-only GTC/GTD order at a fresh passive quote.
 
-    For BUY orders on the dynamic route, every reprice is checked against the
-    saved probability and the fresh maker quote. A stale quote is never
-    submitted again when that revalidation is required.
+    The first submission and every cross retry use the current best bid/ask
+    and stay within the saved execution cap.  Maker repricing does not run a
+    second predictive-edge check; that policy belongs to FAK_RETRY.
     """
     attempts_allowed = 1 + max(
         0, min(int(max_reprice_attempts), MAX_MAKER_REPRICE_MAX_RETRIES)
