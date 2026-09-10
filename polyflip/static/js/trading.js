@@ -1131,16 +1131,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
       data.items.forEach((log) => {
         const displayTime = log.updated_at ? log.updated_at : log.created_at;
-        // API timestamps are ISO/UTC.  Do not use the browser timezone here:
-        // the column is explicitly labelled UTC and the old call rendered the
-        // server/browser local time (UTC+7 on the operator workstation).
+        // Keep the operator's local timezone.  API timestamps are UTC ISO
+        // strings; the browser performs the intentional local conversion.
         const timeStr = new Date(displayTime).toLocaleTimeString("ru-RU", {
-          timeZone: "UTC",
           hour: "2-digit",
           minute: "2-digit",
           second: "2-digit",
           hour12: false,
-        }) + " UTC";
+        });
         const flipColor = log.predicted_flip_prob > 0.5 ? "#00ff88" : "#ff3366";
         let statusColor = "#8F9BB3"; // SKIPPED
         let displayStatus = log.status;
