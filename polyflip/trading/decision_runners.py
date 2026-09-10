@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
-from polyflip.db.models import LiveMarket, TradeHistory, MarketSnapshot
+from polyflip.db.models import LiveMarket, TradeHistory, MarketSnapshot, OrderbookDepthSnapshot
 from polyflip.trading.trading_config import TradingConfig
 from polyflip.trading.decision_logic import TradeDecision, MarketSignal, decide_outsider
 from polyflip.trading.ml_inference import build_inference_dataframe, run_model_inference
@@ -1696,9 +1696,15 @@ async def decide_ct_outsider_mode(
     except Exception as diag_err:
         logger.debug("ct_model_availability_warning", error=str(diag_err))
 
-    # 5. Fetch causal token histories relative to eff_decision_at (15-minute lookback)
+    # 5. Fetch causal token histories relative to eff_decision_at.
+    # MarketSnapshot contains the legacy YES alias and, on new rows, both
+    # explicit token mids.  Older rows still have the full NO book in
+    # OrderbookDepthSnapshot, so use it as a causal fallback instead of
+    # classifying a real DOWN history as missing.
     up_history: list[dict[str, Any]] = []
-    down_history: list[dict[str, Any]] | None = []
+    down_history: list[dict[str, Any]] = []
+    history_sources: dict[str, str | None] = {"UP": None, "DOWN": None}
+    history_cutoff = eff_decision_at - timedelta(seconds=float(spec.ct_history_window_sec))
 
     try:
         snaps_stmt = (
@@ -1706,7 +1712,7 @@ async def decide_ct_outsider_mode(
             .where(
                 MarketSnapshot.market_id == str(market.market_id),
                 MarketSnapshot.recorded_at <= eff_decision_at,
-                MarketSnapshot.recorded_at >= eff_decision_at - timedelta(minutes=15),
+                MarketSnapshot.recorded_at >= history_cutoff,
             )
             .order_by(MarketSnapshot.recorded_at.asc())
         )
@@ -1714,7 +1720,7 @@ async def decide_ct_outsider_mode(
         snaps = snaps_res.scalars().all()
 
         for s in snaps:
-            # Respect received_timestamp causality if available
+            # Respect received_timestamp causality if available.
             rec_ts = getattr(s, "received_timestamp", None)
             if rec_ts is not None:
                 rec_dt = rec_ts if rec_ts.tzinfo is not None else rec_ts.replace(tzinfo=timezone.utc)
@@ -1722,19 +1728,108 @@ async def decide_ct_outsider_mode(
                     continue
 
             t = s.recorded_at if s.recorded_at.tzinfo is not None else s.recorded_at.replace(tzinfo=timezone.utc)
-            # UP mid
-            p_up = s.mid_price if s.mid_price is not None else s.poly_up_mid
+            p_up = s.poly_up_mid if s.poly_up_mid is not None else s.mid_price
             if p_up is not None and math.isfinite(float(p_up)):
                 up_history.append({"recorded_at": t, "mid_price": float(p_up)})
-            # DOWN mid
             p_down = getattr(s, "poly_down_mid", None)
             if p_down is not None and math.isfinite(float(p_down)):
-                if down_history is not None:
-                    down_history.append({"recorded_at": t, "mid_price": float(p_down)})
-        if down_history is not None and len(down_history) == 0:
-            down_history = None
+                down_history.append({"recorded_at": t, "mid_price": float(p_down)})
+
+        if up_history:
+            history_sources["UP"] = "MARKET_SNAPSHOT"
+        if down_history:
+            history_sources["DOWN"] = "MARKET_SNAPSHOT"
+
+        min_obs = max(1, int(spec.min_observations))
+        missing_sides = [
+            side for side, history in (("UP", up_history), ("DOWN", down_history))
+            if len(history) < min_obs
+        ]
+        if missing_sides:
+            depth_stmt = (
+                select(OrderbookDepthSnapshot)
+                .where(
+                    OrderbookDepthSnapshot.market_id == str(market.market_id),
+                    OrderbookDepthSnapshot.outcome_side.in_(
+                        ["YES" if side == "UP" else "NO" for side in missing_sides]
+                    ),
+                    OrderbookDepthSnapshot.event_at <= eff_decision_at,
+                    OrderbookDepthSnapshot.received_at <= eff_decision_at,
+                    OrderbookDepthSnapshot.event_at >= history_cutoff,
+                )
+                .order_by(
+                    OrderbookDepthSnapshot.event_at.asc(),
+                    OrderbookDepthSnapshot.received_at.asc(),
+                )
+            )
+            depth_res = await db_session.execute(depth_stmt)
+            depth_rows = depth_res.scalars().all()
+            seen_by_side: dict[str, set[int]] = {
+                "UP": {int(item["recorded_at"].timestamp() * 1000) for item in up_history},
+                "DOWN": {int(item["recorded_at"].timestamp() * 1000) for item in down_history},
+            }
+            depth_used: set[str] = set()
+            for row in depth_rows:
+                outcome_side = str(getattr(row, "outcome_side", "") or "").upper()
+                side = "UP" if outcome_side == "YES" else "DOWN" if outcome_side == "NO" else ""
+                if side not in missing_sides:
+                    continue
+                bid = getattr(row, "best_bid_price", None)
+                ask = getattr(row, "best_ask_price", None)
+                if bid is None or ask is None:
+                    continue
+                try:
+                    bid_f = float(bid)
+                    ask_f = float(ask)
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                if not (
+                    math.isfinite(bid_f)
+                    and math.isfinite(ask_f)
+                    and 0.0 < bid_f < ask_f < 1.0
+                ):
+                    continue
+                event_at = row.event_at
+                event_at = (
+                    event_at
+                    if event_at.tzinfo is not None
+                    else event_at.replace(tzinfo=timezone.utc)
+                )
+                key = int(event_at.timestamp() * 1000)
+                if key in seen_by_side[side]:
+                    continue
+                seen_by_side[side].add(key)
+                item = {
+                    "recorded_at": event_at,
+                    "mid_price": (bid_f + ask_f) / 2.0,
+                }
+                if side == "UP":
+                    up_history.append(item)
+                else:
+                    down_history.append(item)
+                depth_used.add(side)
+
+            # A side can contain a few explicit mids plus depth fallback rows.
+            # Mark the source as mixed so the audit does not hide provenance.
+            for side in depth_used:
+                history_sources[side] = (
+                    "MIXED"
+                    if history_sources[side] == "MARKET_SNAPSHOT"
+                    else "ORDERBOOK_DEPTH_SNAPSHOT"
+                )
+
+        up_history.sort(key=lambda item: item["recorded_at"])
+        down_history.sort(key=lambda item: item["recorded_at"])
+        if not up_history:
+            history_sources["UP"] = None
+        if not down_history:
+            history_sources["DOWN"] = None
     except Exception as h_err:
         logger.debug("token_history_query_warning", error=str(h_err))
+        if not up_history:
+            history_sources["UP"] = None
+        if not down_history:
+            history_sources["DOWN"] = None
 
     # 6. Evaluate all 3 diagnostic options using fixed decision_at
     diag = evaluate_all_ct_diagnostics(
@@ -1763,6 +1858,11 @@ async def decide_ct_outsider_mode(
     opportunity_id = f"{market.market_id}_{start_time.isoformat()}"
     decision_id = f"CT:{spec.spec_id}:{market.market_id}"
     timing_diag = dict(symm_ct.data_ids.get("timing_diagnostics", {}))
+    timing_diag["token_history_source"] = history_sources
+    timing_diag["token_history_counts"] = {
+        "UP": len(up_history),
+        "DOWN": len(down_history),
+    }
     timing_diag.setdefault("cycle_started_at", cycle_started_at.isoformat())
     timing_diag.setdefault("decision_at", eff_decision_at.isoformat())
     timing_diag.setdefault("time_left_sec", round((exp_dt - eff_decision_at).total_seconds(), 3))
