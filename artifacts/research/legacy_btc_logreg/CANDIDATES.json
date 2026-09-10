@@ -1,0 +1,12 @@
+{
+  "btc_model": "NO_IMPROVEMENT_FOUND",
+  "btc_note": "No weight/coefficient change justified: model choice contributes ~0 under common gates (bit-identical entries); ablation nil (4th decimal). v11-family stays the fixed BTC control.",
+  "transfer_rule": "OLD_RECIPE_LOCAL",
+  "transfer_note": "Same 3-feature LogReg recipe (C=0.1, flip target, no scaler), trained per asset on pre-08-30 data. OFFSET equivalence noted; FULL chosen as the faithful recipe. FROZEN BTC weights rejected (worst Brier on all 4 assets).",
+  "transfer_artifacts": "stage56/legacy_transfer.json (per-asset R26_FULL coefs; retrain code scripts/.../transfer_ablate.py)",
+  "policy": "fixed common outsider (p_flip>=0.25, ask 0.01-0.40, spread/mid<=0.08), $1 purchase cost, fee UNKNOWN + scenarios 0/0.001/0.002",
+  "new_period": {"start": "2026-09-10T13:00:00Z", "end": "2026-09-17T13:00:00Z",
+                 "inclusion": "contract end in [start, end)",
+                 "preliminary": "sliver [start, export watermark] evaluated now; full eval after end",
+                 "forbidden": "no retraining, no threshold tuning, no reselection on new-period data"}
+}
