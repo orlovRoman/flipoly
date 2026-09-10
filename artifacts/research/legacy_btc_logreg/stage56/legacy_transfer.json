@@ -1,0 +1,325 @@
+{
+ "split": "2026-08-30T00:00:00Z",
+ "assets": {
+  "BTC": {
+   "n_train": 466,
+   "n_eval": 161,
+   "v11_logit_share": {
+    "mid_price": 0.6192,
+    "spread": 0.0165,
+    "time_left_min": 0.3643
+   },
+   "v11_brier_eval": 0.16477,
+   "BTC_R26_FULL": {
+    "feats": [
+     "mid_price",
+     "spread",
+     "time_left_min"
+    ],
+    "coef": [
+     -0.168,
+     0.02613,
+     -0.03889
+    ],
+    "b": -1.19838,
+    "brier_eval": 0.14784
+   },
+   "BTC_R26_NOMID": {
+    "feats": [
+     "spread",
+     "time_left_min"
+    ],
+    "coef": [
+     0.02622,
+     -0.03963
+    ],
+    "b": -1.27867,
+    "brier_eval": 0.14771
+   },
+   "BTC_R26_NOSPREAD": {
+    "feats": [
+     "mid_price",
+     "time_left_min"
+    ],
+    "coef": [
+     -0.16795,
+     -0.03894
+    ],
+    "b": -1.19779,
+    "brier_eval": 0.14784
+   },
+   "BTC_R26_NOTLM": {
+    "feats": [
+     "mid_price",
+     "spread"
+    ],
+    "coef": [
+     -0.16761,
+     0.02254
+    ],
+    "b": -1.38828,
+    "brier_eval": 0.14785
+   },
+   "BTC_OFFSET_LOCAL": {
+    "b": -1.33411,
+    "brier_eval": 0.14833
+   }
+  },
+  "DOGE": {
+   "n_train": 457,
+   "n_eval": 153,
+   "v11_logit_share": {
+    "mid_price": 0.5781,
+    "spread": 0.0774,
+    "time_left_min": 0.3445
+   },
+   "v11_brier_eval": 0.18343,
+   "DOGE_R26_FULL": {
+    "feats": [
+     "mid_price",
+     "spread",
+     "time_left_min"
+    ],
+    "coef": [
+     -0.03538,
+     0.063,
+     0.01719
+    ],
+    "b": -1.67988,
+    "brier_eval": 0.18032
+   },
+   "DOGE_R26_NOMID": {
+    "feats": [
+     "spread",
+     "time_left_min"
+    ],
+    "coef": [
+     0.06355,
+     0.01745
+    ],
+    "b": -1.69979,
+    "brier_eval": 0.1803
+   },
+   "DOGE_R26_NOSPREAD": {
+    "feats": [
+     "mid_price",
+     "time_left_min"
+    ],
+    "coef": [
+     -0.03653,
+     0.01765
+    ],
+    "b": -1.67897,
+    "brier_eval": 0.18035
+   },
+   "DOGE_R26_NOTLM": {
+    "feats": [
+     "mid_price",
+     "spread"
+    ],
+    "coef": [
+     -0.0366,
+     0.06225
+    ],
+    "b": -1.59482,
+    "brier_eval": 0.18031
+   },
+   "BTC_OFFSET_LOCAL": {
+    "b": -1.44469,
+    "brier_eval": 0.17901
+   }
+  },
+  "ETH": {
+   "n_train": 453,
+   "n_eval": 158,
+   "v11_logit_share": {
+    "mid_price": 0.6135,
+    "spread": 0.0261,
+    "time_left_min": 0.3603
+   },
+   "v11_brier_eval": 0.15181,
+   "ETH_R26_FULL": {
+    "feats": [
+     "mid_price",
+     "spread",
+     "time_left_min"
+    ],
+    "coef": [
+     -0.03516,
+     0.01965,
+     0.03955
+    ],
+    "b": -1.85802,
+    "brier_eval": 0.12455
+   },
+   "ETH_R26_NOMID": {
+    "feats": [
+     "spread",
+     "time_left_min"
+    ],
+    "coef": [
+     0.01946,
+     0.03956
+    ],
+    "b": -1.87593,
+    "brier_eval": 0.12451
+   },
+   "ETH_R26_NOSPREAD": {
+    "feats": [
+     "mid_price",
+     "time_left_min"
+    ],
+    "coef": [
+     -0.03485,
+     0.0398
+    ],
+    "b": -1.85919,
+    "brier_eval": 0.12455
+   },
+   "ETH_R26_NOTLM": {
+    "feats": [
+     "mid_price",
+     "spread"
+    ],
+    "coef": [
+     -0.03451,
+     0.01639
+    ],
+    "b": -1.66567,
+    "brier_eval": 0.12454
+   },
+   "BTC_OFFSET_LOCAL": {
+    "b": -1.51434,
+    "brier_eval": 0.12555
+   }
+  },
+  "SOL": {
+   "n_train": 458,
+   "n_eval": 157,
+   "v11_logit_share": {
+    "mid_price": 0.5945,
+    "spread": 0.0621,
+    "time_left_min": 0.3434
+   },
+   "v11_brier_eval": 0.16932,
+   "SOL_R26_FULL": {
+    "feats": [
+     "mid_price",
+     "spread",
+     "time_left_min"
+    ],
+    "coef": [
+     -0.13605,
+     0.06341,
+     0.01016
+    ],
+    "b": -1.54825,
+    "brier_eval": 0.15524
+   },
+   "SOL_R26_NOMID": {
+    "feats": [
+     "spread",
+     "time_left_min"
+    ],
+    "coef": [
+     0.06385,
+     0.01069
+    ],
+    "b": -1.62221,
+    "brier_eval": 0.15488
+   },
+   "SOL_R26_NOSPREAD": {
+    "feats": [
+     "mid_price",
+     "time_left_min"
+    ],
+    "coef": [
+     -0.13664,
+     0.01117
+    ],
+    "b": -1.55088,
+    "brier_eval": 0.15527
+   },
+   "SOL_R26_NOTLM": {
+    "feats": [
+     "mid_price",
+     "spread"
+    ],
+    "coef": [
+     -0.13654,
+     0.06273
+    ],
+    "b": -1.49787,
+    "brier_eval": 0.15524
+   },
+   "BTC_OFFSET_LOCAL": {
+    "b": -1.40791,
+    "brier_eval": 0.15537
+   }
+  },
+  "XRP": {
+   "n_train": 461,
+   "n_eval": 156,
+   "v11_logit_share": {
+    "mid_price": 0.5862,
+    "spread": 0.0728,
+    "time_left_min": 0.341
+   },
+   "v11_brier_eval": 0.17406,
+   "XRP_R26_FULL": {
+    "feats": [
+     "mid_price",
+     "spread",
+     "time_left_min"
+    ],
+    "coef": [
+     -0.03169,
+     0.10185,
+     -0.02154
+    ],
+    "b": -1.52123,
+    "brier_eval": 0.16477
+   },
+   "XRP_R26_NOMID": {
+    "feats": [
+     "spread",
+     "time_left_min"
+    ],
+    "coef": [
+     0.10189,
+     -0.02151
+    ],
+    "b": -1.53777,
+    "brier_eval": 0.16478
+   },
+   "XRP_R26_NOSPREAD": {
+    "feats": [
+     "mid_price",
+     "time_left_min"
+    ],
+    "coef": [
+     -0.03179,
+     -0.02191
+    ],
+    "b": -1.51513,
+    "brier_eval": 0.16485
+   },
+   "XRP_R26_NOTLM": {
+    "feats": [
+     "mid_price",
+     "spread"
+    ],
+    "coef": [
+     -0.03171,
+     0.10113
+    ],
+    "b": -1.62566,
+    "brier_eval": 0.16476
+   },
+   "BTC_OFFSET_LOCAL": {
+    "b": -1.46945,
+    "brier_eval": 0.16407
+   }
+  }
+ }
+}
