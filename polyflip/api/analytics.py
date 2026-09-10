@@ -560,7 +560,16 @@ async def trigger_training(asset: str, background_tasks: BackgroundTasks,
                 invalidate_models_cache()
                 await invalidate_analytics_cache()
             
-    background_tasks.add_task(train_single_asset)
+    # ModelTrainer performs sizeable data preparation before its inner fit
+    # offload.  Running the coroutine directly as a Starlette background task
+    # would execute that preparation on the API event loop and can make the
+    # health endpoint unavailable for the duration of training.  Run the
+    # complete coroutine in a worker thread with its own async session/event
+    # loop so the API remains responsive while status is polled.
+    def run_training_in_worker() -> None:
+        asyncio.run(train_single_asset())
+
+    background_tasks.add_task(asyncio.to_thread, run_training_in_worker)
     return {"status": "running", "asset": asset}
 
 @router.get("/analytics/train_status/{asset}")
