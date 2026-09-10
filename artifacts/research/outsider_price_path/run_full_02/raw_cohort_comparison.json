@@ -1,0 +1,65 @@
+[
+  {
+    "policy_name": "FORMER_FAVORITE",
+    "n_trades": 2813,
+    "n_days": 52,
+    "mean_ask": 0.175,
+    "win_count": 465,
+    "win_rate": 0.1653,
+    "turnover_usdc": 2813.0,
+    "gross_pnl": -153.1178,
+    "net_pnl_02pct": -158.7438,
+    "net_pnl_01pct": -155.9308,
+    "expectancy_usdc": -0.05643,
+    "expectancy_roi_pct": -5.6432,
+    "assets": {
+      "BTC": 597,
+      "ETH": 582,
+      "SOL": 564,
+      "XRP": 558,
+      "DOGE": 512
+    }
+  },
+  {
+    "policy_name": "OBSERVED_ALWAYS_OUTSIDER",
+    "n_trades": 1336,
+    "n_days": 50,
+    "mean_ask": 0.1185,
+    "win_count": 122,
+    "win_rate": 0.0913,
+    "turnover_usdc": 1336.0,
+    "gross_pnl": -506.9878,
+    "net_pnl_02pct": -509.6598,
+    "net_pnl_01pct": -508.3238,
+    "expectancy_usdc": -0.38148,
+    "expectancy_roi_pct": -38.1482,
+    "assets": {
+      "DOGE": 283,
+      "XRP": 279,
+      "SOL": 274,
+      "BTC": 253,
+      "ETH": 247
+    }
+  },
+  {
+    "policy_name": "INSUFFICIENT_HISTORY",
+    "n_trades": 877,
+    "n_days": 45,
+    "mean_ask": 0.1468,
+    "win_count": 106,
+    "win_rate": 0.1209,
+    "turnover_usdc": 877.0,
+    "gross_pnl": -295.7029,
+    "net_pnl_02pct": -297.4569,
+    "net_pnl_01pct": -296.5799,
+    "expectancy_usdc": -0.33918,
+    "expectancy_roi_pct": -33.9176,
+    "assets": {
+      "SOL": 187,
+      "ETH": 177,
+      "XRP": 177,
+      "BTC": 170,
+      "DOGE": 166
+    }
+  }
+]

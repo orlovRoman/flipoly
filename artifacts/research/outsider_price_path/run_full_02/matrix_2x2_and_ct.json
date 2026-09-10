@@ -1,0 +1,122 @@
+{
+  "FORMER_FAVORITE__REBOUND": {
+    "all": {
+      "policy_name": "FORMER_FAVORITE__REBOUND",
+      "n_trades": 789,
+      "n_days": 49,
+      "mean_ask": 0.2501,
+      "win_count": 186,
+      "win_rate": 0.2357,
+      "turnover_usdc": 789.0,
+      "gross_pnl": -36.452,
+      "net_pnl_02pct": -38.03,
+      "net_pnl_01pct": -37.241,
+      "expectancy_usdc": -0.0482,
+      "expectancy_roi_pct": -4.82
+    },
+    "ct_reversion": {
+      "policy_name": "FORMER_FAVORITE__REBOUND + CT",
+      "n_trades": 280,
+      "n_days": 43,
+      "mean_ask": 0.2928,
+      "win_count": 84,
+      "win_rate": 0.3,
+      "turnover_usdc": 280.0,
+      "gross_pnl": 11.8936,
+      "net_pnl_02pct": 11.3336,
+      "net_pnl_01pct": 11.6136,
+      "expectancy_usdc": 0.04048,
+      "expectancy_roi_pct": 4.0477
+    }
+  },
+  "FORMER_FAVORITE__NO_REBOUND": {
+    "all": {
+      "policy_name": "FORMER_FAVORITE__NO_REBOUND",
+      "n_trades": 2024,
+      "n_days": 51,
+      "mean_ask": 0.1457,
+      "win_count": 279,
+      "win_rate": 0.1378,
+      "turnover_usdc": 2024.0,
+      "gross_pnl": -116.6658,
+      "net_pnl_02pct": -120.7138,
+      "net_pnl_01pct": -118.6898,
+      "expectancy_usdc": -0.05964,
+      "expectancy_roi_pct": -5.9641
+    },
+    "ct_reversion": {
+      "policy_name": "FORMER_FAVORITE__NO_REBOUND + CT",
+      "n_trades": 408,
+      "n_days": 48,
+      "mean_ask": 0.2024,
+      "win_count": 83,
+      "win_rate": 0.2034,
+      "turnover_usdc": 408.0,
+      "gross_pnl": 55.2118,
+      "net_pnl_02pct": 54.3958,
+      "net_pnl_01pct": 54.8038,
+      "expectancy_usdc": 0.13332,
+      "expectancy_roi_pct": 13.3323
+    }
+  },
+  "OBSERVED_ALWAYS_OUTSIDER__REBOUND": {
+    "all": {
+      "policy_name": "OBSERVED_ALWAYS_OUTSIDER__REBOUND",
+      "n_trades": 390,
+      "n_days": 45,
+      "mean_ask": 0.2187,
+      "win_count": 72,
+      "win_rate": 0.1846,
+      "turnover_usdc": 390.0,
+      "gross_pnl": -61.3133,
+      "net_pnl_02pct": -62.0933,
+      "net_pnl_01pct": -61.7033,
+      "expectancy_usdc": -0.15921,
+      "expectancy_roi_pct": -15.9214
+    },
+    "ct_reversion": {
+      "policy_name": "OBSERVED_ALWAYS_OUTSIDER__REBOUND + CT",
+      "n_trades": 150,
+      "n_days": 31,
+      "mean_ask": 0.2567,
+      "win_count": 31,
+      "win_rate": 0.2067,
+      "turnover_usdc": 150.0,
+      "gross_pnl": -30.3258,
+      "net_pnl_02pct": -30.6258,
+      "net_pnl_01pct": -30.4758,
+      "expectancy_usdc": -0.20417,
+      "expectancy_roi_pct": -20.4172
+    }
+  },
+  "OBSERVED_ALWAYS_OUTSIDER__NO_REBOUND": {
+    "all": {
+      "policy_name": "OBSERVED_ALWAYS_OUTSIDER__NO_REBOUND",
+      "n_trades": 946,
+      "n_days": 50,
+      "mean_ask": 0.0772,
+      "win_count": 50,
+      "win_rate": 0.0529,
+      "turnover_usdc": 946.0,
+      "gross_pnl": -445.6745,
+      "net_pnl_02pct": -447.5665,
+      "net_pnl_01pct": -446.6205,
+      "expectancy_usdc": -0.47311,
+      "expectancy_roi_pct": -47.3115
+    },
+    "ct_reversion": {
+      "policy_name": "OBSERVED_ALWAYS_OUTSIDER__NO_REBOUND + CT",
+      "n_trades": 133,
+      "n_days": 36,
+      "mean_ask": 0.1536,
+      "win_count": 21,
+      "win_rate": 0.1579,
+      "turnover_usdc": 133.0,
+      "gross_pnl": 46.6176,
+      "net_pnl_02pct": 46.3516,
+      "net_pnl_01pct": 46.4846,
+      "expectancy_usdc": 0.34851,
+      "expectancy_roi_pct": 34.8508
+    }
+  }
+}

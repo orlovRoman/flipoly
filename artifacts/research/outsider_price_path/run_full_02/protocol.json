@@ -1,0 +1,30 @@
+{
+  "ask_max": 0.4,
+  "ask_min": 0.01,
+  "assets": [
+    "BTC",
+    "ETH",
+    "SOL",
+    "XRP",
+    "DOGE"
+  ],
+  "baseline_taker_fee_rate": 0.002,
+  "budget_usdc": 1.0,
+  "contract_horizon_min": 15,
+  "decision_target_min": 5.0,
+  "exploratory_end_utc": "2026-08-31T23:59:59+00:00",
+  "exploratory_start_utc": "2026-06-25T00:00:00+00:00",
+  "holdout_end_utc": "2026-09-09T23:59:59+00:00",
+  "holdout_start_utc": "2026-09-01T00:00:00+00:00",
+  "max_decision_delay_sec": 15.0,
+  "max_gap_sec": 90.0,
+  "max_last_obs_age_sec": 15.0,
+  "max_start_delay_sec": 60.0,
+  "min_observations": 10,
+  "parity_tolerance": 0.0001,
+  "protocol_id": "OUTSIDER_PRICE_PATH_V1",
+  "rebound_drawdown_thresh": 0.05,
+  "rebound_rebound_thresh": 0.02,
+  "scenario_taker_fee_rate": 0.001,
+  "version": 1
+}

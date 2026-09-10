@@ -1,0 +1,113 @@
+{
+  "chosen_candidate": "NO_CLEAR_CANDIDATE",
+  "candidate_evaluations": {
+    "CT": {
+      "d_expectancy_mean": 0.24899,
+      "holm_adj_p_value": 0.0,
+      "is_significant": true,
+      "net_pnl_02pct": 66.609,
+      "positive_week_pct": 55.6,
+      "pnl_without_best_day": 20.8312,
+      "passes_rule": false
+    },
+    "Former_Favorite": {
+      "d_expectancy_mean": 0.13515,
+      "holm_adj_p_value": 0.0,
+      "is_significant": true,
+      "net_pnl_02pct": -158.7438,
+      "positive_week_pct": 44.4,
+      "pnl_without_best_day": -246.1853,
+      "passes_rule": false
+    },
+    "Rebound": {
+      "d_expectancy_mean": 0.108,
+      "holm_adj_p_value": 0.174,
+      "is_significant": false,
+      "net_pnl_02pct": -100.1233,
+      "positive_week_pct": 55.6,
+      "pnl_without_best_day": -130.6999,
+      "passes_rule": false
+    },
+    "Joint_Filter": {
+      "d_expectancy_mean": 0.14393,
+      "holm_adj_p_value": 0.276,
+      "is_significant": false,
+      "net_pnl_02pct": -38.03,
+      "positive_week_pct": 33.3,
+      "pnl_without_best_day": -60.7027,
+      "passes_rule": false
+    }
+  },
+  "holdout_results": {
+    "Control": {
+      "policy_name": "Control",
+      "n_trades": 211,
+      "n_days": 3,
+      "mean_ask": 0.1563,
+      "win_count": 33,
+      "win_rate": 0.1564,
+      "turnover_usdc": 211.0,
+      "gross_pnl": -63.9184,
+      "net_pnl_02pct": -64.3404,
+      "net_pnl_01pct": -64.1294,
+      "expectancy_usdc": -0.30493,
+      "expectancy_roi_pct": -30.4931
+    },
+    "CT": {
+      "policy_name": "CT",
+      "n_trades": 50,
+      "n_days": 2,
+      "mean_ask": 0.2306,
+      "win_count": 16,
+      "win_rate": 0.32,
+      "turnover_usdc": 50.0,
+      "gross_pnl": 9.5283,
+      "net_pnl_02pct": 9.4283,
+      "net_pnl_01pct": 9.4783,
+      "expectancy_usdc": 0.18857,
+      "expectancy_roi_pct": 18.8566
+    },
+    "Former_Favorite": {
+      "policy_name": "Former_Favorite",
+      "n_trades": 144,
+      "n_days": 3,
+      "mean_ask": 0.1712,
+      "win_count": 26,
+      "win_rate": 0.1806,
+      "turnover_usdc": 144.0,
+      "gross_pnl": -35.0927,
+      "net_pnl_02pct": -35.3807,
+      "net_pnl_01pct": -35.2367,
+      "expectancy_usdc": -0.2457,
+      "expectancy_roi_pct": -24.5699
+    },
+    "Rebound": {
+      "policy_name": "Rebound",
+      "n_trades": 60,
+      "n_days": 3,
+      "mean_ask": 0.2441,
+      "win_count": 17,
+      "win_rate": 0.2833,
+      "turnover_usdc": 60.0,
+      "gross_pnl": 10.4467,
+      "net_pnl_02pct": 10.3267,
+      "net_pnl_01pct": 10.3867,
+      "expectancy_usdc": 0.17211,
+      "expectancy_roi_pct": 17.2111
+    },
+    "Joint_Filter": {
+      "policy_name": "Joint_Filter",
+      "n_trades": 47,
+      "n_days": 3,
+      "mean_ask": 0.2527,
+      "win_count": 12,
+      "win_rate": 0.2553,
+      "turnover_usdc": 47.0,
+      "gross_pnl": -3.0726,
+      "net_pnl_02pct": -3.1666,
+      "net_pnl_01pct": -3.1196,
+      "expectancy_usdc": -0.06737,
+      "expectancy_roi_pct": -6.7375
+    }
+  }
+}

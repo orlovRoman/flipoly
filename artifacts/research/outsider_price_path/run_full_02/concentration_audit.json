@@ -1,0 +1,602 @@
+{
+  "Control": {
+    "total_net_pnl": -965.8606,
+    "top5_wins_sum": 244.99,
+    "top5_share_of_total_pct": 0.0,
+    "best_day": "2026-07-08",
+    "best_day_pnl": 87.2683,
+    "pnl_without_best_day": -1053.1288,
+    "weekly_summary": {
+      "total_weeks": 9,
+      "positive_weeks": 1,
+      "positive_week_pct": 11.1,
+      "weeks": [
+        {
+          "calendar_week": "2026-W27",
+          "trades": 107,
+          "wins": 14,
+          "net_pnl": -44.787077,
+          "win_rate": 0.1308411214953271
+        },
+        {
+          "calendar_week": "2026-W28",
+          "trades": 740,
+          "wins": 116,
+          "net_pnl": -19.88797999999999,
+          "win_rate": 0.15675675675675677
+        },
+        {
+          "calendar_week": "2026-W29",
+          "trades": 931,
+          "wins": 130,
+          "net_pnl": -228.95872400000002,
+          "win_rate": 0.13963480128893663
+        },
+        {
+          "calendar_week": "2026-W30",
+          "trades": 447,
+          "wins": 68,
+          "net_pnl": -67.549698,
+          "win_rate": 0.15212527964205816
+        },
+        {
+          "calendar_week": "2026-W31",
+          "trades": 367,
+          "wins": 54,
+          "net_pnl": -67.60186,
+          "win_rate": 0.14713896457765668
+        },
+        {
+          "calendar_week": "2026-W32",
+          "trades": 569,
+          "wins": 61,
+          "net_pnl": -284.793738,
+          "win_rate": 0.10720562390158173
+        },
+        {
+          "calendar_week": "2026-W33",
+          "trades": 703,
+          "wins": 87,
+          "net_pnl": -202.277404,
+          "win_rate": 0.12375533428165007
+        },
+        {
+          "calendar_week": "2026-W34",
+          "trades": 364,
+          "wins": 57,
+          "net_pnl": 61.25726499999999,
+          "win_rate": 0.1565934065934066
+        },
+        {
+          "calendar_week": "2026-W35",
+          "trades": 798,
+          "wins": 106,
+          "net_pnl": -111.26134400000001,
+          "win_rate": 0.13283208020050125
+        }
+      ]
+    },
+    "by_asset": [
+      {
+        "asset": "BTC",
+        "trades": 1020,
+        "wins": 164,
+        "net_pnl": -72.48029199999999,
+        "mean_ask": 0.15728039215686274,
+        "win_rate": 0.1607843137254902
+      },
+      {
+        "asset": "DOGE",
+        "trades": 961,
+        "wins": 119,
+        "net_pnl": -321.957269,
+        "mean_ask": 0.16082726326742977,
+        "win_rate": 0.12382934443288242
+      },
+      {
+        "asset": "ETH",
+        "trades": 1006,
+        "wins": 144,
+        "net_pnl": -182.104904,
+        "mean_ask": 0.15141252485089463,
+        "win_rate": 0.14314115308151093
+      },
+      {
+        "asset": "SOL",
+        "trades": 1025,
+        "wins": 135,
+        "net_pnl": -251.126011,
+        "mean_ask": 0.15511317073170733,
+        "win_rate": 0.13170731707317074
+      },
+      {
+        "asset": "XRP",
+        "trades": 1014,
+        "wins": 131,
+        "net_pnl": -138.192084,
+        "mean_ask": 0.15085897435897436,
+        "win_rate": 0.1291913214990138
+      }
+    ]
+  },
+  "CT": {
+    "total_net_pnl": 66.609,
+    "top5_wins_sum": 178.3233,
+    "top5_share_of_total_pct": 267.72,
+    "best_day": "2026-08-28",
+    "best_day_pnl": 45.7778,
+    "pnl_without_best_day": 20.8312,
+    "weekly_summary": {
+      "total_weeks": 9,
+      "positive_weeks": 5,
+      "positive_week_pct": 55.6,
+      "weeks": [
+        {
+          "calendar_week": "2026-W27",
+          "trades": 18,
+          "wins": 6,
+          "net_pnl": 10.355124,
+          "win_rate": 0.3333333333333333
+        },
+        {
+          "calendar_week": "2026-W28",
+          "trades": 187,
+          "wins": 46,
+          "net_pnl": 12.957552000000003,
+          "win_rate": 0.24598930481283424
+        },
+        {
+          "calendar_week": "2026-W29",
+          "trades": 200,
+          "wins": 52,
+          "net_pnl": 35.766294,
+          "win_rate": 0.26
+        },
+        {
+          "calendar_week": "2026-W30",
+          "trades": 95,
+          "wins": 15,
+          "net_pnl": -28.680763,
+          "win_rate": 0.15789473684210525
+        },
+        {
+          "calendar_week": "2026-W31",
+          "trades": 71,
+          "wins": 16,
+          "net_pnl": -10.345618999999997,
+          "win_rate": 0.22535211267605634
+        },
+        {
+          "calendar_week": "2026-W32",
+          "trades": 112,
+          "wins": 19,
+          "net_pnl": -42.733503,
+          "win_rate": 0.16964285714285715
+        },
+        {
+          "calendar_week": "2026-W33",
+          "trades": 152,
+          "wins": 33,
+          "net_pnl": -33.918904,
+          "win_rate": 0.21710526315789475
+        },
+        {
+          "calendar_week": "2026-W34",
+          "trades": 100,
+          "wins": 23,
+          "net_pnl": 54.842163,
+          "win_rate": 0.23
+        },
+        {
+          "calendar_week": "2026-W35",
+          "trades": 188,
+          "wins": 45,
+          "net_pnl": 68.36665500000001,
+          "win_rate": 0.2393617021276596
+        }
+      ]
+    },
+    "by_asset": [
+      {
+        "asset": "BTC",
+        "trades": 245,
+        "wins": 65,
+        "net_pnl": 50.387606000000005,
+        "mean_ask": 0.2351387755102041,
+        "win_rate": 0.2653061224489796
+      },
+      {
+        "asset": "DOGE",
+        "trades": 235,
+        "wins": 48,
+        "net_pnl": -33.387564999999995,
+        "mean_ask": 0.226,
+        "win_rate": 0.20425531914893616
+      },
+      {
+        "asset": "ETH",
+        "trades": 245,
+        "wins": 59,
+        "net_pnl": 17.914502000000002,
+        "mean_ask": 0.23265306122448978,
+        "win_rate": 0.24081632653061225
+      },
+      {
+        "asset": "SOL",
+        "trades": 208,
+        "wins": 45,
+        "net_pnl": 16.376484,
+        "mean_ask": 0.23817307692307693,
+        "win_rate": 0.21634615384615385
+      },
+      {
+        "asset": "XRP",
+        "trades": 190,
+        "wins": 38,
+        "net_pnl": 15.317972,
+        "mean_ask": 0.23147894736842106,
+        "win_rate": 0.2
+      }
+    ]
+  },
+  "Former_Favorite": {
+    "total_net_pnl": -158.7438,
+    "top5_wins_sum": 228.3233,
+    "top5_share_of_total_pct": 0.0,
+    "best_day": "2026-08-28",
+    "best_day_pnl": 87.4415,
+    "pnl_without_best_day": -246.1853,
+    "weekly_summary": {
+      "total_weeks": 9,
+      "positive_weeks": 4,
+      "positive_week_pct": 44.4,
+      "weeks": [
+        {
+          "calendar_week": "2026-W27",
+          "trades": 72,
+          "wins": 10,
+          "net_pnl": -32.699651,
+          "win_rate": 0.1388888888888889
+        },
+        {
+          "calendar_week": "2026-W28",
+          "trades": 463,
+          "wins": 85,
+          "net_pnl": 11.666959999999998,
+          "win_rate": 0.183585313174946
+        },
+        {
+          "calendar_week": "2026-W29",
+          "trades": 505,
+          "wins": 83,
+          "net_pnl": -62.50566,
+          "win_rate": 0.16435643564356436
+        },
+        {
+          "calendar_week": "2026-W30",
+          "trades": 232,
+          "wins": 47,
+          "net_pnl": 60.406707000000004,
+          "win_rate": 0.2025862068965517
+        },
+        {
+          "calendar_week": "2026-W31",
+          "trades": 89,
+          "wins": 13,
+          "net_pnl": -21.510551,
+          "win_rate": 0.14606741573033707
+        },
+        {
+          "calendar_week": "2026-W32",
+          "trades": 231,
+          "wins": 29,
+          "net_pnl": -111.268535,
+          "win_rate": 0.12554112554112554
+        },
+        {
+          "calendar_week": "2026-W33",
+          "trades": 480,
+          "wins": 62,
+          "net_pnl": -126.352621,
+          "win_rate": 0.12916666666666668
+        },
+        {
+          "calendar_week": "2026-W34",
+          "trades": 244,
+          "wins": 48,
+          "net_pnl": 11.971746999999999,
+          "win_rate": 0.19672131147540983
+        },
+        {
+          "calendar_week": "2026-W35",
+          "trades": 497,
+          "wins": 88,
+          "net_pnl": 111.547794,
+          "win_rate": 0.17706237424547283
+        }
+      ]
+    },
+    "by_asset": [
+      {
+        "asset": "BTC",
+        "trades": 597,
+        "wins": 112,
+        "net_pnl": 65.313817,
+        "mean_ask": 0.1800670016750419,
+        "win_rate": 0.18760469011725292
+      },
+      {
+        "asset": "DOGE",
+        "trades": 512,
+        "wins": 76,
+        "net_pnl": -104.330369,
+        "mean_ask": 0.1817421875,
+        "win_rate": 0.1484375
+      },
+      {
+        "asset": "ETH",
+        "trades": 582,
+        "wins": 103,
+        "net_pnl": -22.764101000000004,
+        "mean_ask": 0.16726460481099656,
+        "win_rate": 0.17697594501718214
+      },
+      {
+        "asset": "SOL",
+        "trades": 564,
+        "wins": 88,
+        "net_pnl": -12.895802000000002,
+        "mean_ask": 0.171177304964539,
+        "win_rate": 0.15602836879432624
+      },
+      {
+        "asset": "XRP",
+        "trades": 558,
+        "wins": 86,
+        "net_pnl": -84.06735499999999,
+        "mean_ask": 0.17518817204301074,
+        "win_rate": 0.15412186379928317
+      }
+    ]
+  },
+  "Rebound": {
+    "total_net_pnl": -100.1233,
+    "top5_wins_sum": 63.4424,
+    "top5_share_of_total_pct": 0.0,
+    "best_day": "2026-08-17",
+    "best_day_pnl": 30.5765,
+    "pnl_without_best_day": -130.6999,
+    "weekly_summary": {
+      "total_weeks": 9,
+      "positive_weeks": 5,
+      "positive_week_pct": 55.6,
+      "weeks": [
+        {
+          "calendar_week": "2026-W27",
+          "trades": 26,
+          "wins": 4,
+          "net_pnl": -11.817442,
+          "win_rate": 0.15384615384615385
+        },
+        {
+          "calendar_week": "2026-W28",
+          "trades": 210,
+          "wins": 48,
+          "net_pnl": 15.527868999999999,
+          "win_rate": 0.22857142857142856
+        },
+        {
+          "calendar_week": "2026-W29",
+          "trades": 219,
+          "wins": 58,
+          "net_pnl": 12.86964,
+          "win_rate": 0.2648401826484018
+        },
+        {
+          "calendar_week": "2026-W30",
+          "trades": 79,
+          "wins": 24,
+          "net_pnl": 22.35814,
+          "win_rate": 0.3037974683544304
+        },
+        {
+          "calendar_week": "2026-W31",
+          "trades": 32,
+          "wins": 8,
+          "net_pnl": 1.5829820000000001,
+          "win_rate": 0.25
+        },
+        {
+          "calendar_week": "2026-W32",
+          "trades": 90,
+          "wins": 15,
+          "net_pnl": -30.491931,
+          "win_rate": 0.16666666666666666
+        },
+        {
+          "calendar_week": "2026-W33",
+          "trades": 163,
+          "wins": 25,
+          "net_pnl": -65.385826,
+          "win_rate": 0.15337423312883436
+        },
+        {
+          "calendar_week": "2026-W34",
+          "trades": 105,
+          "wins": 28,
+          "net_pnl": 21.82968,
+          "win_rate": 0.26666666666666666
+        },
+        {
+          "calendar_week": "2026-W35",
+          "trades": 255,
+          "wins": 48,
+          "net_pnl": -66.596446,
+          "win_rate": 0.18823529411764706
+        }
+      ]
+    },
+    "by_asset": [
+      {
+        "asset": "BTC",
+        "trades": 251,
+        "wins": 64,
+        "net_pnl": 40.731566,
+        "mean_ask": 0.23831075697211157,
+        "win_rate": 0.2549800796812749
+      },
+      {
+        "asset": "DOGE",
+        "trades": 231,
+        "wins": 44,
+        "net_pnl": -65.833735,
+        "mean_ask": 0.244,
+        "win_rate": 0.19047619047619047
+      },
+      {
+        "asset": "ETH",
+        "trades": 226,
+        "wins": 49,
+        "net_pnl": -6.342198,
+        "mean_ask": 0.23317256637168143,
+        "win_rate": 0.2168141592920354
+      },
+      {
+        "asset": "SOL",
+        "trades": 234,
+        "wins": 51,
+        "net_pnl": -37.141275,
+        "mean_ask": 0.23520512820512823,
+        "win_rate": 0.21794871794871795
+      },
+      {
+        "asset": "XRP",
+        "trades": 237,
+        "wins": 50,
+        "net_pnl": -31.537692,
+        "mean_ask": 0.24754430379746836,
+        "win_rate": 0.2109704641350211
+      }
+    ]
+  },
+  "Joint_Filter": {
+    "total_net_pnl": -38.03,
+    "top5_wins_sum": 56.6242,
+    "top5_share_of_total_pct": 0.0,
+    "best_day": "2026-07-26",
+    "best_day_pnl": 22.6727,
+    "pnl_without_best_day": -60.7027,
+    "weekly_summary": {
+      "total_weeks": 9,
+      "positive_weeks": 3,
+      "positive_week_pct": 33.3,
+      "weeks": [
+        {
+          "calendar_week": "2026-W27",
+          "trades": 20,
+          "wins": 3,
+          "net_pnl": -8.369545,
+          "win_rate": 0.15
+        },
+        {
+          "calendar_week": "2026-W28",
+          "trades": 144,
+          "wins": 34,
+          "net_pnl": -2.2715099999999975,
+          "win_rate": 0.2361111111111111
+        },
+        {
+          "calendar_week": "2026-W29",
+          "trades": 131,
+          "wins": 34,
+          "net_pnl": 8.352710999999998,
+          "win_rate": 0.2595419847328244
+        },
+        {
+          "calendar_week": "2026-W30",
+          "trades": 59,
+          "wins": 19,
+          "net_pnl": 24.824507,
+          "win_rate": 0.3220338983050847
+        },
+        {
+          "calendar_week": "2026-W31",
+          "trades": 19,
+          "wins": 5,
+          "net_pnl": -3.5457799999999997,
+          "win_rate": 0.2631578947368421
+        },
+        {
+          "calendar_week": "2026-W32",
+          "trades": 65,
+          "wins": 12,
+          "net_pnl": -19.497875,
+          "win_rate": 0.18461538461538463
+        },
+        {
+          "calendar_week": "2026-W33",
+          "trades": 116,
+          "wins": 18,
+          "net_pnl": -49.57755,
+          "win_rate": 0.15517241379310345
+        },
+        {
+          "calendar_week": "2026-W34",
+          "trades": 72,
+          "wins": 24,
+          "net_pnl": 23.835074000000002,
+          "win_rate": 0.3333333333333333
+        },
+        {
+          "calendar_week": "2026-W35",
+          "trades": 163,
+          "wins": 37,
+          "net_pnl": -11.780049999999997,
+          "win_rate": 0.22699386503067484
+        }
+      ]
+    },
+    "by_asset": [
+      {
+        "asset": "BTC",
+        "trades": 168,
+        "wins": 44,
+        "net_pnl": 14.187895000000003,
+        "mean_ask": 0.2525357142857143,
+        "win_rate": 0.2619047619047619
+      },
+      {
+        "asset": "DOGE",
+        "trades": 145,
+        "wins": 30,
+        "net_pnl": -23.04512,
+        "mean_ask": 0.2517241379310345,
+        "win_rate": 0.20689655172413793
+      },
+      {
+        "asset": "ETH",
+        "trades": 160,
+        "wins": 40,
+        "net_pnl": 13.688763,
+        "mean_ask": 0.24446249999999997,
+        "win_rate": 0.25
+      },
+      {
+        "asset": "SOL",
+        "trades": 160,
+        "wins": 37,
+        "net_pnl": -16.764311,
+        "mean_ask": 0.24278125,
+        "win_rate": 0.23125
+      },
+      {
+        "asset": "XRP",
+        "trades": 156,
+        "wins": 35,
+        "net_pnl": -26.097244999999997,
+        "mean_ask": 0.2590192307692308,
+        "win_rate": 0.22435897435897437
+      }
+    ]
+  }
+}
