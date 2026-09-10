@@ -10,8 +10,9 @@
   "ct_commit": "2b531a2",
   "ct_spec_hash": "a14c4a4b81c3743454842007dc8f2d89e055c93e010ea63c6c73a711cca31c16",
   "freeze_code_commit": "cb94948b001f25a6eed7eb481d209935461bc8ae",
-  "final_start": null,
-  "final_status": "NOT_STARTED",
+  "final_start": "2026-09-10T09:30:00Z",
+  "final_end": "2026-09-24T09:30:00Z",
+  "final_status": "PENDING_NEW_PERIOD",
   "economics_engine": "polyflip/research/orderbook_execution.py (vendored 2b531a2)",
   "note": "Heavy ops local only; server for collection + limited export; refuses SSHFS/server train."
 }

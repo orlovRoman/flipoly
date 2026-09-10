@@ -41,7 +41,30 @@ Bundle saved AT the decision carries ages ~0.1 s, satisfying the frozen
 15 s gate on both legs. Periodic snapshots (~45 s cadence) remain what they
 are: insufficient alone (30/48 STALE on history), kept for history windows.
 
-## Deploy procedure (operator approval required; PAPER loop only)
+## Deploy record (executed 2026-09-10)
+- Server tree verified clean, HEAD == `2b531a2` (patch base). Patch scp'd
+  (ASCII staging path; Cyrillic home path breaks Win32 scp), `apply --check`
+  clean on server, applied (62 insertions, 1 file), `py_compile` clean.
+- Rebuilt images: `flipoly-execution_worker_paper` (manifest
+  `sha256:d43907261f3462dbc15bda29f8a29bf7298ca83e00df8984360a0cd77c1c73dd`),
+  `flipoly-scheduler` (manifest
+  `sha256:0bbe9e61d7c6a77d8804736672daaf641539ee29881620b053cb3a19c48ef7f1`).
+- Restarted ONLY `execution_worker_paper` + `scheduler` (~08:47 UTC); all other
+  services untouched and Running; both new containers Up/healthy.
+- First post-restart decisions (08:55, 09:10 UTC) carry `input_bundle`
+  (19/19 and 20/20 obs). `code_version` = "unknown" (no .git inside runtime
+  image — expected; logic identity = top-level `spec_hash` + image digests).
+- Bundle content verified: full quotes (bid/ask/mid, event/received, ages
+  ~0.02–0.07 s), history sources, execution role post-only-maker.
+- Reproduction from saved bundle (4402907, DOWN): ER 0.4831 / sc 0.8462 /
+  ac −0.4935 / 19 obs — BIT-IDENTICAL to registered `ct_features`;
+  regime UNCERTAIN reproduced. (4403224: PRICE_FILTER short-circuit live;
+  bundle recomputes UNCERTAIN/VALID deterministically.)
+- Readiness: PASS on post-restart decisions (bundle + depth≤15 s +
+  snapshot≤60 s). Formal `check_record_cycle.py` runs pre-final_start on
+  complete chunks.
+
+## Deploy procedure (reference; PAPER loop only)
 Patch: `activation_ct_bundle.patch` (this dir; verified `git apply --check`
 clean against `2b531a2` + `py_compile` clean). Additive only, decision logic
 untouched, bundle wrapped in try/except.
