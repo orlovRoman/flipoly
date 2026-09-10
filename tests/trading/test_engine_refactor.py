@@ -544,6 +544,17 @@ def _make_mock_exec(price):
 class TestStep8Orchestrator:
     """Регрессионные тесты оркестратора: публичный API и базовое поведение."""
 
+    def test_step8_ct_outside_window_is_not_persisted(self):
+        """CT polling before T-5 is observation, not a trade-history decision."""
+        from polyflip.trading.engine import _should_persist_guard_skip
+
+        assert _should_persist_guard_skip("ct_outsider", "guard: Outside time window") is False
+        assert _should_persist_guard_skip("ct", "guard: Outside time window") is False
+        # Combined mode keeps its existing guard telemetry contract.
+        assert _should_persist_guard_skip("combined", "guard: Outside time window") is True
+        # A real CT decision reason must remain recordable.
+        assert _should_persist_guard_skip("ct_outsider", "MISSING_TOKEN_HISTORY") is True
+
     def test_step8_trade_worker_cycle_exists_and_is_async(self):
         """trade_worker_cycle по-прежнему существует и является async."""
         from polyflip.trading.engine import trade_worker_cycle
