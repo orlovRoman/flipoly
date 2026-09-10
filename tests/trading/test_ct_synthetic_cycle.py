@@ -1778,6 +1778,50 @@ async def test_19_market_guards_immutability_and_skip_reason_preservation():
 
 
 @pytest.mark.asyncio
+async def test_19b_market_guards_preserve_ct_skip_after_window():
+    """A later heartbeat outside [T-300,T-210] must not overwrite CT's decision."""
+    from unittest.mock import AsyncMock, MagicMock
+    from polyflip.trading.market_guards import check_market_guards
+    from polyflip.trading.trading_config import parse_trading_settings
+    from polyflip.db.models import TradeHistory
+
+    mock_db = AsyncMock()
+    cfg = parse_trading_settings({"TRADING_MODE": "ct_outsider"})
+
+    class DummyMarket:
+        market_id = "mkt_immutable_outside"
+        asset = "BTC"
+        yes_token_id = "tok_yes"
+        no_token_id = "tok_no"
+
+    existing_skip = TradeHistory(
+        market_id="mkt_immutable_outside",
+        asset="BTC",
+        status="SKIPPED",
+        error_msg="REGIME_NOT_REVERSION: UNCERTAIN",
+        strategy_name="BTC_CT_T5_V1",
+        strategy_type="CT_OUTSIDER",
+    )
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = existing_skip
+    mock_db.execute = AsyncMock(return_value=mock_result)
+
+    guard_res = await check_market_guards(
+        db_session=mock_db,
+        market=DummyMarket(),
+        cfg=cfg,
+        asset_mode="ct_outsider",
+        time_left_sec=149.0,
+        start_time=datetime.now(timezone.utc),
+    )
+
+    assert guard_res.passed is False
+    assert guard_res.skip_reason == "guard: Decision already recorded in window (SKIP)"
+    assert guard_res.existing_skipped is existing_skip
+    assert existing_skip.error_msg == "REGIME_NOT_REVERSION: UNCERTAIN"
+
+
+@pytest.mark.asyncio
 async def test_20_decision_at_timing_fidelity(db_session, base_decision_time):
     """Requirement 4: Decision time is separate from cycle start, fixed after quotes arrive, and verified in DB and diagnostics."""
     cycle_start = base_decision_time

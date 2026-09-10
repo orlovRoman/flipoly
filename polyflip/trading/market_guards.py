@@ -55,6 +55,18 @@ async def check_market_guards(
     skipped_res = await db_session.execute(skipped_check)
     existing_skipped = skipped_res.scalar_one_or_none()
 
+    # A CT skip is the canonical decision for this market.  Check it before
+    # the time-window guard so later scheduler heartbeats cannot overwrite its
+    # reason with the generic ``Outside time window`` message.  This matters
+    # after the first decision: the market naturally leaves the 210--300 s
+    # window while the UI still polls it.
+    if is_ct_mode and existing_skipped is not None:
+        return GuardResult(
+            passed=False,
+            skip_reason="guard: Decision already recorded in window (SKIP)",
+            existing_skipped=existing_skipped,
+        )
+
     if time_left_sec <= 0:
         return GuardResult(passed=False, skip_reason="guard: Time left <= 0", existing_skipped=existing_skipped)
         
@@ -62,13 +74,6 @@ async def check_market_guards(
         # Pinned CT decision window: 210 to 300 seconds (3.5 to 5.0 minutes)
         if not (210.0 <= time_left_sec <= 300.0):
             return GuardResult(passed=False, skip_reason="guard: Outside time window", existing_skipped=existing_skipped)
-        # Item 17: First decision in window is immutable; do not reconsider once skipped
-        if existing_skipped is not None:
-            return GuardResult(
-                passed=False,
-                skip_reason="guard: Decision already recorded in window (SKIP)",
-                existing_skipped=existing_skipped,
-            )
     else:
         global_min_sec = min(cfg.favor_min_time_left, cfg.outs_min_time_left)
         global_max_sec = max(cfg.favor_max_time_left, cfg.outs_max_time_left)
