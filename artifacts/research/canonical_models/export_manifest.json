@@ -1,0 +1,150 @@
+{
+ "export": "canonical-development-v1",
+ "scope": "development ONLY (all history). final_start=null, final_status=NOT_STARTED. Never the final test.",
+ "protocol_hash": "68c097c7232b5f325dab4bab8cd591d886c27e23f0178a747aaec13ff3619bca",
+ "chunk_rule": "half-open UTC day bounds [d, d+1); one COPY per table/day; needed columns; statement_timeout; server gzip + compose-cp + scp; sha256 match required",
+ "server": {
+  "host": "orlovrp@34.65.114.222",
+  "repo": "/home/orlovrp/flipoly",
+  "db": "polyflip/polyflip"
+ },
+ "local_dir": "<local-only, not in git>/canonical_chunks",
+ "server_coverage": {
+  "snapshots": {
+   "days": 77,
+   "rows": 6911405,
+   "from": "2026-06-25T17:26:53Z",
+   "to": "2026-09-10T06:00:13Z",
+   "gap_day": "2026-09-05"
+  },
+  "depth_days": [
+   "2026-09-09",
+   "2026-09-10"
+  ],
+  "ct_reservations_rows": 48
+ },
+ "pipeline_validation_day": "2026-09-09",
+ "chunks": [
+  {
+   "table": "ct_decision_reservations",
+   "bounds": [
+    "full",
+    "full"
+   ],
+   "rows": 48,
+   "sha256": "f2a354f69861e52a1b89c3537b954f78b0b3c7c40911d2c5938a16864284723b",
+   "file": "canonical_ct_reservations.csv.gz",
+   "sql": "export/sql/export_ct.sql"
+  },
+  {
+   "table": "live_markets",
+   "bounds": [
+    "full",
+    "full"
+   ],
+   "rows": 35603,
+   "sha256": "43b54cab2dc24a7a5bf4ab9c88216e630fc0f69150f0408f9e57932d678d0441",
+   "file": "canonical_live_markets.csv.gz",
+   "sql": "export/sql/export_live.sql"
+  },
+  {
+   "table": "market_snapshots",
+   "bounds": [
+    "2026-06-25T00:00:00Z",
+    "2026-06-26T00:00:00Z"
+   ],
+   "rows": 29963,
+   "sha256": "18dc4471700a28d9c4f60f125eab908a8ed3101f4577e7b6bd551354c649ace5",
+   "file": "canonical_snap_20260625.csv.gz",
+   "sql": "export/sql/export_snap_day.sql"
+  },
+  {
+   "table": "market_snapshots",
+   "bounds": [
+    "2026-06-26T00:00:00Z",
+    "2026-06-27T00:00:00Z"
+   ],
+   "rows": 111992,
+   "sha256": "945db42954a763b0c7a19f7eef6ddc224f5a6f587a3d876505aa6028b29e1f2f",
+   "file": "canonical_snap_20260626.csv.gz",
+   "sql": "export/sql/export_snap_day.sql"
+  },
+  {
+   "table": "market_snapshots",
+   "bounds": [
+    "2026-06-27T00:00:00Z",
+    "2026-06-28T00:00:00Z"
+   ],
+   "rows": 110693,
+   "sha256": "ea7a1e6e12ebd66bd6630f7483beb3431bc79a2ef5f33915dc2d762567416c99",
+   "file": "canonical_snap_20260627.csv.gz",
+   "sql": "export/sql/export_snap_day.sql"
+  },
+  {
+   "table": "market_snapshots",
+   "bounds": [
+    "2026-06-28T00:00:00Z",
+    "2026-06-29T00:00:00Z"
+   ],
+   "rows": 101240,
+   "sha256": "1614b6dbc5285d8404d4035e9bd01aaf4c770175634d4531f04a8b3d8190f76b",
+   "file": "canonical_snap_20260628.csv.gz",
+   "sql": "export/sql/export_snap_day.sql"
+  },
+  {
+   "table": "market_snapshots",
+   "bounds": [
+    "2026-06-29T00:00:00Z",
+    "2026-06-30T00:00:00Z"
+   ],
+   "rows": 130738,
+   "sha256": "5215310eb2b389a8b516e91e248f3c06249a66d3d100d0ce6b5bebae103cc5af",
+   "file": "canonical_snap_20260629.csv.gz",
+   "sql": "export/sql/export_snap_day.sql"
+  },
+  {
+   "table": "market_snapshots",
+   "bounds": [
+    "2026-06-30T00:00:00Z",
+    "2026-07-01T00:00:00Z"
+   ],
+   "rows": 130929,
+   "sha256": "797aca51d458b1b4bd7ad5bd3b93431d7cb1e17ce8869a992bfbdc0b965f53b3",
+   "file": "canonical_snap_20260630.csv.gz",
+   "sql": "export/sql/export_snap_day.sql"
+  },
+  {
+   "table": "market_snapshots",
+   "bounds": [
+    "2026-07-01T00:00:00Z",
+    "2026-07-02T00:00:00Z"
+   ],
+   "rows": 133411,
+   "sha256": "619438d42a8babe961f385276431a2b3e1f7ee01e864654d7666cd089282eca5",
+   "file": "canonical_snap_20260701.csv.gz",
+   "sql": "export/sql/export_snap_day.sql"
+  },
+  {
+   "table": "market_snapshots",
+   "bounds": [
+    "2026-09-09T00:00:00Z",
+    "2026-09-10T00:00:00Z"
+   ],
+   "rows": 84510,
+   "sha256": "edcdc8fc18ff2a8d45f00f1b5b7d55719b417b129618417a4979e3120f0d8c8e",
+   "file": "canonical_snap_20260909.csv.gz",
+   "sql": "export/sql/export_snap_day.sql"
+  },
+  {
+   "table": "orderbook_depth_snapshots",
+   "bounds": [
+    "2026-09-09T00:00:00Z",
+    "2026-09-10T00:00:00Z"
+   ],
+   "rows": 106660,
+   "sha256": "21ce24f39b07c1399f6436191c3b6d68960490dfe1ed2dc56b06f34368f7082f",
+   "file": "canonical_depth_20260909.csv.gz",
+   "sql": "export/sql/export_depth_day.sql"
+  }
+ ]
+}

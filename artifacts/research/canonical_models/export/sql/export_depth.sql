@@ -1,0 +1,3 @@
+-- export 3/3: orderbook_depth_snapshots 2026-09-09 UTC, full rows
+SET statement_timeout TO '300s';
+\copy (SELECT id, snapshot_id, market_id, token_id, outcome_side, event_at, received_at, bids, asks, sequence_id, is_truncated, depth_limit, source, quality_status, quality_notes, best_bid_price, best_bid_size, best_ask_price, best_ask_size, depth_usdc_bid, depth_usdc_ask FROM orderbook_depth_snapshots WHERE received_at >= make_timestamptz(2026,9,9,0,0,0) AND received_at < make_timestamptz(2026,9,10,0,0,0) ORDER BY market_id, token_id, received_at) TO '/tmp/canonical_depth_20260909.csv' WITH (FORMAT CSV, HEADER)
