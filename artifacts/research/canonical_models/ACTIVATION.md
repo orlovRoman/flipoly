@@ -41,9 +41,32 @@ Bundle saved AT the decision carries ages ~0.1 s, satisfying the frozen
 15 s gate on both legs. Periodic snapshots (~45 s cadence) remain what they
 are: insufficient alone (30/48 STALE on history), kept for history windows.
 
+## Deploy procedure (operator approval required; PAPER loop only)
+Patch: `activation_ct_bundle.patch` (this dir; verified `git apply --check`
+clean against `2b531a2` + `py_compile` clean). Additive only, decision logic
+untouched, bundle wrapped in try/except.
+```sh
+cd /home/orlovrp/flipoly
+git status --short  # must be clean
+git checkout research/ct-execution-comparison
+git apply /tmp/activation_ct_bundle.patch
+git diff --stat
+python3 -m py_compile polyflip/trading/decision_runners.py
+docker compose build execution_worker_paper scheduler
+docker compose up -d execution_worker_paper scheduler
+docker compose ps execution_worker_paper scheduler
+```
+Verify (read-only): new reservations carry the bundle —
+```sql
+SET statement_timeout TO '30s';
+SELECT decision_at, action,
+       (decision_details->'input_bundle') IS NOT NULL AS has_bundle,
+       decision_details->'input_bundle'->>'code_version' AS code
+  FROM ct_decision_reservations ORDER BY decision_at DESC LIMIT 5;
+```
+
 ## Readiness procedure (operator, after deploy)
-1. Restart the PAPER loop on the patched tree; confirm new reservations carry
-   `input_bundle` + `code_version`.
+1. Confirm new reservations carry `input_bundle` + `code_version` (query above).
 2. Run `scripts/research/canonical_models/check_record_cycle.py` against fresh
    decisions (extend with a bundle-presence check at activation time).
 3. On PASS: record `final_start` UTC = next 15m-contract start boundary;
