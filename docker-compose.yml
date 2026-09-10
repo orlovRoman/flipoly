@@ -80,7 +80,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 768M
+          memory: 1024M
 
 
   lgbm_training_worker:
