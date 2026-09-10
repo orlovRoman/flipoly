@@ -1,0 +1,16 @@
+{
+  "freeze": "CT-final rules",
+  "code_commit_full": "cb94948b001f25a6eed7eb481d209935461bc8ae",
+  "protocol_hash": "9f8a5efcfb5f8d0b91bc64d11996399ccbdfca572f4cb36923d697ad76cf5f46",
+  "spec": "BTC_CT_T5_V1",
+  "spec_hash_full": "a14c4a4b81c3743454842007dc8f2d89e055c93e010ea63c6c73a711cca31c16",
+  "spec_source_commit": "2b531a2 (branch feature/paper-ct-outsider; files vendored byte-identical)",
+  "comparison": "BTC price control vs BTC price control + CT at the same actual CT decision moment (window 210-300 s)",
+  "universe": "L0 all eligible BTC opps pre-CT incl. CT-SKIP (counted); L1 sufficient-data scored pair",
+  "budget": "$1 purchase cost; fee on top; identical for both policies",
+  "fee": "UNKNOWN -> confirmed_net_pnl=null; scenarios 0/0.001/0.002; formula fee=C*0.07*p*(1-p) taker-only maker-0 (period UNCONFIRMED)",
+  "final_window": "final_start = next 15m-contract start boundary AFTER frozen-code activation + successful record-cycle check (scripts/.../check_record_cycle.py); final_end = final_start + 14x24h; inclusion [final_start, final_end) by contract start UTC; no early stop; await resolution; failures in coverage",
+  "activation": "PENDING (operator: deploy frozen code to working PAPER loop, run record-cycle check, record final_start UTC)",
+  "final_start": null,
+  "final_status": "NOT_STARTED"
+}

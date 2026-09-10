@@ -4,10 +4,14 @@
   "workdir_is_local": true,
   "workdir": "C:\\Users\\orlov\\OneDrive\\Документы\\Default Project\\flipoly",
   "protocol_version": "canonical-models-v1",
-  "protocol_hash": "68c097c7232b5f325dab4bab8cd591d886c27e23f0178a747aaec13ff3619bca",
-  "protocol_note": "v2: CT BTC_CT_T5_V1 pinned (2b531a2), budget = $1 purchase cost + fee separately, fee UNKNOWN + scenarios, PENDING_NEW_PERIOD rule.",
+  "protocol_hash": "9f8a5efcfb5f8d0b91bc64d11996399ccbdfca572f4cb36923d697ad76cf5f46",
+  "protocol_note": "v3 FROZEN CT-final rules (freeze_ct_final): BTC-only L0/L1 pair at actual CT moments, fee formula recorded, INCONCLUSIVE verdict, strict-T5 historical variant.",
   "ct_spec": "BTC_CT_T5_V1",
   "ct_commit": "2b531a2",
+  "ct_spec_hash": "a14c4a4b81c3743454842007dc8f2d89e055c93e010ea63c6c73a711cca31c16",
+  "freeze_code_commit": "cb94948b001f25a6eed7eb481d209935461bc8ae",
+  "final_start": null,
+  "final_status": "NOT_STARTED",
   "economics_engine": "polyflip/research/orderbook_execution.py (vendored 2b531a2)",
   "note": "Heavy ops local only; server for collection + limited export; refuses SSHFS/server train."
 }
