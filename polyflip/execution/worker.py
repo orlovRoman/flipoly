@@ -979,13 +979,16 @@ async def process_ready_requests(
                     order,
                     ttl_seconds=gtc_ttl_sec,
                     api_client=api_client,
-                    max_acceptable_price=req.max_acceptable_price,
+                    # Maker repricing only moves to a cheaper passive quote.
+                    # The saved decision edge is therefore not re-evaluated;
+                    # the original/current execution cap remains authoritative.
+                    max_acceptable_price=execution_max_acceptable_price,
                     max_reprice_attempts=(
                         maker_reprice_attempts if maker_reprice_enabled else 0
                     ),
                     tick_size=maker_tick_size,
-                    edge_policy=fak_retry_edge_policy,
-                    require_edge_revalidation=edge_revalidation_required,
+                    edge_policy=None,
+                    require_edge_revalidation=False,
                 )
             elif order_mode == "GTD":
                 sub_res = await execute_maker_limit(
@@ -993,13 +996,15 @@ async def process_ready_requests(
                     order,
                     order_type="GTD",
                     api_client=api_client,
-                    max_acceptable_price=req.max_acceptable_price,
+                    # Same maker rule as GTC_TTL: reprice to the fresh
+                    # passive quote without a second probability/edge check.
+                    max_acceptable_price=execution_max_acceptable_price,
                     max_reprice_attempts=(
                         maker_reprice_attempts if maker_reprice_enabled else 0
                     ),
                     tick_size=maker_tick_size,
-                    edge_policy=fak_retry_edge_policy,
-                    require_edge_revalidation=edge_revalidation_required,
+                    edge_policy=None,
+                    require_edge_revalidation=False,
                 )
             elif order_mode == "FAK_RETRY":
                 api_client_retry = api_client if api_client else None
