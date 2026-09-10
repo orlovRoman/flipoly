@@ -820,6 +820,72 @@
   {
    "table": "market_snapshots",
    "bounds": [
+    "2026-09-03T00:00:00Z",
+    "2026-09-04T00:00:00Z"
+   ],
+   "rows": 110991,
+   "sha256": "2fe29e968eb869e29dc59aa7a4f5a86363d74c3fae216d9a6172d125d4ab99d3",
+   "file": "canonical_snap_20260903.csv.gz",
+   "sql": "export/sql/export_snap_day.sql"
+  },
+  {
+   "table": "market_snapshots",
+   "bounds": [
+    "2026-09-04T00:00:00Z",
+    "2026-09-05T00:00:00Z"
+   ],
+   "rows": 83353,
+   "sha256": "b4a69e1cfc3096f8e401280d35eb128c22f2d6dbbdca48b37b3d409058f2b012",
+   "file": "canonical_snap_20260904.csv.gz",
+   "sql": "export/sql/export_snap_day.sql"
+  },
+  {
+   "table": "market_snapshots",
+   "bounds": [
+    "2026-09-05T00:00:00Z",
+    "2026-09-06T00:00:00Z"
+   ],
+   "rows": 0,
+   "sha256": "91e5a0eeed586be153e77ebbe72fce1570f55db58dafebd562777b2668d1d65e",
+   "file": "canonical_snap_20260905.csv.gz",
+   "sql": "export/sql/export_snap_day.sql"
+  },
+  {
+   "table": "market_snapshots",
+   "bounds": [
+    "2026-09-06T00:00:00Z",
+    "2026-09-07T00:00:00Z"
+   ],
+   "rows": 43872,
+   "sha256": "ad33cfe4f95f953ba7cb868617c7167cf6c81107c8b2b186cde72f6d3ac917a2",
+   "file": "canonical_snap_20260906.csv.gz",
+   "sql": "export/sql/export_snap_day.sql"
+  },
+  {
+   "table": "market_snapshots",
+   "bounds": [
+    "2026-09-07T00:00:00Z",
+    "2026-09-08T00:00:00Z"
+   ],
+   "rows": 110738,
+   "sha256": "37e33e1a9f3a713f6d70ac6e36b602d13ab52aca6e61eda70a8249cec684cdbc",
+   "file": "canonical_snap_20260907.csv.gz",
+   "sql": "export/sql/export_snap_day.sql"
+  },
+  {
+   "table": "market_snapshots",
+   "bounds": [
+    "2026-09-08T00:00:00Z",
+    "2026-09-09T00:00:00Z"
+   ],
+   "rows": 106997,
+   "sha256": "2fef0c37c5eda6e021882a2aa1f663fa36d28c42b93cae94475afdb1b4f7619f",
+   "file": "canonical_snap_20260908.csv.gz",
+   "sql": "export/sql/export_snap_day.sql"
+  },
+  {
+   "table": "market_snapshots",
+   "bounds": [
     "2026-09-09T00:00:00Z",
     "2026-09-10T00:00:00Z"
    ],
