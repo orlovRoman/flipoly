@@ -50,7 +50,12 @@ def predict_p_flip(model, row: dict, feature_order: list[str]) -> float:
     import math
     x = [float(row[c]) for c in feature_order]
     if hasattr(model, "decision_function"):
-        z = float(model.decision_function([x])[0])
+        try:
+            import pandas as pd
+            z = float(model.decision_function(
+                pd.DataFrame([x], columns=feature_order))[0])
+        except ImportError:
+            z = float(model.decision_function([x])[0])
         return 1.0 / (1.0 + math.exp(-z))
     return float(model.predict_proba([x])[0][1])
 
