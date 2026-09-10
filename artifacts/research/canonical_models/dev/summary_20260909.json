@@ -1,0 +1,67 @@
+{
+ "n": 79,
+ "provenance": "RECONSTRUCTED_CT",
+ "by_asset": {
+  "DOGE": 18,
+  "XRP": 18,
+  "ETH": 16,
+  "BTC": 14,
+  "SOL": 13
+ },
+ "by_side": {
+  "UP": 45,
+  "DOWN": 34
+ },
+ "control_entries": 79,
+ "ct_entries": 4,
+ "ct_regimes": {
+  "UNCERTAIN": 74,
+  "REVERSION": 4,
+  "TREND": 1
+ },
+ "control": {
+  "gross": 16.1337,
+  "per_opp": 0.20422,
+  "entries": 79,
+  "win_rate": 0.1899,
+  "fee_scenarios": {
+   "0.0": 16.1337,
+   "0.001": 16.0547,
+   "0.002": 15.9757
+  },
+  "formula_unconfirmed": 11.5222,
+  "max_drawdown": 20.0,
+  "top_win_share": 0.8235
+ },
+ "ct": {
+  "gross": 7.1905,
+  "per_opp": 0.09102,
+  "entries": 4,
+  "win_rate": 0.5,
+  "fee_scenarios": {
+   "0.0": 7.1905,
+   "0.001": 7.1865,
+   "0.002": 7.1825
+  },
+  "formula_unconfirmed": 6.9707,
+  "max_drawdown": 2.0,
+  "top_win_share": 1.0199
+ },
+ "ct_minus_control_gross": -8.9433,
+ "diff_ci95": [
+  -8.943,
+  -8.943
+ ],
+ "n_days": 1,
+ "protocol_hash": "68c097c7232b5f325dab4bab8cd591d886c27e23f0178a747aaec13ff3619bca",
+ "protocol_version": "canonical-models-v1",
+ "day": "2026-09-09",
+ "excluded_reasons": {
+  "NO_DECISION_SNAPSHOT": 404,
+  "NO_DOWN_QUOTE": 29
+ },
+ "data_status_mix": {
+  "TOP_ONLY_ASSUMED": 45,
+  "CONFIRMED": 34
+ }
+}
