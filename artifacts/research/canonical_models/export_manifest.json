@@ -435,6 +435,83 @@
   {
    "table": "market_snapshots",
    "bounds": [
+    "2026-07-30T00:00:00Z",
+    "2026-07-31T00:00:00Z"
+   ],
+   "rows": 115014,
+   "sha256": "753e72225802dd90b740cc146f7ca7a29a9e5d3bc029f4966a09b288422e3fdf",
+   "file": "canonical_snap_20260730.csv.gz",
+   "sql": "export/sql/export_snap_day.sql"
+  },
+  {
+   "table": "market_snapshots",
+   "bounds": [
+    "2026-07-31T00:00:00Z",
+    "2026-08-01T00:00:00Z"
+   ],
+   "rows": 98214,
+   "sha256": "cb6c8c0ebf60c47d60266dc39e0f77277993b2593ff6ca72a25c5cedd07cbbf1",
+   "file": "canonical_snap_20260731.csv.gz",
+   "sql": "export/sql/export_snap_day.sql"
+  },
+  {
+   "table": "market_snapshots",
+   "bounds": [
+    "2026-08-01T00:00:00Z",
+    "2026-08-02T00:00:00Z"
+   ],
+   "rows": 80083,
+   "sha256": "8b13535d805638c60b4195b3f6e90b8d0e4f20474ada45f0db6f65717ad66f18",
+   "file": "canonical_snap_20260801.csv.gz",
+   "sql": "export/sql/export_snap_day.sql"
+  },
+  {
+   "table": "market_snapshots",
+   "bounds": [
+    "2026-08-02T00:00:00Z",
+    "2026-08-03T00:00:00Z"
+   ],
+   "rows": 100310,
+   "sha256": "1ca8e540407654e48d8bb3f2c86cf34cefa12ed4cb78ce889f3e10757bd96335",
+   "file": "canonical_snap_20260802.csv.gz",
+   "sql": "export/sql/export_snap_day.sql"
+  },
+  {
+   "table": "market_snapshots",
+   "bounds": [
+    "2026-08-03T00:00:00Z",
+    "2026-08-04T00:00:00Z"
+   ],
+   "rows": 91487,
+   "sha256": "13218b029cd89b0b2f8c43b9f6d8bb35245467a80ea6eaa3c8872ab78b9bff9d",
+   "file": "canonical_snap_20260803.csv.gz",
+   "sql": "export/sql/export_snap_day.sql"
+  },
+  {
+   "table": "market_snapshots",
+   "bounds": [
+    "2026-08-04T00:00:00Z",
+    "2026-08-05T00:00:00Z"
+   ],
+   "rows": 84317,
+   "sha256": "f03d7cd90e111050d1cfa5cf1b336f568831cc2eb3683082daa1c7e0b29a957d",
+   "file": "canonical_snap_20260804.csv.gz",
+   "sql": "export/sql/export_snap_day.sql"
+  },
+  {
+   "table": "market_snapshots",
+   "bounds": [
+    "2026-08-05T00:00:00Z",
+    "2026-08-06T00:00:00Z"
+   ],
+   "rows": 81273,
+   "sha256": "91ea3d7f30f1fc7e5770f4958d8aca208d9a684f4618691e979bcde19765a4e1",
+   "file": "canonical_snap_20260805.csv.gz",
+   "sql": "export/sql/export_snap_day.sql"
+  },
+  {
+   "table": "market_snapshots",
+   "bounds": [
     "2026-09-09T00:00:00Z",
     "2026-09-10T00:00:00Z"
    ],
