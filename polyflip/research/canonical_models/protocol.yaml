@@ -1,0 +1,91 @@
+# Canonical model comparison protocol (hash-pinned).
+# Changing ANY field creates a new experiment: every result must embed protocol_hash.
+protocol_version: canonical-models-v1
+
+assets: [BTC, ETH, SOL, XRP, DOGE]
+
+decision_point:
+  target_offset_from_end: "T-5m"          # end_at minus 5 minutes
+  selection_window: "(T-5m, T-4m45s]"     # first available obs after T-5m, <= +15s
+  max_lateness_sec: 15
+  one_decision_per_market_per_policy: true
+  no_future_use: true                     # selection must not depend on outcome/price advantage
+
+trading_universe:
+  side_scope: "outsiders of both sides (UP and DOWN)"
+  ask_min_inclusive: 0.01
+  ask_max_inclusive: 0.40
+  ask_source: "existing CT profile range; NOT optimized in this study"
+  budget_usd: 1.0
+  budget_fee_included: true               # $1 explicitly includes commission
+  side_selection: "lower observed mid; parity -> SKIP_PARITY (pre-set rule)"
+  parity_rule: "SKIP_PARITY"
+
+forecast_variants:
+  - id: market
+    desc: "Market control P(UP) = observed UP mid; P(DOWN)=1-P(UP); real DOWN mid kept as book-consistency diagnostic"
+  - id: M0
+    desc: "Phi(z) fixed formula control"
+  - id: M1
+    desc: "Base logistic regression on [z, time_left, sigma]; scaler fit on train only"
+  - id: M2
+    desc: "Extended logistic regression: M1 + trajectory features (step 16); fixed regularization"
+  - id: M3
+    desc: "LightGBM on same info as M2; capped depth/budget; early stopping on inner validation only"
+  - id: M4
+    desc: "Market-offset correction: logit(p)=logit(p_market)+intercept+beta*features; market coef fixed at 1, correction shrunk to 0"
+  - id: CT
+    note: "CT is NOT a forecast variant; it is checked separately as an entry filter and as challenger+CT policy"
+
+periods:
+  rule: "Fix before any training. Development uses expanding time folds. Final holdout must be NEW data if prior periods were already studied. No market may cross a split; every train row outcome must have been known at train time."
+  development: null    # fill with {start, end, folds:[...]} before training; hash then pins it
+  final_holdout: null  # fill before training; e.g. {start, end}
+  timezone: "UTC"
+  split_unit: "market (never split one market across folds)"
+
+challenger_selection:
+  candidates: [M2, M3, M4]
+  primary_metric: "mean out-of-fold log loss on development"
+  diagnostics_required: ["brier", "cheap_range_0.01_0.40", "temporal_stability_by_week"]
+  no_winner_status: "NO_CLEAR_CHALLENGER"
+  rule: "Winner must be recorded BEFORE opening final test. Never replace challenger after seeing test."
+
+economics:
+  entry_criterion: "single expected-value-after-costs threshold, recorded BEFORE viewing economic results; no best-threshold picking on test"
+  ev_threshold_net: 0.02     # $0.02 expected net per $1 stake; fixed a priori
+  policies:
+    - price_control
+    - CT
+    - M1
+    - challenger
+    - challenger_plus_CT
+  execution: "same time/price-range/budget/fill for all policies; keep reasons for divergent decisions"
+  fee_unknown_policy: "net_pnl=null (confirmed) + separate signed scenarios; UNKNOWN fee is never 0 fee"
+  missing_depth_policy: "BLOCKED_DATA, never 0 PnL, never assumed fill"
+  gas_policy: "Polygon gas accounted separately, never double-charged in spread"
+
+final_status_criteria:
+  # Computed from pre-set thresholds, never fitted to liked result.
+  PAPER_CANDIDATE:
+    - "final-holdout net_pnl > 0"
+    - "paired day-block bootstrap CI for (challenger - M1) excludes 0 in favour of challenger OR challenger==M1-line stopped per NO_INCREMENTAL_VALUE"
+    - "max drawdown within pre-set limit AND top-5 wins concentration disclosed"
+    - "coverage: >= N markets/days per asset (from coverage report)"
+  PROMISING_UNCERTAIN: "economics positive but CI wide / days too few"
+  FORECAST_ONLY: "forecast better, trading economics not confirmed"
+  NO_INCREMENTAL_VALUE: "no convincing gain over M1 control"
+  DATA_BLOCKED: "insufficient canonical labels -> pipeline PENDING_CANONICAL_DATA, no proxy re-run under new name"
+
+compute:
+  allowed_host: "local Windows disk only; NOT \\\\sshfs..., NOT server"
+  train_bootstrap_allowed_on: ["local"]
+  server_allowed_for: ["collection", "limited export by dates/markets"]
+  storage: "Parquet + chunked processing; cap training threads; resume from completed stage"
+  threads_cap: 4
+  chunk_rows: 200000
+
+reproducibility:
+  numeric_tolerance: 1e-6
+  seed: 42
+  save: ["models", "features", "params", "seed", "lib_versions", "train_periods", "input_hashes", "protocol_hash"]

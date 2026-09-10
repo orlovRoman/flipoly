@@ -1,0 +1,9 @@
+{
+  "branch": "research/canonical-model-comparison",
+  "base_commit": "faf5ec48efcfde90ae06f95706ed71ad95627142",
+  "workdir_is_local": true,
+  "workdir": "C:\\Users\\orlov\\OneDrive\\Документы\\Default Project\\flipoly",
+  "protocol_version": "canonical-models-v1",
+  "protocol_hash": "f933e6985f956be1b4f8a1b3f0b88093f24316484b081d7562a561f409cb97a0",
+  "note": "Heavy ops local only; server for collection + limited export; refuses SSHFS/server train."
+}
