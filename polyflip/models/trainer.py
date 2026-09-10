@@ -803,37 +803,46 @@ class ModelTrainer:
         # 2. Загружаем полную историю для разрезолвленных рынков (YES / NO)
         # без предварительной обрезки по time_left_min, чтобы лаги (add_lag_features)
         # и expanding max для ранних точек окна имели полную причинно-следственную историю.
-        stmt = select(MarketSnapshot).where(
+        # Load only the columns used by the trainer.  Materialising 1.7M
+        # ORM objects plus a second list of dictionaries briefly triples the
+        # resident set and can OOM the API container.  Row tuples avoid both
+        # ORM identity-map overhead and the temporary dict list.
+        snapshot_columns = [
+            MarketSnapshot.market_id,
+            MarketSnapshot.recorded_at,
+            MarketSnapshot.time_left_min,
+            MarketSnapshot.mid_price,
+            MarketSnapshot.spread,
+            MarketSnapshot.best_bid,
+            MarketSnapshot.best_ask,
+            MarketSnapshot.price_velocity,
+            MarketSnapshot.volume_5min,
+            MarketSnapshot.hour_of_day,
+            MarketSnapshot.final_outcome,
+        ]
+        stmt = select(*snapshot_columns).where(
             MarketSnapshot.asset == asset,
             MarketSnapshot.final_outcome.in_(["YES", "NO"]),
         ).order_by(MarketSnapshot.market_id, MarketSnapshot.recorded_at.asc())
         result = await self.db.execute(stmt)
-        snapshots = result.scalars().all()
+        rows = result.all()
 
-        # 3. Формируем DataFrame по всей истории
-        data = []
-        for s in snapshots:
-            if s.recorded_at is None:
-                continue
-            data.append({
-                "market_id": s.market_id,
-                "recorded_at": s.recorded_at,
-                "time_left_min": s.time_left_min,
-                "mid_price": s.mid_price,
-                "spread": s.spread,
-                "best_bid": s.best_bid,
-                "best_ask": s.best_ask,
-                "price_velocity": s.price_velocity,
-                "volume_5min": s.volume_5min,
-                "hour_of_day": s.hour_of_day,
-                "day_of_week": float(s.recorded_at.weekday()) if s.recorded_at else 0.0,
-                "final_outcome": s.final_outcome,
-                "market_duration_min": float(getattr(s, "market_duration_min", 15.0) or 15.0),
-            })
-            
-        df = pd.DataFrame(data)
-        del data
-        del snapshots
+        df = pd.DataFrame.from_records(
+            rows,
+            columns=[
+                "market_id", "recorded_at", "time_left_min", "mid_price",
+                "spread", "best_bid", "best_ask", "price_velocity",
+                "volume_5min", "hour_of_day", "final_outcome",
+            ],
+        )
+        del rows
+        del result
+        df = df.dropna(subset=["recorded_at"]).copy()
+        recorded = pd.to_datetime(df["recorded_at"], utc=True)
+        df["day_of_week"] = recorded.dt.dayofweek.astype("float64")
+        # MarketSnapshot has no per-row duration column; preserve the
+        # trainer's historical 15-minute default without ORM getattr calls.
+        df["market_duration_min"] = 15.0
         await asyncio.sleep(0)
         if df.empty:
             self.status_messages[asset] = "Training failed: no resolved market snapshots"
