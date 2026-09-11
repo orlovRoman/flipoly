@@ -8,10 +8,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from polyflip.collector.rtds_service import (
+    ArchiveError,
     archive_file_path,
     days_to_archive,
     retention_cutoff_day,
     utc_day_of_ms,
+    verify_archive,
 )
 from polyflip.db.models import (
     Base,
@@ -147,14 +149,38 @@ def test_retention_helpers_are_explicit():
     assert utc_day_of_ms(1_700_000_000_000) == date(2023, 11, 14)
     today = date(2026, 9, 11)
     assert retention_cutoff_day(today, 30) == date(2026, 8, 12)
-    assert archive_file_path("./backups/rtds", date(2026, 9, 1)).endswith(
-        "rtds_raw_journal_2026-09-01.parquet"
+    assert archive_file_path("./backups/rtds", date(2026, 9, 1), 2).endswith(
+        "rtds_raw_journal_2026-09-01_p2.parquet"
     )
-    journal = {date(2026, 8, 1), date(2026, 8, 12), date(2026, 9, 10)}
-    assert days_to_archive(journal, set(), date(2026, 8, 12)) == [date(2026, 8, 1)]
-    assert days_to_archive(journal, {date(2026, 8, 1)}, date(2026, 8, 12)) == []
+    journal = {date(2026, 8, 1): 500, date(2026, 8, 12): 10, date(2026, 9, 10): 7}
+    cutoff = date(2026, 8, 12)
+    assert days_to_archive(journal, {}, {}, cutoff) == [(date(2026, 8, 1), 0)]
+    # Already archived at the same watermark: nothing to do.
+    assert (
+        days_to_archive(journal, {date(2026, 8, 1): 500}, {date(2026, 8, 1): 1}, cutoff)
+        == []
+    )
+    # New rows beyond the watermark go out as the next part, never deleted early.
+    assert days_to_archive(
+        journal, {date(2026, 8, 1): 400}, {date(2026, 8, 1): 1}, cutoff
+    ) == [(date(2026, 8, 1), 1)]
     with pytest.raises(ValueError):
         retention_cutoff_day(today, 0)
+
+
+def test_verify_archive_counts_rows(tmp_path):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    path = str(tmp_path / "part.parquet")
+    table = pa.table({"id": [1, 2, 3]})
+    pq.write_table(table, path)
+    sha = verify_archive(path, 3)
+    assert len(sha) == 64
+    with pytest.raises(ArchiveError):
+        verify_archive(path, 2)
+    with pytest.raises(ArchiveError):
+        verify_archive(str(tmp_path / "missing.parquet"), 0)
 
 
 def test_daily_volume_and_archive_registry(session):

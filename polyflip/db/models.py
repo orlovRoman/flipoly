@@ -2149,15 +2149,23 @@ class RTDSDailyVolume(Base):
 
 
 class RTDSJournalArchive(Base):
-    """Registry of rotated raw-journal Parquet archives (one file per UTC day)."""
+    """Registry of rotated raw-journal Parquet archives.
+
+    One row per (day, part): late-arriving rows for an already rotated day go
+    to the next part instead of being lost or double-counted. max_id is the
+    journal watermark included in this part; DELETE never exceeds it, so rows
+    flushed concurrently are always archived by a later part, never dropped.
+    """
 
     __tablename__ = "rtds_journal_archives"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     day = Column(Date, nullable=False)
+    part = Column(Integer, nullable=False, default=0)
     path = Column(String(512), nullable=False)
     sha256 = Column(String(64), nullable=False)
     rows = Column(BigInteger, nullable=False)
+    max_id = Column(BigInteger, nullable=False, default=0)
     archived_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
-    __table_args__ = (UniqueConstraint("day", name="uix_rtds_journal_archive_day"),)
+    __table_args__ = (UniqueConstraint("day", "part", name="uix_rtds_journal_archive_day_part"),)

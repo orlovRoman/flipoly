@@ -263,10 +263,14 @@ services:
       - RTDS_WS_URL=${RTDS_WS_URL:-wss://ws-live-data.polymarket.com}
       - RTDS_SPOT_SYMBOLS=${RTDS_SPOT_SYMBOLS:-}
       - RTDS_SPOT_ALLOWLIST=${RTDS_SPOT_ALLOWLIST:-btcusdt,ethusdt,solusdt,xrpusdt,dogeusdt}
-      - RTDS_CHAINLINK_SYMBOLS=${RTDS_CHAINLINK_SYMBOLS:-btc/usd,eth/usd,sol/usd,xrp/usd}
-      - RTDS_TWAP_SYMBOLS=${RTDS_TWAP_SYMBOLS:-btc/usd,eth/usd,sol/usd,xrp/usd}
+      - RTDS_CHAINLINK_SYMBOLS=${RTDS_CHAINLINK_SYMBOLS:-}
+      - RTDS_CHAINLINK_ALLOWLIST=${RTDS_CHAINLINK_ALLOWLIST:-btc/usd,eth/usd,sol/usd,xrp/usd}
+      - RTDS_TWAP_SYMBOLS=${RTDS_TWAP_SYMBOLS:-}
+      - RTDS_TWAP_ALLOWLIST=${RTDS_TWAP_ALLOWLIST:-btc/usd,eth/usd,sol/usd,xrp/usd}
       - RTDS_FLUSH_SEC=${RTDS_FLUSH_SEC:-2.0}
       - RTDS_BUFFER_CAP=${RTDS_BUFFER_CAP:-5000}
+      - RTDS_CONNECT_TIMEOUT_SEC=${RTDS_CONNECT_TIMEOUT_SEC:-10.0}
+      - RTDS_IDLE_TIMEOUT_SEC=${RTDS_IDLE_TIMEOUT_SEC:-120.0}
       - RTDS_JOURNAL_RETENTION_DAYS=${RTDS_JOURNAL_RETENTION_DAYS:-30}
       - RTDS_ARCHIVE_DIR=/app/backups/rtds
     volumes:

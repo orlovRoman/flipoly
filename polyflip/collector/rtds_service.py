@@ -81,15 +81,85 @@ def retention_cutoff_day(today: date, retention_days: int) -> date:
     return today - timedelta(days=int(retention_days))
 
 
-def archive_file_path(archive_dir: str, day: date) -> str:
-    return os.path.join(archive_dir, f"rtds_raw_journal_{day.isoformat()}.parquet")
+def archive_file_path(archive_dir: str, day: date, part: int = 0) -> str:
+    return os.path.join(
+        archive_dir, f"rtds_raw_journal_{day.isoformat()}_p{int(part)}.parquet"
+    )
 
 
 def days_to_archive(
-    journal_days: set[date], archived_days: set[date], cutoff: date
-) -> list[date]:
-    """Journal days eligible for rotation: older than cutoff, not yet archived."""
-    return sorted(d for d in journal_days if d < cutoff and d not in archived_days)
+    journal_max_ids: dict[date, int],
+    archived_max_ids: dict[date, int],
+    archived_parts: dict[date, int],
+    cutoff: date,
+) -> list[tuple[date, int]]:
+    """Journal days eligible for rotation with their next part number.
+
+    A day is eligible when older than the cutoff and holding rows beyond the
+    archived watermark (or never archived). Late rows for a rotated day are
+    archived as the next part — never deleted, never double-counted.
+    """
+    eligible = []
+    for day in sorted(journal_max_ids):
+        if day >= cutoff:
+            continue
+        if journal_max_ids[day] > archived_max_ids.get(day, 0):
+            eligible.append((day, archived_parts.get(day, 0)))
+    return eligible
+
+
+class ArchiveError(ValueError):
+    """Archive verification failed: journal is untouched, nothing deleted."""
+
+
+def verify_archive(path: str, expected_rows: int) -> str:
+    """Re-open a written archive, verify its row count, return its sha256.
+
+    Raises ArchiveError without touching the journal, so a failed rotation
+    always retries from intact source rows.
+    """
+    import hashlib
+
+    import pyarrow.parquet as pq
+
+    try:
+        actual = pq.read_metadata(path).num_rows
+    except Exception as exc:
+        raise ArchiveError(f"cannot re-open archive {path}: {exc}") from exc
+    if actual != expected_rows:
+        raise ArchiveError(
+            f"archive {path}: wrote {expected_rows} rows, file holds {actual}"
+        )
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _resolve_symbols(
+    filters_env: str, allowlist_env: str, default_allow: str
+) -> tuple[list[str] | None, set[str]]:
+    """Split subscription filters from the persistence allowlist.
+
+    Empty <NAME>_SYMBOLS subscribes unfiltered; the allowlist (explicit
+    <NAME>_ALLOWLIST or default) then selects persisted symbols client-side.
+    A non-empty filter list doubles as the allowlist. Returned allowlist holds
+    normalized symbols (BTCUSDT, BTC/USD).
+    """
+    from polyflip.collector.rtds_client import normalize_symbol
+
+    raw_filters = _env_list(filters_env, "")
+    filters = [s.lower() for s in raw_filters] or None
+    raw_allow = _env_list(allowlist_env, default_allow)
+    allow: set[str] = set()
+    for raw in filters or raw_allow:
+        try:
+            sym, _, _ = normalize_symbol(raw)
+        except Exception:
+            continue
+        allow.add(sym)
+    return filters, allow
 
 
 class RTDSService:
@@ -100,24 +170,26 @@ class RTDSService:
 
         self.session_factory = session_factory or default_factory
         self.session_id = uuid.uuid4().hex
-        raw_spot = _env_list("RTDS_SPOT_SYMBOLS", "")
-        # Empty RTDS_SPOT_SYMBOLS subscribes to crypto_prices WITHOUT filters and
-        # allowlists client-side, so unconfirmed filter support (e.g. dogeusdt)
-        # can never break BTC/ETH/SOL/XRP. A non-empty value restores filtered
-        # subscription and doubles as the allowlist.
-        self.spot_filtered = [s.lower() for s in raw_spot]
-        allow = _env_list(
-            "RTDS_SPOT_ALLOWLIST", "btcusdt,ethusdt,solusdt,xrpusdt,dogeusdt"
+        self.spot_filters, self.spot_allowlist = _resolve_symbols(
+            "RTDS_SPOT_SYMBOLS",
+            "RTDS_SPOT_ALLOWLIST",
+            "btcusdt,ethusdt,solusdt,xrpusdt,dogeusdt",
         )
-        self.spot_allowlist = {s.upper() for s in (self.spot_filtered or allow)}
-        self.chainlink_symbols = _env_list(
-            "RTDS_CHAINLINK_SYMBOLS", "btc/usd,eth/usd,sol/usd,xrp/usd"
+        self.chainlink_filters, self.chainlink_allowlist = _resolve_symbols(
+            "RTDS_CHAINLINK_SYMBOLS",
+            "RTDS_CHAINLINK_ALLOWLIST",
+            "btc/usd,eth/usd,sol/usd,xrp/usd",
         )
-        self.twap_symbols = _env_list(
-            "RTDS_TWAP_SYMBOLS", "btc/usd,eth/usd,sol/usd,xrp/usd"
+        self.twap_filters, self.twap_allowlist = _resolve_symbols(
+            "RTDS_TWAP_SYMBOLS",
+            "RTDS_TWAP_ALLOWLIST",
+            "btc/usd,eth/usd,sol/usd,xrp/usd",
         )
+        self._desired = self.desired_pairs()
         self.flush_sec = _env_float("RTDS_FLUSH_SEC", 2.0)
         self.buffer_cap = _env_int("RTDS_BUFFER_CAP", 5000)
+        self.idle_timeout_sec = _env_float("RTDS_IDLE_TIMEOUT_SEC", 120.0)
+        self.connect_timeout_sec = _env_float("RTDS_CONNECT_TIMEOUT_SEC", 10.0)
         self.retention_days = _env_int("RTDS_JOURNAL_RETENTION_DAYS", 30)
         self.archive_dir = os.environ.get("RTDS_ARCHIVE_DIR", "./backups/rtds")
         self._volume: dict[tuple[date, str], list[int]] = {}
@@ -144,6 +216,7 @@ class RTDSService:
 
     async def on_message(self, raw_text: str, received_ms: int) -> None:
         from polyflip.collector.rtds_client import RTDSError as _ParseError
+        from polyflip.collector.rtds_client import classify_frame
 
         self.counters["messages"] += 1
         try:
@@ -153,17 +226,16 @@ class RTDSService:
             logger.warning("rtds_parse_error", error=str(exc))
             return
         if not events:
-            self.counters["unknown_frames"] += 1
+            kind = classify_frame(raw_text)
+            self.counters[f"frames_{kind}"] = self.counters.get(f"frames_{kind}", 0) + 1
             return
         kept = []
         for event in events:
             self._confirmed.add((event.topic, event.symbol))
-            # Unfiltered spot carries every pair: persist only allowlisted
-            # assets, count the rest as filtered (never as errors or prices).
-            if (
-                event.topic == "crypto_prices"
-                and event.symbol not in self.spot_allowlist
-            ):
+            # Unfiltered subscriptions carry every pair: persist only
+            # allowlisted symbols, count the rest as filtered (never as
+            # errors, never as prices).
+            if (event.topic, event.symbol) not in self._desired:
                 self.counters["filtered_out"] += 1
                 continue
             kept.append(event)
@@ -318,10 +390,12 @@ class RTDSService:
                                 s["topic"] for s in getattr(self, "_subscriptions", [])
                             ],
                             symbols={
-                                "spot": sorted(self.spot_allowlist),
-                                "spot_filtered": self.spot_filtered,
-                                "chainlink": self.chainlink_symbols,
-                                "twap": self.twap_symbols,
+                                "spot_filters": self.spot_filters,
+                                "spot_allowlist": sorted(self.spot_allowlist),
+                                "chainlink_filters": self.chainlink_filters,
+                                "chainlink_allowlist": sorted(self.chainlink_allowlist),
+                                "twap_filters": self.twap_filters,
+                                "twap_allowlist": sorted(self.twap_allowlist),
                             },
                             reconnect_count=(
                                 self._client.reconnect_count if self._client else 0
@@ -345,11 +419,22 @@ class RTDSService:
     async def archive_and_purge(self) -> dict[str, Any]:
         """Rotate journal days older than retention to Parquet, then delete.
 
-        Volume aggregates in rtds_daily_volume survive rotation; the archive
-        registry records path, sha256, and row counts for audit.
+        Safety contract (review item 4):
+        1. Watermark: archive and DELETE only rows with id <= the watermark
+           taken at rotation start. Rows flushed concurrently (higher ids) are
+           never deleted and go out in a later part — no loss of new rows.
+        2. Verify-before-delete: the file is re-opened and row-counted; the
+           DELETE runs only after verify_archive() succeeds, in the same
+           commit as the registry row.
+        3. Recovery: a crash before commit leaves the journal intact and at
+           most an orphan part file (deterministic name, overwritten on
+           retry). A crash after commit is complete. Late rows for a rotated
+           day are archived as the next part, never skipped.
+        Volume aggregates in rtds_daily_volume survive rotation.
         """
         import pyarrow as pa
         import pyarrow.parquet as pq
+        from sqlalchemy import func as _func
 
         from polyflip.db.models import RTDSJournalArchive, RTDSRawJournal
 
@@ -358,20 +443,40 @@ class RTDSService:
         result: dict[str, Any] = {"cutoff": cutoff.isoformat(), "archived": []}
         os.makedirs(self.archive_dir, exist_ok=True)
         async with self.session_factory() as session:
-            day_rows = (
+            journal_max = {
+                _coerce_day(r[0]): int(r[1])
+                for r in (
+                    await session.execute(
+                        select(
+                            sa_func.date(RTDSRawJournal.received_at),
+                            _func.max(RTDSRawJournal.id),
+                        ).group_by(sa_func.date(RTDSRawJournal.received_at))
+                    )
+                ).all()
+                if r[0] is not None
+            }
+            archived_rows = (
                 await session.execute(
-                    select(sa_func.date(RTDSRawJournal.received_at)).distinct()
+                    select(
+                        RTDSJournalArchive.day,
+                        RTDSJournalArchive.part,
+                        RTDSJournalArchive.max_id,
+                    )
                 )
             ).all()
-            journal_days = {_coerce_day(r[0]) for r in day_rows if r[0] is not None}
-            archived = {
-                r[0]
-                for r in (await session.execute(select(RTDSJournalArchive.day))).all()
-            }
-            for day in days_to_archive(journal_days, archived, cutoff):
-                path = archive_file_path(self.archive_dir, day)
+            archived_max: dict[date, int] = {}
+            archived_parts: dict[date, int] = {}
+            for day, _part, max_id in archived_rows:
+                archived_max[day] = max(int(max_id or 0), archived_max.get(day, 0))
+                archived_parts[day] = archived_parts.get(day, 0) + 1
+            for day, part in days_to_archive(
+                journal_max, archived_max, archived_parts, cutoff
+            ):
+                watermark = int(journal_max[day])
+                path = archive_file_path(self.archive_dir, day, part)
                 schema = pa.schema(
                     [
+                        ("id", pa.int64()),
                         ("session_id", pa.string()),
                         ("received_at", pa.string()),
                         ("topic", pa.string()),
@@ -388,16 +493,18 @@ class RTDSService:
                             RTDSRawJournal.received_at >= _day_start(day),
                             RTDSRawJournal.received_at
                             < _day_start(day + timedelta(days=1)),
+                            RTDSRawJournal.id <= watermark,
                         )
                         .order_by(RTDSRawJournal.id)
                         .execution_options(yield_per=5000)
                     )
                     batch: list[dict[str, Any]] = []
-                    async for part in stream.partitions():
-                        for row in part:
+                    async for chunk in stream.partitions():
+                        for row in chunk:
                             item = row[0]
                             batch.append(
                                 {
+                                    "id": int(item.id),
                                     "session_id": item.session_id,
                                     "received_at": item.received_at.isoformat(),
                                     "topic": item.topic,
@@ -416,13 +523,15 @@ class RTDSService:
                         rows += len(batch)
                 finally:
                     writer.close()
-                digest = hashlib.sha256()
-                with open(path, "rb") as handle:
-                    for chunk in iter(lambda: handle.read(1 << 20), b""):
-                        digest.update(chunk)
+                digest = verify_archive(path, rows)
                 session.add(
                     RTDSJournalArchive(
-                        day=day, path=path, sha256=digest.hexdigest(), rows=rows
+                        day=day,
+                        part=part,
+                        path=path,
+                        sha256=digest,
+                        rows=rows,
+                        max_id=watermark,
                     )
                 )
                 await session.execute(
@@ -430,13 +539,45 @@ class RTDSService:
                         RTDSRawJournal.received_at >= _day_start(day),
                         RTDSRawJournal.received_at
                         < _day_start(day + timedelta(days=1)),
+                        RTDSRawJournal.id <= watermark,
                     )
                 )
                 await session.commit()
+                # Post-delete residual check: rows committed concurrently stay
+                # for the next part (registry watermark only advances on what
+                # this part archived). New rows are immune by construction —
+                # rotation predicates only ever match days older than retention.
+                residual = (
+                    await session.execute(
+                        select(_func.count())
+                        .select_from(RTDSRawJournal.__table__)
+                        .where(
+                            RTDSRawJournal.received_at >= _day_start(day),
+                            RTDSRawJournal.received_at
+                            < _day_start(day + timedelta(days=1)),
+                            RTDSRawJournal.id <= watermark,
+                        )
+                    )
+                ).scalar_one()
+                if residual:
+                    logger.warning(
+                        "rtds_rotation_residual",
+                        day=day.isoformat(),
+                        part=part,
+                        residual=int(residual),
+                    )
                 result["archived"].append(
-                    {"day": day.isoformat(), "rows": rows, "path": path}
+                    {
+                        "day": day.isoformat(),
+                        "part": part,
+                        "rows": rows,
+                        "residual": int(residual),
+                        "path": path,
+                    }
                 )
-                logger.info("rtds_journal_archived", day=day.isoformat(), rows=rows)
+                logger.info(
+                    "rtds_journal_archived", day=day.isoformat(), part=part, rows=rows
+                )
         return result
 
     async def _flush_loop(self) -> None:
@@ -450,20 +591,11 @@ class RTDSService:
 
     def desired_pairs(self) -> set[tuple[str, str]]:
         """Every (topic, symbol) considered supported; confirmed only on arrival."""
-        from polyflip.collector.rtds_client import normalize_symbol
-
         desired = {("crypto_prices", sym) for sym in self.spot_allowlist}
-        for raw in self.chainlink_symbols:
-            try:
-                sym, _, _ = normalize_symbol(raw)
-            except Exception:
-                continue
-            desired.add(("crypto_prices_chainlink", sym))
-        for raw in self.twap_symbols:
-            try:
-                sym, _, _ = normalize_symbol(raw)
-            except Exception:
-                continue
+        desired |= {
+            ("crypto_prices_chainlink", sym) for sym in self.chainlink_allowlist
+        }
+        for sym in self.twap_allowlist:
             desired.add(("crypto_prices_twap_thirty", sym))
             desired.add(("crypto_prices_twap_sixty", sym))
         return desired
@@ -488,13 +620,15 @@ class RTDSService:
         self._running = True
         self._start_ms = int(time.time() * 1000)
         self._subscriptions = build_subscriptions(
-            self.spot_filtered or None, self.chainlink_symbols, self.twap_symbols
+            self.spot_filters, self.chainlink_filters, self.twap_filters
         )
         self._client = RTDSClient(
             subscriptions=self._subscriptions,
             on_message=self.on_message,
             on_gap=self.on_gap,
             url=os.environ.get("RTDS_WS_URL", "wss://ws-live-data.polymarket.com"),
+            connect_timeout_sec=self.connect_timeout_sec,
+            idle_timeout_sec=self.idle_timeout_sec,
         )
         # Wrap gap callback to also mark session dirty via reconnect count refresh.
         original_gap = self.on_gap

@@ -52,7 +52,8 @@ class CanonicalEvent:
     window_s: int
     value_text: str  # exact wire representation
     raw_e18: int  # exact integer E18 value
-    value_source: str  # FULL_ACCURACY | NUMERIC_REPR
+    value_source: str  # FULL_ACCURACY (TWAP E18 only) | DECIMAL_REPR (exact wire
+    # decimal, not E18-canonical) | NUMERIC_REPR (native-float fallback)
     observed_ms: int  # payload.timestamp
     received_ms: int  # outer timestamp, or local receipt clock
     received_source: str  # WIRE | LOCAL_CLOCK
@@ -65,28 +66,26 @@ def _wire_int(value: Any, name: str) -> int:
     return value
 
 
-def _exact_e18(value: Any) -> tuple[str, int, str]:
+def _exact_e18(value: Any) -> tuple[str, int]:
     """Exact E18 integer from a decimal wire value without binary-float arithmetic.
 
     Callers parse JSON with parse_float=Decimal, so decimal strings, ints, and
-    JSON numbers all arrive exact (FULL_ACCURACY). A native Python float is
-    accepted only defensively via repr() and flagged NUMERIC_REPR.
+    JSON numbers all arrive with their exact decimal representation. A native
+    Python float is accepted only defensively via repr(). The caller assigns
+    value_source: DECIMAL_REPR for exact decimals, NUMERIC_REPR for floats.
     NOTE: Chainlink full_accuracy_value is already an E18 integer and must go
     through _e18_int(), not here.
     """
     if isinstance(value, bool) or value is None:
         raise RTDSError(f"invalid value: {value!r}")
     if isinstance(value, Decimal):
-        text, source = format(value, "f"), "FULL_ACCURACY"
+        text = format(value, "f")
     elif isinstance(value, str):
         text = value.strip()
-        source = "FULL_ACCURACY"
     elif isinstance(value, int):
         text = str(value)
-        source = "FULL_ACCURACY"
     elif isinstance(value, float):
         text = repr(value)
-        source = "NUMERIC_REPR"
     else:
         raise RTDSError(f"invalid value: {value!r}")
     try:
@@ -95,18 +94,22 @@ def _exact_e18(value: Any) -> tuple[str, int, str]:
         raise RTDSError(f"invalid decimal value: {text!r}") from exc
     if not amount.is_finite() or amount <= 0:
         raise RTDSError(f"value must be finite and positive: {text!r}")
-    return text, int(amount * 10**18), source
+    return text, int(amount * 10**18)
 
 
 def _e18_int(text: Any) -> tuple[str, int]:
     """Exact E18 integer from Chainlink full_accuracy_value (already E18 units)."""
     clean = str(text).strip()
-    if not re.fullmatch(r"-?[0-9]+", clean):
+    if not _looks_like_int(clean):
         raise RTDSError(f"invalid full_accuracy_value: {text!r}")
     amount = int(clean)
     if amount <= 0:
         raise RTDSError(f"value must be positive: {clean!r}")
     return clean, amount
+
+
+def _looks_like_int(text: str) -> bool:
+    return bool(re.fullmatch(r"-?[0-9]+", str(text).strip()))
 
 
 def normalize_symbol(raw: Any) -> tuple[str, str, str]:
@@ -128,15 +131,41 @@ def normalize_symbol(raw: Any) -> tuple[str, str, str]:
 _normalize_symbol = normalize_symbol  # backward-compatible alias
 
 
+def classify_frame(raw_text: str) -> str:
+    """Classify a raw frame without full parsing: empty | snapshot | update |
+    unknown | malformed. Used for honest counters on frames that yield no events."""
+    if not raw_text.strip():
+        return "empty"
+    try:
+        message = json.loads(raw_text)
+    except json.JSONDecodeError:
+        return "malformed"
+    if not isinstance(message, dict):
+        return "malformed"
+    if message.get("topic") not in TOPIC_SOURCES:
+        return "unknown"
+    payload = message.get("payload")
+    if isinstance(payload, dict) and isinstance(payload.get("data"), list):
+        return "snapshot"
+    if message.get("type") == "update":
+        return "update"
+    return "unknown"
+
+
 def parse_rtds_message(raw_text: str, received_ms: int) -> list[CanonicalEvent]:
     """Parse one RTDS text frame into canonical events (pure, no I/O).
 
-    Unknown topics and non-update types return [] so the caller can count them
-    without dropping the connection. Malformed known-topic updates raise.
-    JSON numbers are parsed with parse_float=Decimal, preserving the exact wire
-    decimal representation. TWAP topics require full_accuracy_value; a missing
-    field raises instead of silently substituting the display price.
+    Empty keepalive frames, batched snapshot payloads (`payload.data`), unknown
+    topics, and non-update types return [] — the caller distinguishes them with
+    classify_frame() for honest counters. Snapshots are skipped deliberately:
+    symbol-free batches cannot be attributed without inference, and the 1 Hz
+    live singles make them redundant; warmup is covered by freshness gates.
+    Malformed known-topic updates raise. JSON numbers use parse_float=Decimal.
+    TWAP topics require an integer full_accuracy_value; anything else raises
+    instead of substituting the display price.
     """
+    if not raw_text.strip():
+        return []
     try:
         message = json.loads(raw_text, parse_float=Decimal)
     except json.JSONDecodeError as exc:
@@ -152,6 +181,9 @@ def parse_rtds_message(raw_text: str, received_ms: int) -> list[CanonicalEvent]:
     payload = message.get("payload")
     if not isinstance(payload, dict):
         raise RTDSError(f"{topic}: payload must be an object")
+    if isinstance(payload.get("data"), list):
+        # Symbol-free batch: skip without inference (see docstring).
+        return []
     symbol, asset, currency = _normalize_symbol(payload.get("symbol"))
     observed_ms = _wire_int(payload.get("timestamp"), "payload.timestamp")
     outer_ts = message.get("timestamp")
@@ -163,18 +195,28 @@ def parse_rtds_message(raw_text: str, received_ms: int) -> list[CanonicalEvent]:
             "LOCAL_CLOCK",
         )
     raw_value = payload.get("value")
-    if "full_accuracy_value" in payload and payload["full_accuracy_value"] is not None:
-        value_text, raw_e18 = _e18_int(payload["full_accuracy_value"])
+    full_accuracy = payload.get("full_accuracy_value")
+    extra: dict[str, Any] = {}
+    if full_accuracy is not None and _looks_like_int(full_accuracy):
+        # Integer full_accuracy_value: the exact E18 source (TWAP, Chainlink spot).
+        value_text, raw_e18 = _e18_int(full_accuracy)
         value_source = "FULL_ACCURACY"
-    elif window_s:
-        # Official TWAP without its exact E18 field: never substitute the
-        # display price silently; the gap is recorded upstream as missing data.
-        raise RTDSError(f"{topic}: twap update without full_accuracy_value")
     else:
+        if window_s:
+            # Official TWAP without an integer full_accuracy_value: missing
+            # data, never the display price substituted silently.
+            raise RTDSError(f"{topic}: twap update without full_accuracy_value")
         if raw_value is None:
             raise RTDSError(f"{topic}: payload has no value")
-        value_text, raw_e18, value_source = _exact_e18(raw_value)
-    extra: dict[str, Any] = {}
+        # Spot: exact decimal representation of what the wire carried — precise,
+        # but NOT equivalent to an exact E18 source (server-side rounding).
+        # A decimal full_accuracy_value is ignored in favour of `value`.
+        value_text, raw_e18 = _exact_e18(raw_value)
+        value_source = (
+            "NUMERIC_REPR" if isinstance(raw_value, float) else "DECIMAL_REPR"
+        )
+        if full_accuracy is not None:
+            extra["full_accuracy_ignored"] = str(full_accuracy)[:64]
     if window_s and "window_s" in payload:
         extra["wire_window_s"] = payload["window_s"]
     return [
@@ -198,14 +240,15 @@ def parse_rtds_message(raw_text: str, received_ms: int) -> list[CanonicalEvent]:
 
 def build_subscriptions(
     spot_symbols: list[str] | None,
-    chainlink_symbols: list[str],
-    twap_symbols: list[str],
+    chainlink_symbols: list[str] | None,
+    twap_symbols: list[str] | None,
 ) -> list[dict[str, Any]]:
     """RTDS subscribe frame entries for the four protocol topics.
 
-    spot_symbols=None subscribes to crypto_prices WITHOUT filters (the server
-    sends every pair; the service allowlists client-side). This avoids depending
-    on unconfirmed per-symbol filter support (e.g. dogeusdt) for the stream.
+    A None list subscribes WITHOUT filters (the server sends every pair for
+    that topic; the service allowlists client-side). Unfiltered is the default:
+    per-symbol filter support beyond the documented pairs is unconfirmed, and
+    one rejected filter must never break the whole stream.
     """
     subscriptions: list[dict[str, Any]] = []
     if spot_symbols is None:
@@ -216,7 +259,7 @@ def build_subscriptions(
             subscriptions.append(
                 {"topic": "crypto_prices", "type": "update", "filters": ",".join(spot)}
             )
-    for symbol in chainlink_symbols:
+    for symbol in chainlink_symbols or []:
         clean = symbol.strip().lower()
         if clean:
             subscriptions.append(
@@ -226,10 +269,15 @@ def build_subscriptions(
                     "filters": '{"symbol":"' + clean + '"}',
                 }
             )
+    if chainlink_symbols is None:
+        subscriptions.append({"topic": "crypto_prices_chainlink", "type": "*"})
     for window, topic in (
         (30, "crypto_prices_twap_thirty"),
         (60, "crypto_prices_twap_sixty"),
     ):
+        if twap_symbols is None:
+            subscriptions.append({"topic": topic, "type": "update"})
+            continue
         for symbol in twap_symbols:
             clean = symbol.strip().lower()
             if clean:
@@ -264,6 +312,8 @@ class RTDSClient:
         url: str = RTDS_WS_URL,
         ping_interval_sec: float = PING_INTERVAL_SEC,
         connect_factory: Callable[[], Awaitable[Any]] | None = None,
+        connect_timeout_sec: float = 10.0,
+        idle_timeout_sec: float = 120.0,
     ):
         if not subscriptions:
             raise RTDSError("RTDSClient needs at least one subscription")
@@ -272,12 +322,15 @@ class RTDSClient:
         self.on_gap = on_gap
         self.url = url
         self.ping_interval_sec = ping_interval_sec
+        self.connect_timeout_sec = connect_timeout_sec
+        self.idle_timeout_sec = idle_timeout_sec
         self._connect_factory = connect_factory or self._default_connect
         self._running = False
         self._connected = False
         self.reconnect_count = 0
         self.messages_received = 0
         self.last_message_ms: int | None = None
+        self._last_frame_ms: int | None = None
         self.last_error: str | None = None
 
     async def _default_connect(
@@ -285,7 +338,10 @@ class RTDSClient:
     ):  # pragma: no cover - exercised in smoke, not unit tests
         import aiohttp
 
-        session = aiohttp.ClientSession()
+        timeout = aiohttp.ClientTimeout(
+            total=None, sock_connect=self.connect_timeout_sec
+        )
+        session = aiohttp.ClientSession(timeout=timeout)
         try:
             return await session.ws_connect(self.url, heartbeat=None)
         except Exception:
@@ -302,6 +358,39 @@ class RTDSClient:
             pass
         except Exception as exc:  # ping failures surface via the read loop
             logger.debug("rtds_ping_error", error=str(exc))
+
+    async def _watchdog_loop(self, ws) -> None:
+        """Close silent connections so the read loop can reconnect with a gap.
+
+        Any frame (message or PONG) proves liveness. Without this, a half-open
+        TCP connection would hang the read loop forever with no gap recorded.
+        The same close unblocks reads promptly on stop().
+        """
+        if self.idle_timeout_sec > 0:
+            interval = min(1.0, max(0.05, self.idle_timeout_sec / 4.0))
+        else:
+            interval = 1.0
+        try:
+            while self._running and self._connected:
+                await asyncio.sleep(interval)
+                if not self._running:
+                    break
+                if (
+                    self.idle_timeout_sec > 0
+                    and self._last_frame_ms is not None
+                    and _now_ms() - self._last_frame_ms > self.idle_timeout_sec * 1000
+                ):
+                    logger.warning(
+                        "rtds_idle_timeout",
+                        idle_sec=round((_now_ms() - self._last_frame_ms) / 1000.0, 1),
+                    )
+                    break
+            try:
+                await ws.close()
+            except Exception:
+                pass
+        except asyncio.CancelledError:
+            pass
 
     async def run(self) -> None:
         self._running = True
@@ -325,7 +414,9 @@ class RTDSClient:
                             await self.on_gap(disconnect_ms, now_ms)
                         disconnect_ms = None
                     logger.info("rtds_connected", url=self.url)
+                    self._last_frame_ms = _now_ms()
                     ping_task = asyncio.create_task(self._ping_loop(ws))
+                    watchdog_task = asyncio.create_task(self._watchdog_loop(ws))
                     try:
                         async for msg in ws:
                             if not self._running:
@@ -333,6 +424,7 @@ class RTDSClient:
                             data = msg.data if not isinstance(msg, str) else msg
                             if not isinstance(data, str):
                                 continue
+                            self._last_frame_ms = _now_ms()
                             if data == "PONG":
                                 continue
                             self.messages_received += 1
@@ -340,6 +432,12 @@ class RTDSClient:
                             await self.on_message(data, self.last_message_ms)
                     finally:
                         ping_task.cancel()
+                        watchdog_task.cancel()
+                    # A read loop that ends while still running is a dropped
+                    # connection (real transports never exhaust spontaneously):
+                    # open a gap window so it is recorded, never skipped.
+                    if self._running and disconnect_ms is None:
+                        disconnect_ms = _now_ms()
                 finally:
                     self._connected = False
                     try:

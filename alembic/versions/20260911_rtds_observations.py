@@ -189,9 +189,13 @@ def upgrade() -> None:
         "rtds_journal_archives",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("day", sa.Date(), nullable=False),
+        sa.Column("part", sa.Integer(), nullable=False, server_default=sa.text("0")),
         sa.Column("path", sa.String(length=512), nullable=False),
         sa.Column("sha256", sa.String(length=64), nullable=False),
         sa.Column("rows", sa.BigInteger(), nullable=False),
+        sa.Column(
+            "max_id", sa.BigInteger(), nullable=False, server_default=sa.text("0")
+        ),
         sa.Column(
             "archived_at",
             sa.DateTime(timezone=True),
@@ -199,7 +203,7 @@ def upgrade() -> None:
             server_default=sa.func.now(),
         ),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("day", name="uix_rtds_journal_archive_day"),
+        sa.UniqueConstraint("day", "part", name="uix_rtds_journal_archive_day_part"),
     )
 
 

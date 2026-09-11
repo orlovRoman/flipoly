@@ -49,7 +49,7 @@ async def _ping_loop(ws, stop) -> None:
 async def _collect(ws, budget: dict, started: float) -> None:
     import aiohttp
 
-    from polyflip.collector.rtds_client import parse_rtds_message
+    from polyflip.collector.rtds_client import classify_frame, parse_rtds_message
 
     async for msg in ws:
         if not isinstance(msg, aiohttp.WSMessage) or not isinstance(msg.data, str):
@@ -63,6 +63,10 @@ async def _collect(ws, budget: dict, started: float) -> None:
             events = parse_rtds_message(msg.data, now_ms)
         except Exception as exc:  # noqa: BLE001 - smoke must report, not crash
             budget["parse_errors"].append(str(exc)[:200])
+            continue
+        if not events:
+            kind = classify_frame(msg.data)
+            budget["empty_kinds"][kind] = budget["empty_kinds"].get(kind, 0) + 1
             continue
         for event in events:
             key = f"{event.topic}|{event.symbol}"
@@ -85,6 +89,7 @@ async def _phase(url: str, subscriptions: list, duration: float, cap: int) -> di
         "events": 0,
         "pongs": 0,
         "parse_errors": [],
+        "empty_kinds": {},
         "per_pair": {},
         "samples": [],
         "cap": cap,
@@ -122,7 +127,7 @@ async def smoke(url: str, duration: float, cap: int, reconnect_test: bool) -> di
     }
     if reconnect_test:
         # Fresh connection proves resubscribe works without server cooperation.
-        phase2 = await _phase(url, subscriptions, min(duration, 20.0), 10)
+        phase2 = await _phase(url, subscriptions, min(duration, 30.0), 200)
         report["reconnect"] = (
             "OK" if phase2["messages"] > 0 else "RECONNECTED_NO_MESSAGES"
         )
@@ -136,6 +141,7 @@ def _summarize(budget: dict) -> dict:
         "messages": budget["messages"],
         "events": budget["events"],
         "pongs": budget["pongs"],
+        "empty_kinds": budget["empty_kinds"],
         "topics_seen": topics,
         "topics_empty_no_data": sorted(
             {
