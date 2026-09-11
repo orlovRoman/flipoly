@@ -251,6 +251,43 @@ services:
         limits:
           memory: 256M
 
+  rtds_collector:
+    build: .
+    container_name: polyflip_rtds_collector
+    restart: always
+    depends_on:
+      - db
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://${DB_USER:-polyflip}:${DB_PASSWORD:-secret}@db/${DB_NAME:-polyflip}}
+      - POLYFLIP_BUILD_SHA=${POLYFLIP_BUILD_SHA:-dev}
+      - RTDS_WS_URL=${RTDS_WS_URL:-wss://ws-live-data.polymarket.com}
+      - RTDS_SPOT_SYMBOLS=${RTDS_SPOT_SYMBOLS:-}
+      - RTDS_SPOT_ALLOWLIST=${RTDS_SPOT_ALLOWLIST:-btcusdt,ethusdt,solusdt,xrpusdt,dogeusdt}
+      - RTDS_CHAINLINK_SYMBOLS=${RTDS_CHAINLINK_SYMBOLS:-btc/usd,eth/usd,sol/usd,xrp/usd}
+      - RTDS_TWAP_SYMBOLS=${RTDS_TWAP_SYMBOLS:-btc/usd,eth/usd,sol/usd,xrp/usd}
+      - RTDS_FLUSH_SEC=${RTDS_FLUSH_SEC:-2.0}
+      - RTDS_BUFFER_CAP=${RTDS_BUFFER_CAP:-5000}
+      - RTDS_JOURNAL_RETENTION_DAYS=${RTDS_JOURNAL_RETENTION_DAYS:-30}
+      - RTDS_ARCHIVE_DIR=/app/backups/rtds
+    volumes:
+      - ./polyflip:/app/polyflip
+      - ./scripts:/app/scripts
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+      - ./backups:/app/backups
+    command: python -m polyflip.collector.rtds_service
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - test -f /tmp/rtds_collector_alive && find /tmp/rtds_collector_alive -mmin -1 | grep -q rtds_collector_alive
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
   execution_worker_paper:
     build: .
     container_name: polyflip_execution_worker_paper

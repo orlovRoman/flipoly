@@ -1,5 +1,7 @@
 from sqlalchemy import (
+    BigInteger,
     Column,
+    Date,
     Integer,
     String,
     SmallInteger,
@@ -2015,3 +2017,147 @@ class UnderlyingObservation(Base):
         Index("idx_underlying_obs_received", "instrument", "received_at"),
         UniqueConstraint("instrument", "source", "event_at", "received_at", name="uix_underlying_obs_dedup"),
     )
+
+
+class RTDSStreamSession(Base):
+    """One RTDS collector connection run: reconnects and disconnect windows.
+
+    RTDS has no replay after disconnect, so every disconnect window is an
+    explicit data gap, recorded here rather than backfilled.
+    """
+
+    __tablename__ = "rtds_stream_sessions"
+
+    session_id = Column(String(64), primary_key=True)
+    started_at = Column(DateTime(timezone=True), nullable=False)
+    ended_at = Column(DateTime(timezone=True), nullable=True)
+    topics = Column("topics", JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    symbols = Column("symbols", JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    reconnect_count = Column(Integer, nullable=False, default=0)
+    disconnect_windows = Column(
+        "disconnect_windows", JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )  # list of {"from_ms": int, "to_ms": int}
+    last_error = Column(String(256), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class RTDSObservation(Base):
+    """Keeper RTDS observations: first received wins per keeper key.
+
+    Keeper key is (source, symbol, window_s, observed_at). raw_e18 is the exact
+    integer value: Chainlink full_accuracy_value when present, otherwise the
+    decimal repr of the wire number (value_source=NUMERIC_REPR).
+    """
+
+    __tablename__ = "rtds_observations"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(String(64), nullable=False)
+    source = Column(String(32), nullable=False)  # RTDS_BINANCE | RTDS_CHAINLINK_SPOT | RTDS_TWAP30 | RTDS_TWAP60
+    topic = Column(String(64), nullable=False)  # wire topic, e.g. crypto_prices_twap_thirty
+    symbol = Column(String(64), nullable=False)  # wire symbol, e.g. btcusdt | btc/usd
+    asset = Column(String(16), nullable=False)  # e.g. BTC
+    currency = Column(String(8), nullable=False)  # USDT | USD
+    window_s = Column(Integer, nullable=False, default=0)  # 30 | 60 for TWAP, else 0
+    raw_value_text = Column(String(128), nullable=False)  # exact wire representation
+    raw_e18 = Column(Numeric(38, 0), nullable=False)  # exact integer E18 value
+    value_source = Column(String(16), nullable=False)  # FULL_ACCURACY | NUMERIC_REPR
+    observed_at = Column(DateTime(timezone=True), nullable=False)  # payload.timestamp
+    received_at = Column(DateTime(timezone=True), nullable=False)  # first receipt (keeper)
+    extra_data = Column("extra_data", JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_rtds_obs_lookup", "source", "symbol", "observed_at"),
+        Index("idx_rtds_obs_received", "symbol", "received_at"),
+        Index("idx_rtds_obs_session", "session_id"),
+        UniqueConstraint(
+            "source", "symbol", "window_s", "observed_at", name="uix_rtds_obs_keeper"
+        ),
+    )
+
+
+class RTDSRawJournal(Base):
+    """Audit journal of source RTDS messages (raw text + sha256)."""
+
+    __tablename__ = "rtds_raw_journal"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(String(64), nullable=False)
+    received_at = Column(DateTime(timezone=True), nullable=False)
+    topic = Column(String(64), nullable=False)
+    raw_text = Column(Text, nullable=False)
+    sha256 = Column(String(64), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_rtds_journal_session_time", "session_id", "received_at"),
+        Index("idx_rtds_journal_topic", "topic", "received_at"),
+    )
+
+
+class RTDSConflict(Base):
+    """Registry of observations rejected by the keeper key: first received wins."""
+
+    __tablename__ = "rtds_conflicts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    source = Column(String(32), nullable=False)
+    symbol = Column(String(64), nullable=False)
+    window_s = Column(Integer, nullable=False, default=0)
+    observed_at = Column(DateTime(timezone=True), nullable=False)
+    keeper_raw_e18 = Column(Numeric(38, 0), nullable=False)
+    keeper_received_at = Column(DateTime(timezone=True), nullable=False)
+    rejected_raw_e18 = Column(Numeric(38, 0), nullable=False)
+    rejected_value_text = Column(String(128), nullable=False)
+    rejected_received_at = Column(DateTime(timezone=True), nullable=False)
+    session_id = Column(String(64), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_rtds_conflicts_key", "source", "symbol", "window_s", "observed_at"),
+        UniqueConstraint(
+            "source",
+            "symbol",
+            "window_s",
+            "observed_at",
+            "rejected_raw_e18",
+            "rejected_received_at",
+            name="uix_rtds_conflict_once",
+        ),
+    )
+
+
+class RTDSDailyVolume(Base):
+    """Per-day, per-topic RTDS volume surviving journal rotation.
+
+    Retained indefinitely: tiny rows that justify retention windows and size
+    future storage without keeping every raw message forever.
+    """
+
+    __tablename__ = "rtds_daily_volume"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    day = Column(Date, nullable=False)
+    topic = Column(String(64), nullable=False)
+    messages = Column(BigInteger, nullable=False, default=0)
+    bytes = Column(BigInteger, nullable=False, default=0)
+    events = Column(BigInteger, nullable=False, default=0)
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("day", "topic", name="uix_rtds_daily_volume"),)
+
+
+class RTDSJournalArchive(Base):
+    """Registry of rotated raw-journal Parquet archives (one file per UTC day)."""
+
+    __tablename__ = "rtds_journal_archives"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    day = Column(Date, nullable=False)
+    path = Column(String(512), nullable=False)
+    sha256 = Column(String(64), nullable=False)
+    rows = Column(BigInteger, nullable=False)
+    archived_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("day", name="uix_rtds_journal_archive_day"),)
