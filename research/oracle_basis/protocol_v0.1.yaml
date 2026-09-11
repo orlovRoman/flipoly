@@ -1,0 +1,114 @@
+# Oracle-Basis Research — Frozen Protocol v0.1
+# Any parameter change requires a new protocol version plus a new holdout.
+# This file is hashed at run start; no parameter is chosen from validation/test outcomes.
+
+protocol_version: "0.1"
+branch: "research/oracle-basis"
+market_class: "poly_up_down_15m"
+decision_rule: "one entry per market under a pre-selected policy; no live-trading changes in this branch"
+
+universe:
+  assets: [BTC, ETH, SOL, DOGE, XRP]
+  currency_rule: "USD and USDT are never mixed without an explicit rule; Binance proxy is USDT"
+
+sources:
+  spot_proxy: "BINANCE"
+  official: "CHAINLINK_OFFICIAL"
+  docs:
+    - "https://docs.polymarket.com/market-data/chainlink-twap"
+    - "https://docs.polymarket.com/trading/fees"
+    - "https://docs.polymarket.com/market-data/realtime-data"
+
+observations:
+  join: "backward as-of on received_at only; observed_at describes oracle state"
+  historical_caveat: "recorded_at carries unknown network delays; flagged wherever used"
+  freshness_default_ms: 15000
+  gap_threshold_ms: 2000
+  arithmetic: "E18 integer math, no floats for oracle prices"
+
+reconstruction_gap:
+  definition_bps: "10,000 * (proxy_60 - official_60) / official_60"
+  windows_ms: [60000, 30000]
+  boundaries: ["market_start", "market_end"]
+  buckets_bps: ["<3", "3-10", ">10"]
+  flip_error: "sign(proxy_close - proxy_open) vs official outcome; ties have no error"
+  common_strike_error: "proxy_close vs one common official strike, reported separately"
+  usd_usdt: "reported separately; never glued silently"
+
+horizons_sec: [180, 60, 30, 15, 5]
+horizon_rule: "last observation at or before checkpoint within freshness; missing stays missing; no symmetric window"
+
+target:
+  source: "real Polymarket outcome"
+  equality_btc_verified_twap: "UP on >="
+  equality_unverified: "unresolved; never invent DRAW"
+
+models:
+  B0: "p_up from correct UP mid; separately train-calibrated (Platt, train only)"
+  B1: "own book + spot, volatility, time, available strike"
+  B2: "B1 + proxy TWAP and dynamics"
+  B3: "B1 + official TWAP 60/30, freshness, spot difference, final-minute state"
+  probability_rule: "TWAP price is not a probability; p_up comes from model/calibration fit on train"
+  key_comparison: "B2/B3 gain over B1 on identical eligible rows"
+
+splits:
+  method: "chronological whole UTC days"
+  fractions: {train: 0.60, validation: 0.20, test: 0.20}
+  embargo_markets: 1
+  rule: "all assets of one timestamp share a split; test opened once"
+
+metrics:
+  probability: ["brier", "log_loss_nat_eps1e-6", "hit_rate_report_only"]
+  reference: "actual outcome, never proxy direction"
+  slices: ["gap_bucket", "moneyness", "book_regime", "asset", "time_to_end", "volatility", "data_quality"]
+
+economics:
+  sides: ["UP", "DOWN"]
+  down_rule: "ask_down must be observed; never 1 - ask_up"
+  pnl: "PnL = C * (Y_side - a) - fee - other_costs, hold to settlement"
+  fee_documented_crypto_taker: "C * 0.07 * a * (1 - a)"
+  fee_fixed_020_removed: true
+  rebates_default: 0.0
+  capital_usd: 2000.0
+  sizing: "min order size, lot step, depth, fee inside cash limit"
+  fills: "arrival ask after latency plus depth; spread already in ask"
+  missing_latency_or_l2: "optimistic estimate, not executability proof"
+  stress: ["measured P90 latency", "one extra adverse tick"]
+  uncertainty: "day-block bootstrap over UTC days, assets jointly; account for strategy multiplicity"
+
+report_7d:
+  scope: "data check plus first diagnostics, not proof of stable income"
+  sections: ["Data Quality", "Reconstruction Gap", "Book Gap", "Models", "Economics"]
+
+decisions:
+  - DATA_INSUFFICIENT
+  - NO_INCREMENTAL_VALUE
+  - PREDICTIVE_ONLY
+  - PROMISING_SHADOW
+no_auto_live_trading: true
+
+artifacts_root: "artifacts/research/oracle_basis"
+files:
+  - inventory.json
+  - protocol.json
+  - checksums
+  - data_quality.json
+  - boundary_audit.json
+  - reconstruction_gap.json
+  - calibration.json
+  - model_comparison.json
+  - book_response.json
+  - backtest_ledger.parquet
+  - strategy_summary.json
+  - bootstrap_results.json
+  - concentration_audit.json
+  - report.md
+
+self_checks:
+  - {id: "OB-01", text: "future packets cannot change an already taken decision"}
+  - {id: "OB-02", text: "USD and USDT streams are never mixed without a rule"}
+  - {id: "OB-03", text: "missing horizons stay missing; no symmetric window"}
+  - {id: "OB-04", text: "proxy is never labeled official; old-history proxy rows are not oracle backtests"}
+  - {id: "OB-05", text: "DOWN economics uses observed DOWN quotes only"}
+  - {id: "OB-06", text: "fee uses the scheme in force, else scenarios; fixed 0.2% is absent"}
+  - {id: "OB-07", text: "test split is opened once; protocol changes need a new holdout"}
