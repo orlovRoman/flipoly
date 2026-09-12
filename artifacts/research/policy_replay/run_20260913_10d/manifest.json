@@ -1,0 +1,11 @@
+{
+  "run_id": "run_20260913_10d",
+  "generated_at_utc": "2026-09-12T18:35:16.655419+00:00",
+  "source_ledger": "policy_ledger_v2.csv",
+  "source_ledger_sha256": "cd3797dcfb6f46d907859827a20fe209cf6df7928ca93f954f8c5507220ddb6c",
+  "source_window": "rolling 10 days at export time",
+  "calculation": "scripts/research/replay_dashboard_policy.py",
+  "code_commit": "d0f9ee3f",
+  "heavy_calculation": "local",
+  "server_role": "read-only ledger export"
+}

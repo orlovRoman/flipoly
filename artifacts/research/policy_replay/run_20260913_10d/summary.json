@@ -1,0 +1,277 @@
+{
+  "summary": {
+    "opportunities": 136895,
+    "same_opportunity_set": true,
+    "variants": {
+      "CURRENT": {
+        "buy_count": 6616,
+        "config": {
+          "allow_favorite": true,
+          "allow_outsider": true,
+          "budget_usdc": 1.0,
+          "fee_exponent": 1.0,
+          "fee_rate": 0.07,
+          "max_time_left_sec": 900.0,
+          "min_edge": 0.03,
+          "min_time_left_sec": 210.0,
+          "name": "CURRENT",
+          "slippage_rate": 0.005
+        },
+        "fee_usdc": 199.19353300000003,
+        "gross_pnl": -496.43531286459637,
+        "missing_not_zero": 99619,
+        "net_pnl": -695.6288458645964,
+        "status_counts": {
+          "BUY": 6616,
+          "INSUFFICIENT_DATA": 99619,
+          "SKIP": 30660
+        }
+      },
+      "FAVORITE_ONLY": {
+        "buy_count": 4306,
+        "config": {
+          "allow_favorite": true,
+          "allow_outsider": false,
+          "budget_usdc": 1.0,
+          "fee_exponent": 1.0,
+          "fee_rate": 0.07,
+          "max_time_left_sec": 900.0,
+          "min_edge": 0.03,
+          "min_time_left_sec": 210.0,
+          "name": "FAVORITE_ONLY",
+          "slippage_rate": 0.005
+        },
+        "fee_usdc": 108.48442150000002,
+        "gross_pnl": -942.4819274899976,
+        "missing_not_zero": 99594,
+        "net_pnl": -1050.9663489899976,
+        "status_counts": {
+          "BUY": 4306,
+          "INSUFFICIENT_DATA": 99594,
+          "SKIP": 32995
+        }
+      },
+      "OUTSIDER_ONLY": {
+        "buy_count": 2310,
+        "config": {
+          "allow_favorite": false,
+          "allow_outsider": true,
+          "budget_usdc": 1.0,
+          "fee_exponent": 1.0,
+          "fee_rate": 0.07,
+          "max_time_left_sec": 900.0,
+          "min_edge": 0.03,
+          "min_time_left_sec": 210.0,
+          "name": "OUTSIDER_ONLY",
+          "slippage_rate": 0.005
+        },
+        "fee_usdc": 90.7091115,
+        "gross_pnl": 446.04661462540116,
+        "missing_not_zero": 99603,
+        "net_pnl": 355.33750312540116,
+        "status_counts": {
+          "BUY": 2310,
+          "INSUFFICIENT_DATA": 99603,
+          "SKIP": 34982
+        }
+      },
+      "STRICT": {
+        "buy_count": 315,
+        "config": {
+          "allow_favorite": true,
+          "allow_outsider": true,
+          "budget_usdc": 1.0,
+          "fee_exponent": 1.0,
+          "fee_rate": 0.07,
+          "max_time_left_sec": 300.0,
+          "min_edge": 0.05,
+          "min_time_left_sec": 210.0,
+          "name": "STRICT",
+          "slippage_rate": 0.005
+        },
+        "fee_usdc": 9.534031500000001,
+        "gross_pnl": -28.637642665124538,
+        "missing_not_zero": 99582,
+        "net_pnl": -38.17167416512454,
+        "status_counts": {
+          "BUY": 315,
+          "INSUFFICIENT_DATA": 99582,
+          "SKIP": 36998
+        }
+      }
+    }
+  },
+  "coverage": {
+    "opportunities": 136895,
+    "unique_opportunity_ids": 136895,
+    "quote_both_sides": 37804,
+    "model_probability": 91391,
+    "time_left": 47707,
+    "resolved_label": 130555,
+    "fully_replayable_inputs": 37124,
+    "btc_quote_both_sides": 0,
+    "quote_age_median_sec": 29.460809,
+    "quote_age_p90_sec": 44.892176400000004,
+    "assets": [
+      "BTC",
+      "DOGE",
+      "ETH",
+      "SOL",
+      "XRP"
+    ]
+  },
+  "diagnostics": {
+    "CURRENT": {
+      "buy_count": 6616,
+      "net_pnl_usdc": -695.6288458645963,
+      "largest_trade_net_pnl_usdc": 9.99216345135434,
+      "top5_share_of_net_pnl": -0.04856126875522793,
+      "by_asset": {
+        "DOGE": {
+          "n": 1543,
+          "net_pnl_usdc": -114.54132322710838
+        },
+        "ETH": {
+          "n": 1739,
+          "net_pnl_usdc": -245.14158624824503
+        },
+        "SOL": {
+          "n": 1651,
+          "net_pnl_usdc": -107.8400226035392
+        },
+        "XRP": {
+          "n": 1683,
+          "net_pnl_usdc": -228.10591378570376
+        }
+      },
+      "by_day": {
+        "2026-09-10": {
+          "n": 2252,
+          "net_pnl_usdc": -170.72953973021927
+        },
+        "2026-09-11": {
+          "n": 2724,
+          "net_pnl_usdc": -396.38482467902554
+        },
+        "2026-09-12": {
+          "n": 1640,
+          "net_pnl_usdc": -128.51448145535156
+        }
+      }
+    },
+    "STRICT": {
+      "buy_count": 315,
+      "net_pnl_usdc": -38.17167416512454,
+      "largest_trade_net_pnl_usdc": 6.047169540156361,
+      "top5_share_of_net_pnl": -0.7136156357836413,
+      "by_asset": {
+        "DOGE": {
+          "n": 78,
+          "net_pnl_usdc": -28.957919554473904
+        },
+        "ETH": {
+          "n": 53,
+          "net_pnl_usdc": -7.1018105635666515
+        },
+        "SOL": {
+          "n": 110,
+          "net_pnl_usdc": 5.1679974923715735
+        },
+        "XRP": {
+          "n": 74,
+          "net_pnl_usdc": -7.279941539455559
+        }
+      },
+      "by_day": {
+        "2026-09-10": {
+          "n": 99,
+          "net_pnl_usdc": 5.590645935357662
+        },
+        "2026-09-11": {
+          "n": 113,
+          "net_pnl_usdc": -36.4957090401769
+        },
+        "2026-09-12": {
+          "n": 103,
+          "net_pnl_usdc": -7.266611060305309
+        }
+      }
+    },
+    "FAVORITE_ONLY": {
+      "buy_count": 4306,
+      "net_pnl_usdc": -1050.9663489899976,
+      "largest_trade_net_pnl_usdc": 0.91690766788606,
+      "top5_share_of_net_pnl": -0.004362212304738534,
+      "by_asset": {
+        "DOGE": {
+          "n": 989,
+          "net_pnl_usdc": -186.02486680749266
+        },
+        "ETH": {
+          "n": 1081,
+          "net_pnl_usdc": -248.80841900287578
+        },
+        "SOL": {
+          "n": 1109,
+          "net_pnl_usdc": -274.37257957059126
+        },
+        "XRP": {
+          "n": 1127,
+          "net_pnl_usdc": -341.7604836090379
+        }
+      },
+      "by_day": {
+        "2026-09-10": {
+          "n": 1500,
+          "net_pnl_usdc": -413.6800637110821
+        },
+        "2026-09-11": {
+          "n": 1795,
+          "net_pnl_usdc": -404.731622940177
+        },
+        "2026-09-12": {
+          "n": 1011,
+          "net_pnl_usdc": -232.55466233873852
+        }
+      }
+    },
+    "OUTSIDER_ONLY": {
+      "buy_count": 2310,
+      "net_pnl_usdc": 355.3375031254012,
+      "largest_trade_net_pnl_usdc": 9.99216345135434,
+      "top5_share_of_net_pnl": 0.09506629342751435,
+      "by_asset": {
+        "DOGE": {
+          "n": 554,
+          "net_pnl_usdc": 71.48354358038426
+        },
+        "ETH": {
+          "n": 658,
+          "net_pnl_usdc": 3.6668327546306987
+        },
+        "SOL": {
+          "n": 542,
+          "net_pnl_usdc": 166.53255696705207
+        },
+        "XRP": {
+          "n": 556,
+          "net_pnl_usdc": 113.65456982333413
+        }
+      },
+      "by_day": {
+        "2026-09-10": {
+          "n": 752,
+          "net_pnl_usdc": 242.95052398086278
+        },
+        "2026-09-11": {
+          "n": 929,
+          "net_pnl_usdc": 8.346798261151438
+        },
+        "2026-09-12": {
+          "n": 629,
+          "net_pnl_usdc": 104.04018088338697
+        }
+      }
+    }
+  }
+}
