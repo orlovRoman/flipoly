@@ -1,0 +1,41 @@
+{
+  "run_id": "run_full_02",
+  "protocol_hash": "119f507a0452f4e72e4bbd2e0a52c47d7273f2d79b1d0434a12e26f3143fa988",
+  "total_markets_in_db": 34863,
+  "markets_with_snapshots": 34863,
+  "total_evaluated_records": 34863,
+  "eligible_opportunities_ok": 5237,
+  "status_breakdown": {
+    "DELAY_TOO_LARGE": 21121,
+    "NOT_YES_OUTSIDER": 5909,
+    "OK": 5237,
+    "NO_SNAPSHOT": 1061,
+    "PRICE_FILTER": 832,
+    "MISSING_QUOTE": 682,
+    "PARITY": 20,
+    "UNRESOLVED": 1
+  },
+  "funnel_coverage": {
+    "in_funnel": 1957,
+    "outside_funnel": 3280,
+    "in_funnel_pct": 37.37
+  },
+  "asset_coverage_ok": {
+    "SOL": 1066,
+    "BTC": 1064,
+    "XRP": 1056,
+    "ETH": 1050,
+    "DOGE": 1001
+  },
+  "quality_breakdown": {
+    "VALID": 4346,
+    "INSUFFICIENT_HISTORY": 891
+  },
+  "quality_exclusions_by_asset": {
+    "ETH": 6155,
+    "BTC": 6135,
+    "DOGE": 6105,
+    "XRP": 6061,
+    "SOL": 6061
+  }
+}

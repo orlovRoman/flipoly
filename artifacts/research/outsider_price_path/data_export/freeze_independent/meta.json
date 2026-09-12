@@ -1,0 +1,185 @@
+{
+  "name": "freeze_independent",
+  "markets_requested": 34863,
+  "rows": 8254342,
+  "db_snapshot_rows_info": 8325803,
+  "db_snapshot_max_id_info": 8336793,
+  "query": "SELECT market_id, asset, recorded_at, time_left_min, mid_price, best_bid, best_ask, spread, final_outcome FROM market_snapshots WHERE market_id = ANY($1::text[]) ORDER BY market_id, recorded_at",
+  "files": [
+    {
+      "path": "chunks/part_0000.csv.gz",
+      "sha256": "5206d15488b86c6f8b2aa5ecb8868b24ece94606dd436c8afb31e595f95f9d18",
+      "rows": 290646
+    },
+    {
+      "path": "chunks/part_0001.csv.gz",
+      "sha256": "b1a0aabccf24a0e415d1e66618028202976c3adb0825b304da28b080fab333c8",
+      "rows": 243333
+    },
+    {
+      "path": "chunks/part_0002.csv.gz",
+      "sha256": "49a52f1f3e774377921377f51689ce29fe0ebe880d05712c36958c4acfc1f02b",
+      "rows": 271214
+    },
+    {
+      "path": "chunks/part_0003.csv.gz",
+      "sha256": "b648b7186fbc7141c8e6aaf23631cfc80d4881deaa0142ccc7c8f8fb05d4a3ef",
+      "rows": 276810
+    },
+    {
+      "path": "chunks/part_0004.csv.gz",
+      "sha256": "caffe57bf3278aceec0bae093d90877f66fdc0220377376d1714cfa7890a8b6e",
+      "rows": 273063
+    },
+    {
+      "path": "chunks/part_0005.csv.gz",
+      "sha256": "27148f9970696d6d158f7b9e549c6462ed0a44b99e31630d5b5b2161085d7338",
+      "rows": 273592
+    },
+    {
+      "path": "chunks/part_0006.csv.gz",
+      "sha256": "6c2137c6348975706e157e61d49b71135c90cebd760c08b13092f8a66d8c2066",
+      "rows": 238749
+    },
+    {
+      "path": "chunks/part_0007.csv.gz",
+      "sha256": "68b05c5aeef7f183da698f0951a0e3faf515ebd4942e187dab664f756ec312fc",
+      "rows": 278011
+    },
+    {
+      "path": "chunks/part_0008.csv.gz",
+      "sha256": "e60595626ad9ed7a7e1c8aa887121db8d55bc7624db665f015607d4ea4259874",
+      "rows": 243163
+    },
+    {
+      "path": "chunks/part_0009.csv.gz",
+      "sha256": "47b70aa822df268175e21527a436875a1917853fc4dec526b196527be9e1a084",
+      "rows": 210433
+    },
+    {
+      "path": "chunks/part_0010.csv.gz",
+      "sha256": "3d372b41122c44bca4fc9865a77efb1861eca5ce7f151d36218c1fab2484ea99",
+      "rows": 278636
+    },
+    {
+      "path": "chunks/part_0011.csv.gz",
+      "sha256": "95a5305d137b9238442426e5742aa7e91da9d319041ff582cf4bc0cf97957fb3",
+      "rows": 224895
+    },
+    {
+      "path": "chunks/part_0012.csv.gz",
+      "sha256": "1d11b3516609b7c5f4ea84405791625195bc86241e014bd6d066713a5a896248",
+      "rows": 258442
+    },
+    {
+      "path": "chunks/part_0013.csv.gz",
+      "sha256": "199d5d851af524c8d04cfefd9bf5a833b5eaff6f28960505a224f7dbc0e48365",
+      "rows": 229599
+    },
+    {
+      "path": "chunks/part_0014.csv.gz",
+      "sha256": "6df0dcfcf8e0cf5481b5ca8b9321a3adbdc228ddb5762c4a1d84368b09c464a3",
+      "rows": 247114
+    },
+    {
+      "path": "chunks/part_0015.csv.gz",
+      "sha256": "c765f8eec6bf9d237860fd7fe356d8f5dc29f4ab2d3e007da79b52cf38c5b4ac",
+      "rows": 264845
+    },
+    {
+      "path": "chunks/part_0016.csv.gz",
+      "sha256": "2d3da40f9038a0f2cd1a654df040c9148278f9cee505c3dd479cefb350698f43",
+      "rows": 233050
+    },
+    {
+      "path": "chunks/part_0017.csv.gz",
+      "sha256": "97631b0e34a1ffc675d3a2d692c3f1e9adb6de7c1e4c8bb8a8ba7104cd983c12",
+      "rows": 185027
+    },
+    {
+      "path": "chunks/part_0018.csv.gz",
+      "sha256": "f21a0f40d05bdb57287cfcf16f0c4d604b2a3ba24dfdf11ccfffcb8f249d2c45",
+      "rows": 186853
+    },
+    {
+      "path": "chunks/part_0019.csv.gz",
+      "sha256": "ad693a342eeb8f66f5eefdcb582b444d5b0403be4d4cc37d2d1b120c90fa4c87",
+      "rows": 185146
+    },
+    {
+      "path": "chunks/part_0020.csv.gz",
+      "sha256": "af67f4a5f105cc7f2d54293384e3d8200e59b286389da23e4ff8c3281f54939e",
+      "rows": 200546
+    },
+    {
+      "path": "chunks/part_0021.csv.gz",
+      "sha256": "f41c7c49aabba027707d9b321bbe89ad1a4c29b2654e20f3d4f5a1466e098d4b",
+      "rows": 276496
+    },
+    {
+      "path": "chunks/part_0022.csv.gz",
+      "sha256": "2fcdaf81a4d2c7ce56cc7e767e52712d26f33fb966f6f23c3acae5dce41fa0fb",
+      "rows": 218645
+    },
+    {
+      "path": "chunks/part_0023.csv.gz",
+      "sha256": "6a0b9f0131da85772688f3d8de1e7a7b691b094bad959e3aff41a71fb3b6a737",
+      "rows": 216880
+    },
+    {
+      "path": "chunks/part_0024.csv.gz",
+      "sha256": "8684c4200240a7b54c9aaefeb6468ab4c2b508a00253f7655eee062a810972d9",
+      "rows": 230926
+    },
+    {
+      "path": "chunks/part_0025.csv.gz",
+      "sha256": "9c547c794a3311df682c4864f5f92746f36934b806e214445272990f43493d29",
+      "rows": 223686
+    },
+    {
+      "path": "chunks/part_0026.csv.gz",
+      "sha256": "cfdf62bf114e1fcdb500cfa4d44372815ae987dd38fe74865c581edf83049e30",
+      "rows": 215572
+    },
+    {
+      "path": "chunks/part_0027.csv.gz",
+      "sha256": "a14e876e9f7324aa9b43f563e2dd6b51b92b4e1726b38404aacdfd6933888391",
+      "rows": 229835
+    },
+    {
+      "path": "chunks/part_0028.csv.gz",
+      "sha256": "28a9d0a0e16e4c079a10462a8f88a4ab84bbb8a59a1e34f597a47926ccd45a09",
+      "rows": 230207
+    },
+    {
+      "path": "chunks/part_0029.csv.gz",
+      "sha256": "d6906fb0749a8ec1e513cc1fd3c8f8369c6c80e72193ff0edefd2906346221e1",
+      "rows": 230305
+    },
+    {
+      "path": "chunks/part_0030.csv.gz",
+      "sha256": "31ed667071a57031b30343155a85779358b6abf3c47f090ef0fceed41af8fe9f",
+      "rows": 229245
+    },
+    {
+      "path": "chunks/part_0031.csv.gz",
+      "sha256": "e7f3a22168ec6b3724e404b80ff25a789b14f2de58d7cf41a42b3fee5863593f",
+      "rows": 224402
+    },
+    {
+      "path": "chunks/part_0032.csv.gz",
+      "sha256": "a9cfe3a19191870ab430f0442a7dd7048f60539cd0c4ba9f568caa7adc654693",
+      "rows": 221241
+    },
+    {
+      "path": "chunks/part_0033.csv.gz",
+      "sha256": "2296e6cdd8a944794990f12509cff2a9a6c9da353b6d801122dc0736173fd910",
+      "rows": 218623
+    },
+    {
+      "path": "chunks/part_0034.csv.gz",
+      "sha256": "2605909e311263a117347d0d602d0692a0ea99692f99ab68f9784fb015ebf40f",
+      "rows": 195112
+    }
+  ]
+}

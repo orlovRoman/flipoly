@@ -60,3 +60,8 @@ artifacts/research/strike_baseline/data_export/*/fixture_1m/*.csv.gz
 # Price-time-map freeze chunks remain outside Git; hashes live in meta.json.
 _freeze/*/chunks/
 _freeze/*/*.csv.gz
+
+# Outsider price path heavy data export (hashes in meta.json)
+artifacts/research/outsider_price_path/data_export/*/chunks/
+artifacts/research/outsider_price_path/data_export/*/*.csv.gz
+
