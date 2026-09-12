@@ -34,7 +34,7 @@ def final_status(summary: dict) -> str:
         return "NO_INCREMENTAL_VALUE"
     if summary.get("net_pnl", 0) <= 0:
         return "FORECAST_ONLY"
-    lo, hi = summary.get("ci_lo", -1), summary.get("ci_hi", 1)
+    lo = summary.get("ci_lo", -1)
     if lo > 0 and summary.get("max_drawdown_ok") and summary.get("concentrated_ok"):
         return "PAPER_CANDIDATE"
     return "PROMISING_UNCERTAIN"

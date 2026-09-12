@@ -29,8 +29,11 @@ def get(url: str):
 def main() -> int:
     limit = int(sys.argv[1]) if len(sys.argv) > 1 else 20
     RAW.mkdir(parents=True, exist_ok=True)
-    markets = [l.split("|")[0] for l in (PROBE / "markets.txt").read_text().splitlines()
-               if l and not l.startswith("#")][:limit]
+    markets = [
+        line.split("|")[0]
+        for line in (PROBE / "markets.txt").read_text().splitlines()
+        if line and not line.startswith("#")
+    ][:limit]
     log = []
     for mid in markets:
         t0 = datetime.now(timezone.utc).isoformat()

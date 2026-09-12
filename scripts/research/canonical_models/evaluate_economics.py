@@ -7,8 +7,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO))
-from polyflip.research.canonical_models.guards import assert_train_allowed
-from polyflip.research.canonical_models.protocol import load_protocol
+from polyflip.research.canonical_models.guards import assert_train_allowed  # noqa: E402
+from polyflip.research.canonical_models.protocol import load_protocol  # noqa: E402
 
 
 def main() -> int:

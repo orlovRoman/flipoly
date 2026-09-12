@@ -9,8 +9,8 @@ from polyflip.research.canonical_models.policies import (
 def test_win_loss_partial_reconcile():
     w = execute(1.0, 0.2, 0.0, True)
     assert abs(w.net_pnl - 4.0) < 1e-9  # 5 shares * $1 payout + 0 remainder - $1 budget
-    l = execute(1.0, 0.2, 0.0, False)
-    assert abs(l.net_pnl - (-1.0)) < 1e-9
+    loss = execute(1.0, 0.2, 0.0, False)
+    assert abs(loss.net_pnl - (-1.0)) < 1e-9
     p = execute(1.0, 0.2, 0.0, True, size_limit=2.0)
     assert p.status == "PARTIAL" and abs(p.shares - 2.0) < 1e-9
 

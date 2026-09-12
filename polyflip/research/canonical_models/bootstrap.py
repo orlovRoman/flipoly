@@ -46,7 +46,8 @@ def paired_day_bootstrap(rows: list[dict], keys_a: str, keys_b: str,
             db = logloss([x[keys_b] for x in sample], [x["target_up"] for x in sample])
         diffs.append(db - da)  # negative => B better
     diffs.sort()
-    q = lambda p: diffs[min(int(p * n_boot), n_boot - 1)]
+    def q(p: float) -> float:
+        return diffs[min(int(p * n_boot), n_boot - 1)]
     return {"n_days": len(days), "n_boot": n_boot, "metric": metric,
             "mean": sum(diffs) / len(diffs),
             "ci95": [q(0.025), q(0.975)], "ci90": [q(0.05), q(0.95)],

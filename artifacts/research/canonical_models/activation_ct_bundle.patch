@@ -5,7 +5,7 @@ index 92b9d3b..b7fb432 100644
 @@ -1896,6 +1896,68 @@ async def decide_ct_outsider_mode(
          "decision_at": eff_decision_at.isoformat(),
      }
- 
+
 +
 +    # Frozen-protocol input bundle (activation; no logic change): record the
 +    # EXACT inputs this decision used so CT can be reproduced from storage.

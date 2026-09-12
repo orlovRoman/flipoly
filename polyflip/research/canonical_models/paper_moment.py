@@ -19,7 +19,6 @@ are labelled RECONSTRUCTED_CT and never merged.
 from __future__ import annotations
 
 import json
-from datetime import timezone
 
 import pandas as pd
 

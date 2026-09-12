@@ -10,16 +10,15 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO))
 
-import numpy as np
-import pandas as pd
-from sklearn.linear_model import LogisticRegression
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
+from sklearn.linear_model import LogisticRegression  # noqa: E402
 
 FEATS = ["mid_price", "spread", "time_left_min"]
 SPLIT = "2026-08-30T00:00:00Z"

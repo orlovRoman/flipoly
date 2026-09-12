@@ -21,9 +21,7 @@ from __future__ import annotations
 import argparse
 import csv
 import gzip
-import hashlib
 import json
-import os
 import sys
 import time
 from collections import defaultdict
@@ -39,14 +37,13 @@ ROOT_DIR = Path(__file__).resolve().parents[3]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from polyflip.research.outsider_price_path.dataset import (
+from polyflip.research.outsider_price_path.dataset import (  # noqa: E402
     DEFAULT_PROTOCOL,
     ResearchProtocol,
     MarketMetadata,
-    OpportunityRecord,
     process_single_market,
 )
-from polyflip.research.outsider_price_path.evaluation import (
+from polyflip.research.outsider_price_path.evaluation import (  # noqa: E402
     summarize_policy,
     compute_stratified_comparison,
     run_day_block_bootstrap,
@@ -544,7 +541,7 @@ def build_markdown_report(
     md.append(f"- **Общее число наблюдений**: {strat_res['total_rows']:,}")
     md.append(f"- **Наблюдений в общих стратах**: {strat_res['common_support_rows']:,} (потеря выборки: {strat_res['coverage_loss_pct']}%)")
     md.append(f"- **Число общих страт**: {strat_res['common_strata_count']}")
-    
+
     ci_wr_strat = strat_res.get("adjusted_win_rate_diff_ci95", [0, 0])
     ci_exp_strat_w = strat_res.get("adjusted_expectancy_diff_ci95", [0, 0])
     ci_exp_strat_eq = strat_res.get("equal_strata_expectancy_diff_ci95", [0, 0])
@@ -567,22 +564,22 @@ def build_markdown_report(
     md.append("")
     md.append("| Группа траектории | Все сделки N | Win Rate | Сценарный Net PnL ($) | Expectancy ($) | CT Reversion N | CT Win Rate | CT Net PnL ($) | CT Expectancy ($) |")
     md.append("|---|---|---|---|---|---|---|---|---|")
-    
+
     for cell in ["FORMER_FAVORITE__REBOUND", "FORMER_FAVORITE__NO_REBOUND", "OBSERVED_ALWAYS_OUTSIDER__REBOUND", "OBSERVED_ALWAYS_OUTSIDER__NO_REBOUND"]:
         if cell in matrix_summary:
             all_d = matrix_summary[cell]["all"]
             ct_d = matrix_summary[cell]["ct_reversion"]
             md.append(f"| `{cell}` | {all_d['n_trades']:,} | {all_d['win_rate']:.2%} | ${all_d['net_pnl_02pct']:.2f} | ${all_d['expectancy_usdc']:.4f} | {ct_d['n_trades']:,} | {ct_d['win_rate']:.2%} | ${ct_d['net_pnl_02pct']:.2f} | ${ct_d['expectancy_usdc']:.4f} |")
-    
+
     suff_all_n = sum(matrix_summary[c]["all"]["n_trades"] for c in ["FORMER_FAVORITE__REBOUND", "FORMER_FAVORITE__NO_REBOUND", "OBSERVED_ALWAYS_OUTSIDER__REBOUND", "OBSERVED_ALWAYS_OUTSIDER__NO_REBOUND"])
     suff_all_wins = sum(matrix_summary[c]["all"]["win_count"] for c in ["FORMER_FAVORITE__REBOUND", "FORMER_FAVORITE__NO_REBOUND", "OBSERVED_ALWAYS_OUTSIDER__REBOUND", "OBSERVED_ALWAYS_OUTSIDER__NO_REBOUND"])
     suff_all_net = sum(matrix_summary[c]["all"]["net_pnl_02pct"] for c in ["FORMER_FAVORITE__REBOUND", "FORMER_FAVORITE__NO_REBOUND", "OBSERVED_ALWAYS_OUTSIDER__REBOUND", "OBSERVED_ALWAYS_OUTSIDER__NO_REBOUND"])
     suff_ct_n = sum(matrix_summary[c]["ct_reversion"]["n_trades"] for c in ["FORMER_FAVORITE__REBOUND", "FORMER_FAVORITE__NO_REBOUND", "OBSERVED_ALWAYS_OUTSIDER__REBOUND", "OBSERVED_ALWAYS_OUTSIDER__NO_REBOUND"])
     suff_ct_wins = sum(matrix_summary[c]["ct_reversion"]["win_count"] for c in ["FORMER_FAVORITE__REBOUND", "FORMER_FAVORITE__NO_REBOUND", "OBSERVED_ALWAYS_OUTSIDER__REBOUND", "OBSERVED_ALWAYS_OUTSIDER__NO_REBOUND"])
     suff_ct_net = sum(matrix_summary[c]["ct_reversion"]["net_pnl_02pct"] for c in ["FORMER_FAVORITE__REBOUND", "FORMER_FAVORITE__NO_REBOUND", "OBSERVED_ALWAYS_OUTSIDER__REBOUND", "OBSERVED_ALWAYS_OUTSIDER__NO_REBOUND"])
-    
+
     md.append(f"| **Подитог: Достаточная история (Sufficient History)** | {suff_all_n:,} | {suff_all_wins/suff_all_n:.2%} | ${suff_all_net:.2f} | ${suff_all_net/suff_all_n:.4f} | {suff_ct_n:,} | {suff_ct_wins/suff_ct_n:.2%} | ${suff_ct_net:.2f} | ${suff_ct_net/suff_ct_n:.4f} |")
-    
+
     if "INSUFFICIENT_HISTORY" in matrix_summary:
         ih_all = matrix_summary["INSUFFICIENT_HISTORY"]["all"]
         ih_ct = matrix_summary["INSUFFICIENT_HISTORY"]["ct_reversion"]
@@ -627,7 +624,7 @@ def build_markdown_report(
     md.append("")
     md.append("| Политика | Условие входа | Сделок N | Доля выборки % | Win Rate | Сценарный Net PnL (0.2%) | Gross Exp ($) | Net Exp ($) | Stream Gross Exp ($) | Stream Net Exp ($) | ROI (%) |")
     md.append("|---|---|---|---|---|---|---|---|---|---|---|")
-    
+
     cond_map = {
         "Control": "Базовые цена [0.01, 0.40] и время T-5",
         "CT": "Контроль + CT == REVERSION",
@@ -734,7 +731,7 @@ def build_markdown_report(
     md.append("> - Доля прибыльных недель составляет 60.0% (6 из 10 недель).")
     md.append("> - **Терминологический статус**: Формулировка «устойчивая прибыльность CT» признана необоснованной. Единственно корректным обозначением является «положительный исторический сценарный результат при расчётной комиссии 0.2% taker fee».")
     md.append("")
-    
+
     ctrl_conc = concentration_results.get("Control", {})
     if "by_asset" in ctrl_conc:
         md.append("### Распределение сделок и выигрышей по активам (Контроль, П. 26):")
@@ -776,4 +773,3 @@ def build_markdown_report(
 
 if __name__ == "__main__":
     main()
-

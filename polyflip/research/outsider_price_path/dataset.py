@@ -14,27 +14,19 @@ Adheres strictly to research constraints:
 """
 from __future__ import annotations
 
-import csv
-import gzip
 import hashlib
 import json
 import math
-import os
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from typing import Sequence, Mapping, Any, Optional
-import pandas as pd
+from typing import Sequence, Any, Optional
 
 from polyflip.research.outsider_price_path.features import (
     Observation,
-    TrajectoryFeatures,
     compute_trajectory_features,
 )
 from polyflip.research.outsider_price_path.cohorts import (
     HistoryQualityConfig,
-    QualityAuditResult,
-    CohortAssignment,
     audit_history_quality,
     assign_cohort,
 )

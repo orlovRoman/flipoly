@@ -14,8 +14,8 @@ Features:
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field, asdict
-from typing import Sequence, Mapping, Any, Optional
+from dataclasses import dataclass
+from typing import Mapping, Any, Optional
 import numpy as np
 import pandas as pd
 
@@ -424,7 +424,6 @@ def run_day_block_bootstrap(
 
     targets = df["target"].values.astype(float)
     net_pnls = df["net_pnl_02pct"].values.astype(float)
-    budgets = df["budget_usdc"].values.astype(float)
     gross_pnls = df["gross_pnl"].values.astype(float) if "gross_pnl" in df.columns else net_pnls
 
     u_total_orig = len(df)

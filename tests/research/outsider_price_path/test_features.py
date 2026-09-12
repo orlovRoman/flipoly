@@ -9,13 +9,10 @@ Comprehensive unit tests for causal trajectory feature extraction (Stage 3):
 - Duplicate snapshots (continuous time invariance)
 - Strict causality (future snapshots do not leak)
 """
-import math
 from datetime import datetime, timezone, timedelta
-import pytest
 
 from polyflip.research.outsider_price_path.features import (
     Observation,
-    TrajectoryFeatures,
     compute_trajectory_features,
 )
 

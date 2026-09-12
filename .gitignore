@@ -64,4 +64,3 @@ _freeze/*/*.csv.gz
 # Outsider price path heavy data export (hashes in meta.json)
 artifacts/research/outsider_price_path/data_export/*/chunks/
 artifacts/research/outsider_price_path/data_export/*/*.csv.gz
-

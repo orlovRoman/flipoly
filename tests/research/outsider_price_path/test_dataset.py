@@ -10,14 +10,11 @@ Unit tests for dataset building and market processing (Stages 1, 2, 4):
 - Line-item economics & fee calculation
 """
 from datetime import datetime, timezone, timedelta
-import pytest
 
 from polyflip.research.outsider_price_path.dataset import (
-    DEFAULT_PROTOCOL,
     ResearchProtocol,
     MarketMetadata,
     process_single_market,
-    assign_ask_bin,
 )
 
 

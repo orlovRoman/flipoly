@@ -48,7 +48,6 @@ def train_all(workdir: str | Path, run_id: str, train_rows: list[dict],
     m4 = M.MarketOffsetModel(M.M2_COLUMNS).fit(train_rows)
 
     (art / "m1.pkl").write_bytes(m1.dumps())
-    import pickle
     (art / "m2.pkl").write_bytes(m2.dumps())
     m3.booster.save_model(str(art / "m3.txt"))
     with open(art / "m4.json", "w") as f:

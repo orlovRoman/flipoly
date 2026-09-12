@@ -8,9 +8,7 @@ Unit tests for evaluation metrics, day-block bootstrap, and stratification (Stag
 - Holm-Bonferroni multiple testing adjustment
 - Concentration and stress test audit
 """
-import numpy as np
 import pandas as pd
-import pytest
 
 from polyflip.research.outsider_price_path.evaluation import (
     summarize_policy,
@@ -109,7 +107,7 @@ def test_stratified_comparison_with_overlap():
     records = []
     for day_i in range(10):
         cal_date = f"2026-08-{day_i+1:02d}"
-        week = f"2026-W32"
+        week = "2026-W32"
         for m_i in range(10):
             cohort = "FORMER_FAVORITE" if m_i % 2 == 0 else "OBSERVED_ALWAYS_OUTSIDER"
             ask = 0.12 if cohort == "FORMER_FAVORITE" else 0.11
@@ -156,4 +154,3 @@ def test_day_block_bootstrap_point_estimates_and_stream():
     assert "trade_exp_nominal_p_value" in pair
     assert "stream_exp_nominal_p_value" in pair
     assert "stream_exp_is_significant_05" in pair
-

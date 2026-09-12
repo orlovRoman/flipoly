@@ -9,16 +9,12 @@ Unit tests for history quality audit and cohort assignment (Stage 3):
 - Single-touch favorite sensitivity
 """
 from datetime import datetime, timezone, timedelta
-import pytest
 
 from polyflip.research.outsider_price_path.features import (
     Observation,
     compute_trajectory_features,
 )
 from polyflip.research.outsider_price_path.cohorts import (
-    HistoryQualityConfig,
-    QualityAuditResult,
-    CohortAssignment,
     audit_history_quality,
     assign_cohort,
 )

@@ -20,7 +20,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .dataset import M1_COLUMNS, M2_COLUMNS
+from .dataset import M2_COLUMNS
 
 EPS = 1e-6
 
