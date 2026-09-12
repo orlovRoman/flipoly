@@ -46,7 +46,11 @@ class ModelsCache:
         for (mtype, a, ver), model in self.entries.items():
             if mtype in aliases and a == asset:
                 return model
-        return self.models.get(asset)
+        # The legacy map contains only LogReg entry models. A typed LGBM
+        # lookup must not silently return that unrelated object.
+        if any(alias in {"logreg", "logisticregression", "logistic_regression"} for alias in aliases):
+            return self.models.get(asset)
+        return None
 
     def get_features(
         self,
@@ -83,10 +87,14 @@ class ModelsCache:
         self.entries[(m_type, asset, version)] = model
         self.features_by_entry[(m_type, asset, version)] = feats
         self.features_by_type[(m_type, asset)] = feats
-        # Also register under normalized aliases so lookup never fails
+        # Also register under normalized aliases so lookup never fails.
         for alias in _model_type_aliases(m_type):
             self.features_by_type[(alias, asset)] = feats
-        if m_type in ("logreg", "logisticregression") or asset not in self.models:
+        # ``models`` is the legacy entry-model map used by the LogReg
+        # decision path. Never put a LightGBM direction model there merely
+        # because no LogReg exists: that can select an LGBM as the entry
+        # model and produce a feature mismatch.
+        if m_type in ("logreg", "logisticregression"):
             self.models[asset] = model
             self.versions[asset] = version
             self.features[asset] = feats
@@ -212,8 +220,9 @@ async def populate_models_cache(db_session: AsyncSession) -> None:
                         new_features_by_type[(alias, m.asset)] = m_feats
                         new_features_by_entry[(alias, m.asset, m.version)] = m_feats
 
-                    # LogReg takes precedence in legacy cache.models to prevent clobbering by LGBM
-                    if m.asset not in new_models or m_type in ("logreg", "logisticregression"):
+                    # Keep the legacy entry map LogReg-only. LGBM direction
+                    # models remain available through typed ``entries``.
+                    if m_type in ("logreg", "logisticregression"):
                         new_models[m.asset] = model_obj
                         new_versions[m.asset] = m.version
                         new_eces[m.asset] = m.ece or 0.0

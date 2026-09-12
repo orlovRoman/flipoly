@@ -66,6 +66,19 @@ def test_models_cache_dual_active_models_disjoint_features():
     assert cache.get("BTC", model_type="LightGBM") is m_lgbm
 
 
+def test_models_cache_does_not_use_lgbm_as_logreg_fallback():
+    cache = ModelsCache(
+        models={}, versions={}, features={}, eces={}, entries={},
+        features_by_type={}, features_by_entry={},
+    )
+    lgbm = MockMLModel(2, 0.70)
+    cache.put("XRP", lgbm, model_type="LightGBM", version=4, features=["f1", "f2"])
+
+    assert cache.get("XRP", model_type="LightGBM") is lgbm
+    assert cache.get("XRP", model_type="LogisticRegression") is None
+    assert "XRP" not in cache.models
+
+
 @pytest.mark.asyncio
 async def test_populate_models_cache_dual_active_btc_models():
     """Verify populate_models_cache properly populates both LogReg and LightGBM without collision."""
