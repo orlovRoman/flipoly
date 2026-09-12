@@ -1,0 +1,10 @@
+{
+  "branch": "research/legacy-btc-logreg",
+  "base_commit": "7b7823ed70d3f20727fce5b817dd52c4f90bc21e",
+  "workdir_is_local": true,
+  "python": "3.14.4",
+  "libs": {"sklearn": "1.9.0", "lightgbm": "4.6.0", "pandas": "3.0.3", "numpy": "2.4.6"},
+  "rule": "local heavy compute only; server = limited exports; no scheduler runs; no model activation; no auto-retrain",
+  "reference_model": null,
+  "status": "REGISTRY_AUDIT"
+}

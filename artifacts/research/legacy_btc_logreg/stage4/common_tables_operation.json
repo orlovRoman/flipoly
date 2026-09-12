@@ -1,0 +1,508 @@
+{
+ "n": 3080,
+ "period": [
+  "2026-08-20",
+  "2026-09-09"
+ ],
+ "by_asset": {
+  "BTC": 627,
+  "XRP": 617,
+  "SOL": 615,
+  "ETH": 611,
+  "DOGE": 610
+ },
+ "forecast": {
+  "827": {
+   "n": 3080,
+   "brier": 0.16198,
+   "logloss": 0.50948,
+   "by_side": {
+    "UPfav": {
+     "n": 1565,
+     "brier": 0.15092
+    },
+    "DOWNfav": {
+     "n": 1515,
+     "brier": 0.17341
+    }
+   },
+   "by_phase": {
+    "contested": {
+     "n": 345,
+     "brier": 0.25829
+    },
+    "decided": {
+     "n": 2168,
+     "brier": 0.13187
+    },
+    "leaning": {
+     "n": 567,
+     "brier": 0.21853
+    }
+   }
+  },
+  "828": {
+   "n": 3080,
+   "brier": 0.16187,
+   "logloss": 0.50902,
+   "by_side": {
+    "UPfav": {
+     "n": 1565,
+     "brier": 0.14874
+    },
+    "DOWNfav": {
+     "n": 1515,
+     "brier": 0.17544
+    }
+   },
+   "by_phase": {
+    "contested": {
+     "n": 345,
+     "brier": 0.25857
+    },
+    "decided": {
+     "n": 2168,
+     "brier": 0.13167
+    },
+    "leaning": {
+     "n": 567,
+     "brier": 0.21852
+    }
+   }
+  },
+  "838": {
+   "n": 3080,
+   "brier": 0.15992,
+   "logloss": 0.50431,
+   "by_side": {
+    "UPfav": {
+     "n": 1565,
+     "brier": 0.1462
+    },
+    "DOWNfav": {
+     "n": 1515,
+     "brier": 0.1741
+    }
+   },
+   "by_phase": {
+    "contested": {
+     "n": 345,
+     "brier": 0.26015
+    },
+    "decided": {
+     "n": 2168,
+     "brier": 0.12862
+    },
+    "leaning": {
+     "n": 567,
+     "brier": 0.21863
+    }
+   }
+  },
+  "839": {
+   "n": 3080,
+   "brier": 0.15992,
+   "logloss": 0.50431,
+   "by_side": {
+    "UPfav": {
+     "n": 1565,
+     "brier": 0.1462
+    },
+    "DOWNfav": {
+     "n": 1515,
+     "brier": 0.1741
+    }
+   },
+   "by_phase": {
+    "contested": {
+     "n": 345,
+     "brier": 0.26015
+    },
+    "decided": {
+     "n": 2168,
+     "brier": 0.12862
+    },
+    "leaning": {
+     "n": 567,
+     "brier": 0.21863
+    }
+   }
+  },
+  "840": {
+   "n": 3080,
+   "brier": 0.15996,
+   "logloss": 0.50432,
+   "by_side": {
+    "UPfav": {
+     "n": 1565,
+     "brier": 0.14557
+    },
+    "DOWNfav": {
+     "n": 1515,
+     "brier": 0.17483
+    }
+   },
+   "by_phase": {
+    "contested": {
+     "n": 345,
+     "brier": 0.26017
+    },
+    "decided": {
+     "n": 2168,
+     "brier": 0.12868
+    },
+    "leaning": {
+     "n": 567,
+     "brier": 0.21861
+    }
+   }
+  },
+  "850": {
+   "n": 3080,
+   "brier": 0.16043,
+   "logloss": 0.50603,
+   "by_side": {
+    "UPfav": {
+     "n": 1565,
+     "brier": 0.15397
+    },
+    "DOWNfav": {
+     "n": 1515,
+     "brier": 0.1671
+    }
+   },
+   "by_phase": {
+    "contested": {
+     "n": 345,
+     "brier": 0.26004
+    },
+    "decided": {
+     "n": 2168,
+     "brier": 0.12923
+    },
+    "leaning": {
+     "n": 567,
+     "brier": 0.2191
+    }
+   }
+  },
+  "851": {
+   "n": 3080,
+   "brier": 0.16043,
+   "logloss": 0.50603,
+   "by_side": {
+    "UPfav": {
+     "n": 1565,
+     "brier": 0.15397
+    },
+    "DOWNfav": {
+     "n": 1515,
+     "brier": 0.1671
+    }
+   },
+   "by_phase": {
+    "contested": {
+     "n": 345,
+     "brier": 0.26004
+    },
+    "decided": {
+     "n": 2168,
+     "brier": 0.12923
+    },
+    "leaning": {
+     "n": 567,
+     "brier": 0.2191
+    }
+   }
+  },
+  "852": {
+   "n": 3080,
+   "brier": 0.15964,
+   "logloss": 0.50414,
+   "by_side": {
+    "UPfav": {
+     "n": 1565,
+     "brier": 0.15255
+    },
+    "DOWNfav": {
+     "n": 1515,
+     "brier": 0.16696
+    }
+   },
+   "by_phase": {
+    "contested": {
+     "n": 345,
+     "brier": 0.26118
+    },
+    "decided": {
+     "n": 2168,
+     "brier": 0.12785
+    },
+    "leaning": {
+     "n": 567,
+     "brier": 0.2194
+    }
+   }
+  },
+  "862": {
+   "n": 3080,
+   "brier": 0.16751,
+   "logloss": 0.5223,
+   "by_side": {
+    "UPfav": {
+     "n": 1565,
+     "brier": 0.16733
+    },
+    "DOWNfav": {
+     "n": 1515,
+     "brier": 0.1677
+    }
+   },
+   "by_phase": {
+    "contested": {
+     "n": 345,
+     "brier": 0.25477
+    },
+    "decided": {
+     "n": 2168,
+     "brier": 0.14016
+    },
+    "leaning": {
+     "n": 567,
+     "brier": 0.219
+    }
+   }
+  },
+  "863": {
+   "n": 3080,
+   "brier": 0.16751,
+   "logloss": 0.5223,
+   "by_side": {
+    "UPfav": {
+     "n": 1565,
+     "brier": 0.16733
+    },
+    "DOWNfav": {
+     "n": 1515,
+     "brier": 0.1677
+    }
+   },
+   "by_phase": {
+    "contested": {
+     "n": 345,
+     "brier": 0.25477
+    },
+    "decided": {
+     "n": 2168,
+     "brier": 0.14016
+    },
+    "leaning": {
+     "n": 567,
+     "brier": 0.219
+    }
+   }
+  },
+  "864": {
+   "n": 3080,
+   "brier": 0.16726,
+   "logloss": 0.52168,
+   "by_side": {
+    "UPfav": {
+     "n": 1565,
+     "brier": 0.16775
+    },
+    "DOWNfav": {
+     "n": 1515,
+     "brier": 0.16675
+    }
+   },
+   "by_phase": {
+    "contested": {
+     "n": 345,
+     "brier": 0.25519
+    },
+    "decided": {
+     "n": 2168,
+     "brier": 0.13971
+    },
+    "leaning": {
+     "n": 567,
+     "brier": 0.21911
+    }
+   }
+  },
+  "874": {
+   "n": 3080,
+   "brier": 0.16626,
+   "logloss": 0.51952,
+   "by_side": {
+    "UPfav": {
+     "n": 1565,
+     "brier": 0.1575
+    },
+    "DOWNfav": {
+     "n": 1515,
+     "brier": 0.17532
+    }
+   },
+   "by_phase": {
+    "contested": {
+     "n": 345,
+     "brier": 0.25506
+    },
+    "decided": {
+     "n": 2168,
+     "brier": 0.13848
+    },
+    "leaning": {
+     "n": 567,
+     "brier": 0.21846
+    }
+   }
+  },
+  "875": {
+   "n": 3080,
+   "brier": 0.16626,
+   "logloss": 0.51952,
+   "by_side": {
+    "UPfav": {
+     "n": 1565,
+     "brier": 0.1575
+    },
+    "DOWNfav": {
+     "n": 1515,
+     "brier": 0.17532
+    }
+   },
+   "by_phase": {
+    "contested": {
+     "n": 345,
+     "brier": 0.25506
+    },
+    "decided": {
+     "n": 2168,
+     "brier": 0.13848
+    },
+    "leaning": {
+     "n": 567,
+     "brier": 0.21846
+    }
+   }
+  },
+  "876": {
+   "n": 3080,
+   "brier": 0.16645,
+   "logloss": 0.51986,
+   "by_side": {
+    "UPfav": {
+     "n": 1565,
+     "brier": 0.15619
+    },
+    "DOWNfav": {
+     "n": 1515,
+     "brier": 0.17705
+    }
+   },
+   "by_phase": {
+    "contested": {
+     "n": 345,
+     "brier": 0.25504
+    },
+    "decided": {
+     "n": 2168,
+     "brier": 0.13875
+    },
+    "leaning": {
+     "n": 567,
+     "brier": 0.21845
+    }
+   }
+  }
+ },
+ "policy": {
+  "827": {
+   "entries": 303,
+   "gross": 17.7425,
+   "win_rate": 0.2673,
+   "fee_0.002": 17.1365
+  },
+  "828": {
+   "entries": 303,
+   "gross": 17.7425,
+   "win_rate": 0.2673,
+   "fee_0.002": 17.1365
+  },
+  "838": {
+   "entries": 303,
+   "gross": 17.7425,
+   "win_rate": 0.2673,
+   "fee_0.002": 17.1365
+  },
+  "839": {
+   "entries": 303,
+   "gross": 17.7425,
+   "win_rate": 0.2673,
+   "fee_0.002": 17.1365
+  },
+  "840": {
+   "entries": 303,
+   "gross": 17.7425,
+   "win_rate": 0.2673,
+   "fee_0.002": 17.1365
+  },
+  "850": {
+   "entries": 303,
+   "gross": 17.7425,
+   "win_rate": 0.2673,
+   "fee_0.002": 17.1365
+  },
+  "851": {
+   "entries": 303,
+   "gross": 17.7425,
+   "win_rate": 0.2673,
+   "fee_0.002": 17.1365
+  },
+  "852": {
+   "entries": 303,
+   "gross": 17.7425,
+   "win_rate": 0.2673,
+   "fee_0.002": 17.1365
+  },
+  "862": {
+   "entries": 303,
+   "gross": 17.7425,
+   "win_rate": 0.2673,
+   "fee_0.002": 17.1365
+  },
+  "863": {
+   "entries": 303,
+   "gross": 17.7425,
+   "win_rate": 0.2673,
+   "fee_0.002": 17.1365
+  },
+  "864": {
+   "entries": 303,
+   "gross": 17.7425,
+   "win_rate": 0.2673,
+   "fee_0.002": 17.1365
+  },
+  "874": {
+   "entries": 303,
+   "gross": 17.7425,
+   "win_rate": 0.2673,
+   "fee_0.002": 17.1365
+  },
+  "875": {
+   "entries": 303,
+   "gross": 17.7425,
+   "win_rate": 0.2673,
+   "fee_0.002": 17.1365
+  },
+  "876": {
+   "entries": 303,
+   "gross": 17.7425,
+   "win_rate": 0.2673,
+   "fee_0.002": 17.1365
+  }
+ }
+}
