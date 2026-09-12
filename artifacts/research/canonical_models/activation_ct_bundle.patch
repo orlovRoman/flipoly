@@ -1,0 +1,73 @@
+diff --git a/polyflip/trading/decision_runners.py b/polyflip/trading/decision_runners.py
+index 92b9d3b..b7fb432 100644
+--- a/polyflip/trading/decision_runners.py
++++ b/polyflip/trading/decision_runners.py
+@@ -1896,6 +1896,68 @@ async def decide_ct_outsider_mode(
+         "decision_at": eff_decision_at.isoformat(),
+     }
+ 
++
++    # Frozen-protocol input bundle (activation; no logic change): record the
++    # EXACT inputs this decision used so CT can be reproduced from storage.
++    # Defensive by design: any failure here must not break the decision.
++    try:
++        try:
++            import subprocess as _sp  # local import: no module surface change
++
++            _code_sha = _sp.check_output(
++                ["git", "rev-parse", "HEAD"], text=True, timeout=5
++            ).strip()
++        except Exception:
++            _code_sha = "unknown"
++
++        def _iso(_dt):
++            try:
++                return _dt.isoformat() if _dt is not None else None
++            except Exception:
++                return str(_dt)
++
++        def _hist(_items):
++            rows = []
++            for _it in _items or []:
++                try:
++                    rows.append(
++                        {
++                            "t": _iso(_it.get("recorded_at")),
++                            "price": float(_it.get("mid_price")),
++                        }
++                    )
++                except Exception:
++                    continue
++            return rows
++
++        details["input_bundle"] = {
++            "up_history": _hist(up_history),
++            "down_history": _hist(down_history),
++            "history_sources": dict(history_sources),
++            "quotes": {
++                "up": {
++                    "bid": up_bid, "ask": up_ask, "mid": up_mid,
++                    "event_at": _iso(up_event_at),
++                    "received_at": _iso(up_received_at),
++                },
++                "down": {
++                    "bid": down_bid, "ask": down_ask, "mid": down_mid,
++                    "event_at": _iso(down_event_at),
++                    "received_at": _iso(down_received_at),
++                },
++            },
++            "code_version": _code_sha,
++            "execution": {
++                "role": "post-only-maker",
++                "limit_price": symm_ct.limit_price,
++                "budget_usdc": symm_ct.budget_usdc,
++                "fee": "taker-formula-unconfirmed-in-scenarios",
++            },
++        }
++    except Exception as _bundle_err:
++        logger.debug("ct_input_bundle_warning", error=str(_bundle_err))
++        details["input_bundle"] = {"error": str(_bundle_err)}
++
+     # 7. If SKIP, atomically record reservation to prevent duplicate evaluation
+     if action == "SKIP" and db_session is not None:
+         try:

@@ -1,0 +1,131 @@
+# Canonical model comparison protocol (hash-pinned).
+# Changing ANY field creates a new experiment: every result must embed protocol_hash.
+protocol_version: canonical-models-v1
+
+assets: [BTC, ETH, SOL, XRP, DOGE]
+
+decision_point:
+  target_offset_from_end: "T-5m"          # end_at minus 5 minutes
+  selection_window: "(T-5m, T-4m45s]"     # first available obs after T-5m, <= +15s
+  max_lateness_sec: 15
+  one_decision_per_market_per_policy: true
+  no_future_use: true                     # selection must not depend on outcome/price advantage
+
+ct_spec:
+  id: BTC_CT_T5_V1
+  branch: feature/paper-ct-outsider
+  commit: 2b531a2
+  files: [polyflip/trading/ct_policy.py, polyflip/research/regime_features.py]
+  scope_asset: BTC
+  decision_window_sec: [210, 300]         # 3.5-5.0 min before end; study point T-5m+15s lies inside
+  history_window_sec: 900
+  min_observations: 3                     # spec value; NEVER the classifier default of 4
+  max_quote_age_sec: 15
+  entry_signal: REVERSION                 # strictly; TREND/QUIET/UNCERTAIN block
+  wrapper: "compute_token_ct_regime (never classify_local_regime directly)"
+  classifier_params:
+    er_trend_thresh: 0.60
+    er_rev_thresh: 0.40
+    sign_change_thresh: 0.45
+    autocorr_thresh: -0.05
+    quiet_vol_thresh: 0.0001
+    quiet_path_thresh: 0.0001
+
+trading_universe:
+  side_scope: "outsiders of both sides (UP and DOWN)"
+  ask_min_inclusive: 0.01
+  ask_max_inclusive: 0.40
+  ask_source: "BTC_CT_T5_V1 price_min/price_max; NOT optimized in this study"
+  budget_usd: 1.0
+  budget_semantics: "up to $1 PURCHASE COST; taker fee accounted SEPARATELY on top (orderbook_execution + CT spec). Unspent budget is never booked as loss; spread is never re-charged on ask entry; Polygon gas separate."
+  budget_fee_included: false
+  side_selection: "lower observed mid; parity -> SKIP_PARITY (pre-set rule)"
+  parity_rule: "SKIP_PARITY"
+
+forecast_variants:
+  - id: market
+    desc: "Market control P(UP) = observed UP mid; P(DOWN)=1-P(UP); real DOWN mid kept as book-consistency diagnostic"
+  - id: M0
+    desc: "Phi(z) fixed formula control"
+  - id: M1
+    desc: "Base logistic regression on [z, time_left, sigma]; scaler fit on train only"
+  - id: M2
+    desc: "Extended logistic regression: M1 + trajectory features (step 16); fixed regularization"
+  - id: M3
+    desc: "LightGBM on same info as M2; capped depth/budget; early stopping on inner validation only"
+  - id: M4
+    desc: "Market-offset correction: logit(p)=logit(p_market)+intercept+beta*features; market coef fixed at 1, correction shrunk to 0"
+  - id: CT
+    note: "CT is NOT a forecast variant; it is checked separately as an entry filter and as challenger+CT policy"
+
+periods:
+  rule: "Coverage audit first (data availability, timestamp quality, strike, resolution ONLY; never PnL/model quality). All previously seen history = development with expanding walk-forward (train strictly before validation). Final test = NEW markets starting after protocol fixation; record final_start UTC. If no new data yet: PENDING_NEW_PERIOD (pipeline + development comparison; preliminary challenger by development only). Fix final_end or a full-days/markets stop rule BEFORE the final check, justified by development variability. Freeze models/calibration/features/rules before final_start; if dev continues past it, move final_start forward."
+  development: null    # fill with {start, end, folds:[...]} before training; hash then pins it
+  final_holdout: null  # fill before training; e.g. {start, end}
+  timezone: "UTC"
+  split_unit: "market (never split one market across folds)"
+
+challenger_selection:
+  candidates: [M2, M3, M4]
+  primary_metric: "mean out-of-fold log loss on development"
+  diagnostics_required: ["brier", "cheap_range_0.01_0.40", "temporal_stability_by_week"]
+  no_winner_status: "NO_CLEAR_CHALLENGER"
+  rule: "Winner must be recorded BEFORE opening final test. Never replace challenger after seeing test."
+
+economics:
+  engine: "polyflip/research/orderbook_execution.py (vendored 2b531a2); no second fee calculator"
+  fee_policy: "0.002 NOT confirmed. Per-market scheme/source/period required, maker/taker split. Unconfirmed -> fee_status=UNKNOWN, actual_fee=null, confirmed net_pnl=null. Signed SCENARIOS at 0/0.001/0.002 of purchase cost + breakeven + sensitivity. Missing fee never means zero; current scheme never auto-applies to history."
+  scenario_rates: [0.0, 0.001, 0.002]
+  entry_criterion: "single gross-EV threshold (fee EXCLUDED, fee UNKNOWN at gate time), recorded BEFORE viewing economic results; no best-threshold picking on test"
+  ev_threshold_net: 0.02     # $0.02 expected gross per $1 purchase cost; fixed a priori
+  policies:
+    - price_control
+    - CT
+    - M1
+    - challenger
+    - challenger_plus_CT
+  execution: "same time/price-range/budget/fill for all policies; keep reasons for divergent decisions"
+  fee_unknown_policy: "net_pnl=null (confirmed) + separate signed scenarios; UNKNOWN fee is never 0 fee"
+  missing_depth_policy: "BLOCKED_DATA, never 0 PnL, never assumed fill"
+  gas_policy: "Polygon gas accounted separately, never double-charged in spread"
+
+final_status_criteria:
+  # Computed from pre-set thresholds, never fitted to liked result.
+  PAPER_CANDIDATE:
+    - "final-holdout net_pnl > 0"
+    - "paired day-block bootstrap CI for (challenger - M1) excludes 0 in favour of challenger OR challenger==M1-line stopped per NO_INCREMENTAL_VALUE"
+    - "max drawdown within pre-set limit AND top-5 wins concentration disclosed"
+    - "coverage: >= N markets/days per asset (from coverage report)"
+  PROMISING_UNCERTAIN: "economics positive but CI wide / days too few"
+  FORECAST_ONLY: "forecast better, trading economics not confirmed"
+  NO_INCREMENTAL_VALUE: "no convincing gain over M1 control"
+  DATA_BLOCKED: "insufficient canonical labels -> pipeline PENDING_CANONICAL_DATA, no proxy re-run under new name"
+  PENDING_NEW_PERIOD: "pipeline + development comparison done; final holdout awaits new markets after fixation"
+
+freeze_ct_final:
+  status: "FROZEN-rules; final_start PENDING activation + record-cycle check"
+  spec: {id: BTC_CT_T5_V1, commit: 2b531a2,
+         spec_hash: a14c4a4b81c3743454842007dc8f2d89e055c93e010ea63c6c73a711cca31c16}
+  code_commit: null  # filled with the full 40-char sha of the freeze commit at activation record
+  comparison: "BTC price control vs BTC price control + CT at the SAME actual CT decision moment (window 210-300 s); identical time/side/book/price-limits/execution"
+  universe: "L0 = all eligible BTC opps pre-CT incl. CT-SKIP (counted); L1 = sufficient data for both (scored). Missing data excluded, never zero. Control is scored even at CT-SKIP."
+  budget: "$1 purchase cost; fee on top (total may exceed $1); identical for both policies"
+  fee: "UNKNOWN -> confirmed_net_pnl=null; signed scenarios 0/0.001/0.002; formula fee=C*0.07*p*(1-p) taker-only, maker 0 (params {0.07, exp 1, takerOnly}; source docs+Gamma feeSchedule; period applicability UNCONFIRMED)"
+  execution: "full observed ladder walk (is_truncated=false) else TOP_ONLY_ASSUMED on snapshot top ask; ask gate [0.01,0.40]; parity tol 1e-4; live staleness<=15 s; recon ages recorded; Polygon gas separate (0 observed in dev)"
+  final_window: "final_start = next 15m-contract start boundary AFTER frozen-code activation + successful record-cycle check (commit time is NOT readiness). final_end = final_start + 14x24h. Inclusion [final_start, final_end) by CONTRACT START (UTC). No early stop on PnL. After final_end await resolution; no new markets; collection failures in coverage; no replacement/extension."
+  metrics: ["CT own PnL", "CT-control diff on L1", "turnover", "coverage L0/L1/BUY/fills(full/partial/missing)", "daily results", "top-win concentration", "day-block uncertainty"]
+  decision_rule: "wide CI / too little data -> INCONCLUSIVE (keep first period, open next separately). First period estimates, does not prove edge."
+  strict_T5: "historical research variant only, not frozen"
+
+compute:
+  allowed_host: "local Windows disk only; NOT \\\\sshfs..., NOT server"
+  train_bootstrap_allowed_on: ["local"]
+  server_allowed_for: ["collection", "limited export by dates/markets"]
+  storage: "Parquet + chunked processing; cap training threads; resume from completed stage"
+  threads_cap: 4
+  chunk_rows: 200000
+
+reproducibility:
+  numeric_tolerance: 1e-6
+  seed: 42
+  save: ["models", "features", "params", "seed", "lib_versions", "train_periods", "input_hashes", "protocol_hash"]

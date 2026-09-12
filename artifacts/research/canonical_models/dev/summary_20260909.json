@@ -1,0 +1,101 @@
+{
+ "n": 79,
+ "provenance": "RECONSTRUCTED_CT",
+ "ct_source": "RECONSTRUCTED_CT recomputed signals; NOT registered PAPER actions (see paper_moment summaries)",
+ "btc_pair_main": {
+  "n_l0_eligible": 14,
+  "n": 14,
+  "n_insufficient_excluded": 0,
+  "opportunity_ids": [
+   "4360307",
+   "4360369",
+   "4363435",
+   "4363710",
+   "4363886",
+   "4364169",
+   "4364375",
+   "4364709",
+   "4364886",
+   "4368474",
+   "4370482",
+   "4372701",
+   "4373601",
+   "4374904"
+  ],
+  "control_gross": 1.1905,
+  "control_entries": 14,
+  "ct_gross": 7.1905,
+  "ct_entries": 4,
+  "diff_gross": 6.0
+ },
+ "common_sample_check": {
+  "identical_opportunity_ids_pre_ct": true,
+  "n_btc_opportunities_l0": 14,
+  "n_btc_opportunities_l1": 14,
+  "scope": "BTC only (CT spec scope); L1 = sufficient data for both; missing data excluded, never zero"
+ },
+ "by_asset": {
+  "DOGE": 18,
+  "XRP": 18,
+  "ETH": 16,
+  "BTC": 14,
+  "SOL": 13
+ },
+ "by_side": {
+  "UP": 45,
+  "DOWN": 34
+ },
+ "control_entries": 79,
+ "control_all_assets_descriptive": "5-asset control is descriptive only; do not compare with BTC-scoped CT",
+ "ct_entries": 4,
+ "ct_regimes": {
+  "UNCERTAIN": 74,
+  "REVERSION": 4,
+  "TREND": 1
+ },
+ "control": {
+  "gross": 16.1337,
+  "per_opp": 0.20422,
+  "entries": 79,
+  "win_rate": 0.1899,
+  "fee_scenarios": {
+   "0.0": 16.1337,
+   "0.001": 16.0547,
+   "0.002": 15.9757
+  },
+  "formula_unconfirmed": 11.5222,
+  "max_drawdown": 20.0,
+  "top_win_share": 0.8235
+ },
+ "ct": {
+  "gross": 7.1905,
+  "per_opp": 0.09102,
+  "entries": 4,
+  "win_rate": 0.5,
+  "fee_scenarios": {
+   "0.0": 7.1905,
+   "0.001": 7.1865,
+   "0.002": 7.1825
+  },
+  "formula_unconfirmed": 6.9707,
+  "max_drawdown": 2.0,
+  "top_win_share": 1.0199
+ },
+ "ct_minus_control_gross": -8.9433,
+ "diff_ci95": [
+  -8.943,
+  -8.943
+ ],
+ "n_days": 1,
+ "protocol_hash": "9f8a5efcfb5f8d0b91bc64d11996399ccbdfca572f4cb36923d697ad76cf5f46",
+ "protocol_version": "canonical-models-v1",
+ "day": "2026-09-09",
+ "excluded_reasons": {
+  "NO_DECISION_SNAPSHOT": 404,
+  "MISSING_BOOK": 29
+ },
+ "data_status_mix": {
+  "TOP_ONLY_ASSUMED": 45,
+  "CONFIRMED": 34
+ }
+}

@@ -1,0 +1,3 @@
+-- export 2/3: market_snapshots 2026-09-09 UTC, needed columns only
+SET statement_timeout TO '300s';
+\copy (SELECT id, market_id, asset, time_left_min, time_left_seconds, mid_price, spread, best_bid, best_ask, poly_up_best_bid, poly_up_best_ask, poly_up_mid, poly_down_best_bid, poly_down_best_ask, poly_down_mid, market_timestamp, received_timestamp, recorded_at, final_outcome, flip_vs_final, market_start_at, market_end_at, volume_5min, price_velocity FROM market_snapshots WHERE recorded_at >= make_timestamptz(2026,9,9,0,0,0) AND recorded_at < make_timestamptz(2026,9,10,0,0,0) ORDER BY market_id, recorded_at) TO '/tmp/canonical_snap_20260909.csv' WITH (FORMAT CSV, HEADER)

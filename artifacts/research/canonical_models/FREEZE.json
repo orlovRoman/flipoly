@@ -1,0 +1,28 @@
+{
+  "freeze": "CT-final rules",
+  "code_commit_full": "cb94948b001f25a6eed7eb481d209935461bc8ae",
+  "protocol_hash": "9f8a5efcfb5f8d0b91bc64d11996399ccbdfca572f4cb36923d697ad76cf5f46",
+  "spec": "BTC_CT_T5_V1",
+  "spec_hash_full": "a14c4a4b81c3743454842007dc8f2d89e055c93e010ea63c6c73a711cca31c16",
+  "spec_source_commit": "2b531a2 (branch feature/paper-ct-outsider; files vendored byte-identical)",
+  "comparison": "BTC price control vs BTC price control + CT at the same actual CT decision moment (window 210-300 s)",
+  "universe": "L0 all eligible BTC opps pre-CT incl. CT-SKIP (counted); L1 sufficient-data scored pair (fresh book <=15 s both legs, CT history sufficient)",
+  "budget": "$1 purchase cost; fee on top; identical for both policies",
+  "fee": "UNKNOWN -> confirmed_net_pnl=null; scenarios 0/0.001/0.002; formula fee=C*0.07*p*(1-p) taker-only maker-0 (period UNCONFIRMED)",
+  "activation": {
+    "status": "DONE 2026-09-10",
+    "server_branch": "research/ct-execution-comparison",
+    "server_base": "2b531a2aaf47a76f226a4401ed3e42b8985abb2a",
+    "patch": "activation_ct_bundle.patch (62 insertions, decision logic untouched, bundle in try/except)",
+    "images": {
+      "flipoly-execution_worker_paper": "sha256:d43907261f3462dbc15bda29f8a29bf7298ca83e00df8984360a0cd77c1c73dd",
+      "flipoly-scheduler": "sha256:0bbe9e61d7c6a77d8804736672daaf641539ee29881620b053cb3a19c48ef7f1"
+    },
+    "restarted": ["execution_worker_paper", "scheduler"],
+    "readiness": "PASS (post-restart bundles present, depth<=15 s, snapshots<=60 s; CT reproduced bit-identically from bundle)"
+  },
+  "final_start": "2026-09-10T09:30:00Z",
+  "final_end": "2026-09-24T09:30:00Z",
+  "final_status": "PENDING_NEW_PERIOD",
+  "final_rule": "inclusion [final_start, final_end) by contract START (UTC); no early stop on PnL; await resolution after final_end; collection failures in coverage; thin data or wide CI -> INCONCLUSIVE (period kept, next opened separately)"
+}

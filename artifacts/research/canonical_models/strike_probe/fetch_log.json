@@ -1,0 +1,142 @@
+[
+ {
+  "market_id": "2737264",
+  "at": "2026-09-10T05:59:24.019419+00:00",
+  "closed": true,
+  "event_link": {},
+  "event": null
+ },
+ {
+  "market_id": "3299344",
+  "at": "2026-09-10T05:59:24.951091+00:00",
+  "closed": true,
+  "event_link": {},
+  "event": null
+ },
+ {
+  "market_id": "3740689",
+  "at": "2026-09-10T05:59:25.810905+00:00",
+  "closed": true,
+  "event_link": {},
+  "event": null
+ },
+ {
+  "market_id": "4358006",
+  "at": "2026-09-10T05:59:26.665013+00:00",
+  "closed": true,
+  "event_link": {},
+  "event": null
+ },
+ {
+  "market_id": "2737259",
+  "at": "2026-09-10T05:59:27.620799+00:00",
+  "closed": true,
+  "event_link": {},
+  "event": null
+ },
+ {
+  "market_id": "3299340",
+  "at": "2026-09-10T05:59:28.493344+00:00",
+  "closed": true,
+  "event_link": {},
+  "event": null
+ },
+ {
+  "market_id": "3740697",
+  "at": "2026-09-10T05:59:29.344258+00:00",
+  "closed": true,
+  "event_link": {},
+  "event": null
+ },
+ {
+  "market_id": "4358008",
+  "at": "2026-09-10T05:59:30.291443+00:00",
+  "closed": true,
+  "event_link": {},
+  "event": null
+ },
+ {
+  "market_id": "2737260",
+  "at": "2026-09-10T05:59:31.152499+00:00",
+  "closed": true,
+  "event_link": {},
+  "event": null
+ },
+ {
+  "market_id": "3299403",
+  "at": "2026-09-10T05:59:32.002542+00:00",
+  "closed": true,
+  "event_link": {},
+  "event": null
+ },
+ {
+  "market_id": "3741542",
+  "at": "2026-09-10T05:59:32.852378+00:00",
+  "closed": true,
+  "event_link": {},
+  "event": null
+ },
+ {
+  "market_id": "4358001",
+  "at": "2026-09-10T05:59:33.719818+00:00",
+  "closed": true,
+  "event_link": {},
+  "event": null
+ },
+ {
+  "market_id": "2737265",
+  "at": "2026-09-10T05:59:34.576523+00:00",
+  "closed": true,
+  "event_link": {},
+  "event": null
+ },
+ {
+  "market_id": "3299346",
+  "at": "2026-09-10T05:59:35.407364+00:00",
+  "closed": true,
+  "event_link": {},
+  "event": null
+ },
+ {
+  "market_id": "3740684",
+  "at": "2026-09-10T05:59:36.275319+00:00",
+  "closed": true,
+  "event_link": {},
+  "event": null
+ },
+ {
+  "market_id": "4358013",
+  "at": "2026-09-10T05:59:37.214548+00:00",
+  "closed": true,
+  "event_link": {},
+  "event": null
+ },
+ {
+  "market_id": "2737258",
+  "at": "2026-09-10T05:59:38.067078+00:00",
+  "closed": true,
+  "event_link": {},
+  "event": null
+ },
+ {
+  "market_id": "3299336",
+  "at": "2026-09-10T05:59:38.951631+00:00",
+  "closed": true,
+  "event_link": {},
+  "event": null
+ },
+ {
+  "market_id": "3740695",
+  "at": "2026-09-10T05:59:39.792295+00:00",
+  "closed": true,
+  "event_link": {},
+  "event": null
+ },
+ {
+  "market_id": "4358014",
+  "at": "2026-09-10T05:59:40.693330+00:00",
+  "closed": true,
+  "event_link": {},
+  "event": null
+ }
+]
