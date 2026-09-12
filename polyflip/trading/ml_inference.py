@@ -121,10 +121,21 @@ async def populate_models_cache(db_session: AsyncSession) -> None:
     async with _populate_lock:
         cache = get_models_cache()
 
-        # 1. Запрашиваем asset, version и model_type активных моделей
-        stmt = select(ModelRegistry.asset, ModelRegistry.version, ModelRegistry.model_type).where(ModelRegistry.is_active)
+        # 1. Запрашиваем только активные модели, не заблокированные quality
+        # gate.  Старые записи с NULL сохраняются для обратной совместимости:
+        # у них исторически не было gate-поля. Явное False всегда означает
+        # «не использовать», даже если запись ошибочно осталась is_active.
+        stmt = select(
+            ModelRegistry.asset,
+            ModelRegistry.version,
+            ModelRegistry.model_type,
+            ModelRegistry.quality_gate_passed,
+        ).where(
+            ModelRegistry.is_active,
+            ModelRegistry.quality_gate_passed.is_not(False),
+        )
         res = await db_session.execute(stmt)
-        active_info = res.all()
+        active_info = [row for row in res.all() if row.quality_gate_passed is not False]
 
         active_keys = {
             (str(row.model_type or "logreg").strip().lower(), row.asset, row.version)
@@ -173,11 +184,20 @@ async def populate_models_cache(db_session: AsyncSession) -> None:
             # 4. Загружаем изменившиеся/новые модели
             load_stmt = select(ModelRegistry).where(
                 ModelRegistry.is_active,
-                ModelRegistry.asset.in_(to_load)
+                ModelRegistry.quality_gate_passed.is_not(False),
+                ModelRegistry.asset.in_(to_load),
             )
             models_to_load = (await db_session.execute(load_stmt)).scalars().all()
 
             for m in models_to_load:
+                if m.quality_gate_passed is False:
+                    logger.warning(
+                        "model_quality_gate_failed_skipped",
+                        asset=m.asset,
+                        version=m.version,
+                        model_type=m.model_type,
+                    )
+                    continue
                 try:
                     model_obj = pickle.loads(m.model_blob)
                     m_type = str(m.model_type or "logreg").strip().lower()

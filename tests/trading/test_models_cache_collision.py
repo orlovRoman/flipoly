@@ -9,6 +9,7 @@ from polyflip.trading.ml_inference import (
     ModelsCache,
     get_models_cache,
     populate_models_cache,
+    reset_models_cache,
     run_model_inference,
 )
 
@@ -127,3 +128,52 @@ async def test_populate_models_cache_dual_active_btc_models():
 
     assert p_lr is not None and np.isclose(p_lr, 0.55)
     assert p_lgbm is not None and np.isclose(p_lgbm, 0.70)
+
+
+@pytest.mark.asyncio
+async def test_populate_models_cache_skips_explicit_quality_gate_failures():
+    """An is_active row with quality_gate_passed=False must never be inferred."""
+    reset_models_cache()
+    mock_db = AsyncMock()
+    good_model = MockMLModel(2, 0.70)
+    failed_model = MockMLModel(2, 0.30)
+
+    good_meta = MagicMock(asset="BTC", version=10, model_type="logreg", quality_gate_passed=True)
+    failed_meta = MagicMock(asset="BTC", version=11, model_type="logreg", quality_gate_passed=False)
+    good_row = MagicMock(spec=ModelRegistry)
+    good_row.asset = "BTC"
+    good_row.version = 10
+    good_row.model_type = "logreg"
+    good_row.quality_gate_passed = True
+    good_row.model_blob = pickle.dumps(good_model)
+    good_row.features = "f1,f2"
+    good_row.ece = 0.01
+    failed_row = MagicMock(spec=ModelRegistry)
+    failed_row.asset = "BTC"
+    failed_row.version = 11
+    failed_row.model_type = "logreg"
+    failed_row.quality_gate_passed = False
+    failed_row.model_blob = pickle.dumps(failed_model)
+    failed_row.features = "f1,f2"
+    failed_row.ece = 0.20
+
+    calls = 0
+
+    async def fake_db_exec(stmt):
+        nonlocal calls
+        calls += 1
+        result = MagicMock()
+        if calls == 1:
+            result.all.return_value = [good_meta, failed_meta]
+        else:
+            scalars = MagicMock()
+            scalars.all.return_value = [good_row, failed_row]
+            result.scalars.return_value = scalars
+        return result
+
+    mock_db.execute = AsyncMock(side_effect=fake_db_exec)
+    await populate_models_cache(mock_db)
+    cache = get_models_cache()
+
+    assert ("logreg", "BTC", 10) in cache.entries
+    assert ("logreg", "BTC", 11) not in cache.entries
