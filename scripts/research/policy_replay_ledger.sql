@@ -54,12 +54,16 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) q ON TRUE
 LEFT JOIN LATERAL (
-    SELECT s.final_outcome, s.recorded_at AS label_available_at
+    -- final_outcome is backfilled onto historical snapshots.  Its earliest
+    -- causally valid availability is therefore market_end_at, never the
+    -- historical snapshot's recorded_at.
+    SELECT s.final_outcome, s.market_end_at AS label_available_at
     FROM market_snapshots s
     WHERE s.market_id = d.market_id
       AND s.final_outcome IN ('YES','NO')
-      AND s.recorded_at >= d.decision_at
-    ORDER BY s.recorded_at ASC
+      AND s.market_end_at IS NOT NULL
+      AND s.market_end_at >= d.decision_at
+    ORDER BY s.market_end_at ASC
     LIMIT 1
 ) l ON TRUE
 ) TO STDOUT WITH CSV HEADER;
