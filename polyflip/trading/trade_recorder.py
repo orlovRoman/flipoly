@@ -189,6 +189,19 @@ async def save_or_update_skipped_trade(
             
             existing_skipped.updated_at = start_time
     else:
+        config_snapshot_json = None
+        try:
+            import json
+            from polyflip.services.preset_service import PresetService
+            from polyflip.trading.policy_contract import effective_policy_snapshot
+
+            config_snap = await PresetService.capture_snapshot(db_session)
+            config_snap["_policy_contract"] = effective_policy_snapshot(config_snap)
+            config_snapshot_json = json.dumps(
+                config_snap, ensure_ascii=False, default=str
+            )
+        except Exception as exc_snap:
+            logger.warning("skipped_trade_config_snapshot_failed", error=str(exc_snap))
         history = TradeHistory(
             market_id=market.market_id,
             asset=market.asset,
@@ -228,6 +241,7 @@ async def save_or_update_skipped_trade(
             ai_lab_overlay_ids=overlay_ids,
             strategy_name=details.get("spec_id") if details.get("strategy_type") == "CT_OUTSIDER" else None,
             strategy_type=details.get("strategy_type"),
+            config_snapshot=config_snapshot_json,
             created_at=start_time
         )
         for key, value in weighted_details.items():
@@ -286,7 +300,9 @@ async def execute_and_record(
     try:
         import json
         from polyflip.services.preset_service import PresetService
+        from polyflip.trading.policy_contract import effective_policy_snapshot
         config_snap = await PresetService.capture_snapshot(db_session)
+        config_snap["_policy_contract"] = effective_policy_snapshot(config_snap)
         config_snap["_trade_context"] = {
             "time_left_min": getattr(market, "time_left_min", None),
             "current_spread": getattr(market, "spread", None),

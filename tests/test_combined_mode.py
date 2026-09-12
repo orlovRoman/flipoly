@@ -13,11 +13,23 @@ from polyflip.trading.decision_runners import (
     DecisionResult,
 )
 from polyflip.trading.trading_config import parse_trading_settings
+from polyflip.trading.combined_voting import resolve_direction_consensus
 
 def _make_cfg(**overrides):
     base = {'LIGHTGBM_DECISION_MODE': 'ACTIVE', 'OUTS_MIN_EDGE': '0.03', 'NO_OUTS_MIN_EDGE': '0.03', 'TRADE_MIN_PRICE': '0.05', 'TRADE_MAX_PRICE': '0.95', 'FAVORITE_MIN_PRICE': '0.05', 'FAVORITE_MAX_PRICE': '0.95', 'OUTSIDER_MAX_PRICE': '0.49', 'TRADE_ON_FLIP': 'true', 'FAVORITE_THRESHOLD': '0.50'}
     base.update(overrides)
     return parse_trading_settings(base)
+
+
+def test_consensus_required_does_not_fallback_from_lgbm_none():
+    result = resolve_direction_consensus(
+        lgbm_vote="NONE",
+        lr_vote="BUY_YES",
+        require_consensus=True,
+        fallback_to_logreg_on_none=True,
+    )
+    assert result.final_side == "SKIP"
+    assert result.consensus_type == "MISSING_VOTE"
 
 def test_evaluate_combined_entry_direction_up_success():
     """LightGBM = UP, LogReg дает хороший net_edge -> BUY_YES"""

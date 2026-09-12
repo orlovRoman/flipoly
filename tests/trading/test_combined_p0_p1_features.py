@@ -136,10 +136,11 @@ def test_lgbm_unavailable_policy_logreg_fallback():
         cfg=cfg,
         time_left_sec=300.0,
     )
-    # With LOGREG_FALLBACK, evaluation proceeds via PARTIAL_LR consensus
-    assert res.consensus_type == "PARTIAL_LR"
-    assert res.direction_status == "DIRECTION_NONE_FALLBACK_LR"
-    assert res.would_live_accept is False
+    # A missing LightGBM vote cannot satisfy the hard consensus contract;
+    # the explicit fallback policy remains audit-visible but does not trade.
+    assert res.consensus_type == "MISSING_VOTE"
+    assert res.direction_status == "LGBM_FALLBACK"
+    assert res.would_live_accept is None
 
 
 def test_ece_correction_on_p_flip():

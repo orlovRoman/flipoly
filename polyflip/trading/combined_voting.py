@@ -9,8 +9,9 @@ COMBINED-режим принятия решений:
 2. Candidate Side:
    LGBM=UP    -> BUY_YES
    LGBM=DOWN  -> BUY_NO
-   LGBM=NONE  -> fallback to LogReg (если combined_fallback_to_logreg_on_none=True)
-   При разногласии моделей: SKIP (если combined_require_consensus=True)
+   При ``combined_require_consensus=True`` оба голоса обязательны: NONE,
+   ABSTAIN или конфликт дают SKIP.  Флаг fallback сохраняется для
+   совместимости и действует только при отключённом hard consensus.
 
 3. Entry Model (LogReg):
    Фазовая модель (contested / leaning / decided) оценивает p_flip.
@@ -365,6 +366,36 @@ def resolve_direction_consensus(
     fallback_to_logreg_on_none: bool,
 ) -> DirectionConsensus:
     lgbm_side = "BUY_YES" if lgbm_vote == "UP" else ("BUY_NO" if lgbm_vote == "DOWN" else "ABSTAIN")
+
+    # ``require_consensus`` is a hard safety contract.  Previously the
+    # LightGBM=NONE branch returned the LogReg vote before this flag could be
+    # considered, so the UI checkbox did not actually require two votes.
+    if require_consensus:
+        if lgbm_side == "ABSTAIN" and lr_vote == "ABSTAIN":
+            return DirectionConsensus("SKIP", "BOTH_ABSTAIN", "No directional signal from any model")
+        if lgbm_side == "ABSTAIN" and not fallback_to_logreg_on_none:
+            return DirectionConsensus(
+                "SKIP",
+                "PARTIAL_LR",
+                "LightGBM is NONE, fallback disabled",
+            )
+        if lgbm_side == "ABSTAIN" or lr_vote == "ABSTAIN":
+            return DirectionConsensus(
+                "SKIP",
+                "MISSING_VOTE",
+                "Consensus requires both LightGBM and LogReg votes",
+            )
+        if lgbm_side == lr_vote:
+            return DirectionConsensus(
+                cast(Literal["BUY_YES", "BUY_NO", "SKIP"], lgbm_side),
+                "AGREE",
+                f"Both models agree on {lgbm_side}",
+            )
+        return DirectionConsensus(
+            "SKIP",
+            "CONFLICT",
+            f"Conflict: LGBM={lgbm_side}, LR={lr_vote}",
+        )
     
     if lgbm_side == "ABSTAIN" and lr_vote == "ABSTAIN":
         return DirectionConsensus("SKIP", "BOTH_ABSTAIN", "No directional signal from any model")
@@ -2619,4 +2650,3 @@ def evaluate_lgbm_outsider_interaction(
             "meta_status": meta_status,
         },
     }
-

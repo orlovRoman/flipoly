@@ -76,7 +76,7 @@ REGISTRY: list[SettingDef] = [
 
     # --- Режим торговли ---
     SettingDef("TRADING_MODE", DEFAULT_TRADING_MODE,
-               description="Режим торговли: favorite | combined"),
+               description="Глобальный режим торговли: combined; для PAPER-эксперимента допускается per-asset ct_outsider"),
     SettingDef("TRADING_ENABLED", "false", editable=False,
                description="Управляется только через UI toggle, не через general settings API"),
     SettingDef("LIVE_TRADING_ENABLED", "false", editable=False,
@@ -145,7 +145,7 @@ REGISTRY: list[SettingDef] = [
     SettingDef("FLIP_THRESHOLD", "0.60",
                description="Порог p_flip для входа в аутсайдера. Чем больше значение, тем МЕНЬШЕ сделок."),
     SettingDef("OUTSIDER_PWIN_DISCOUNT", "0.65",
-               description="Множитель вероятности выигрыша аутсайдера (в UI %). Чем больше значение (ближе к 100%), тем слабее штраф и БОЛЬШЕ сделок."),
+               description="LEGACY: не используется текущим COMBINED-путём; сохраняется для совместимости."),
     SettingDef("MAX_SPREAD_PCT", "0.08",
                description="Макс. спред как доля от mid_price. Чем больше значение, тем БОЛЬШЕ сделок (допускается широкий спред)."),
     SettingDef("TRADE_FLIP_THRESHOLD", "0.85",
@@ -155,7 +155,7 @@ REGISTRY: list[SettingDef] = [
                description="Буфер транзакционных издержек в Combined-режиме (в USD). Вычитается из gross_edge. Чем больше значение, тем МЕНЬШЕ сделок."),
 
     SettingDef("MAX_PRICE_DRIFT", "0.10",
-               description="Макс. дрейф цены от момента сигнала до исполнения. Чем больше значение, тем БОЛЬШЕ сделок."),
+               description="Макс. абсолютный дрейф цены в USDC на share (не процент). Чем больше значение, тем БОЛЬШЕ сделок."),
 
     SettingDef("MIN_DIRECTION_PROB", "0.505",
                description="Мин. уверенность LGBM в направлении (UP/DOWN). Чем больше значение, тем МЕНЬШЕ сделок."),
@@ -168,11 +168,11 @@ REGISTRY: list[SettingDef] = [
     SettingDef("COMBINED_REQUIRE_CONSENSUS", "true",
                description="Обе модели (LightGBM и LogReg) должны проголосовать за одно направление. Иначе - SKIP."),
     SettingDef("COMBINED_FALLBACK_TO_LOGREG_ON_NONE", "true",
-               description="Если LightGBM выдает NONE, то используется голос LogReg. Если false, то NONE ведет к SKIP."),
+               description="Fallback на LogReg действует только при выключенном hard consensus; при консенсусе NONE всегда ведет к SKIP."),
     SettingDef("COMBINED_LGBM_UNAVAILABLE_POLICY", "SKIP",
                description="Поведение при недоступности LightGBM: LOGREG_FALLBACK | SKIP"),
     SettingDef("COMBINED_LOGREG_ABSTAIN_BAND", "0.05",
-               description="Ширина коридора нерешительности LogReg вокруг 0.50. Чем больше значение, тем чаще LogReg воздерживается (МЕНЬШЕ сделок)."),
+               description="Ширина коридора нерешительности LogReg вокруг FLIP_THRESHOLD (доля, UI показывает %). Чем больше значение, тем чаще LogReg воздерживается (МЕНЬШЕ сделок)."),
     SettingDef(
         key="INVERT_LGBM_SIGNAL",
         default="false",

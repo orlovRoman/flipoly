@@ -23,8 +23,8 @@ def test_conflict_lgbm_wins():
 
 def test_lgbm_none_logreg_wins():
     res = resolve_direction_consensus(lgbm_vote="NONE", lr_vote="BUY_YES", require_consensus=True, fallback_to_logreg_on_none=True)
-    assert res.final_side == "BUY_YES"
-    assert res.consensus_type == "PARTIAL_LR"
+    assert res.final_side == "SKIP"
+    assert res.consensus_type == "MISSING_VOTE"
 
 def test_lgbm_none_no_fallback():
     res = resolve_direction_consensus(lgbm_vote="NONE", lr_vote="BUY_YES", require_consensus=True, fallback_to_logreg_on_none=False)
@@ -33,8 +33,8 @@ def test_lgbm_none_no_fallback():
 
 def test_logreg_abstain_lgbm_ok():
     res = resolve_direction_consensus(lgbm_vote="UP", lr_vote="ABSTAIN", require_consensus=True, fallback_to_logreg_on_none=True)
-    assert res.final_side == "BUY_YES"
-    assert res.consensus_type == "PARTIAL_LGBM"
+    assert res.final_side == "SKIP"
+    assert res.consensus_type == "MISSING_VOTE"
 
 def test_both_abstain():
     res = resolve_direction_consensus(lgbm_vote="NONE", lr_vote="ABSTAIN", require_consensus=True, fallback_to_logreg_on_none=True)

@@ -222,3 +222,35 @@ async def test_update_settings_bulk_partial_error(db_session):
     finally:
         settings_module.async_session = original_session
 
+
+@pytest.mark.asyncio
+async def test_probability_settings_are_normalized_and_direction_floor_is_enforced(db_session):
+    import polyflip.api.settings as settings_module
+    original_session = settings_module.async_session
+    settings_module.async_session = patch_session(db_session)
+
+    try:
+        await update_setting("MIN_DIRECTION_PROB", SettingValue(value="55"), db=db_session)
+        row = (await db_session.execute(
+            select(RuntimeSettings).where(RuntimeSettings.key == "MIN_DIRECTION_PROB")
+        )).scalar_one()
+        assert float(row.value) == pytest.approx(0.55)
+
+        with pytest.raises(HTTPException):
+            await update_setting("MIN_DIRECTION_PROB", SettingValue(value="0.20"), db=db_session)
+    finally:
+        settings_module.async_session = original_session
+
+
+@pytest.mark.asyncio
+async def test_effective_policy_endpoint_contains_hash_and_warnings(db_session, monkeypatch):
+    from polyflip.api.main import app
+    from httpx import ASGITransport, AsyncClient
+    monkeypatch.setattr("polyflip.api.settings.async_session", patch_session(db_session))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/api/settings/effective", headers={"X-API-Key": "test-key"})
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["policy_hash"]) == 64
+    assert "active" in body and "legacy" in body and "warnings" in body

@@ -13,6 +13,7 @@ from polyflip.execution.contracts import (
     SubmissionResult,
     TradeExecution,
 )
+from polyflip.trading.fee_model import fee_per_share
 
 
 class FakeExecutionGateway:
@@ -102,13 +103,14 @@ class FakeExecutionGateway:
         return result
 
     def _fee_per_share(self, price: Decimal, *, role: str = "TAKER") -> Decimal:
-        normalized_role = str(role or "TAKER").strip().upper()
-        rate = self.maker_fee_rate if normalized_role == "MAKER" else self.fee_rate
-        if self.fee_model == "POLYMARKET_PRICE_DEPENDENT":
-            bounded_price = max(Decimal("0"), min(Decimal("1"), price))
-            curve = bounded_price * (Decimal("1") - bounded_price)
-            return rate * (curve ** self.fee_exponent)
-        return price * rate
+        return fee_per_share(
+            price,
+            fee_rate=self.fee_rate,
+            fee_exponent=self.fee_exponent,
+            role=role,
+            maker_fee_rate=self.maker_fee_rate,
+            fee_model=self.fee_model,
+        )
 
     def _fee_for_fill(
         self, price: Decimal, shares: Decimal, *, role: str = "TAKER"

@@ -44,6 +44,71 @@ def _parse_bounded_float(
     return value
 
 
+def _parse_probability_floor(
+    raw: dict[str, str],
+    key: str,
+    default: float,
+    *,
+    floor: float = 0.0,
+) -> float:
+    """Parse a probability while rejecting values that disable its guard.
+
+    A binary direction confidence is ``max(p_up, p_down)`` and therefore
+    cannot be below 0.5.  Accepting 0.2 made the dashboard field look active
+    while it could never reject a directional signal.
+    """
+    value = parse_float_setting(raw, key, default)
+    # Dashboard/API values are normally persisted as fractions, but older
+    # writes could contain the displayed percentage (e.g. ``65``).
+    if isfinite(value) and value > 1.0:
+        value /= 100.0
+    if isfinite(value) and value < floor:
+        fallback = default if key == "MIN_DIRECTION_PROB" else floor
+        logger.warning(
+            "probability_setting_below_floor",
+            key=key,
+            value=value,
+            floor=floor,
+            fallback=fallback,
+        )
+        return float(fallback)
+    if not isfinite(value) or value > 1.0:
+        logger.warning(
+            "invalid_probability_setting",
+            key=key,
+            value=value,
+            floor=floor,
+            fallback=default,
+        )
+        return float(default)
+    return value
+
+
+def _parse_fraction_setting(
+    raw: dict[str, str],
+    key: str,
+    default: float,
+    *,
+    lower: float = 0.0,
+    upper: float = 1.0,
+) -> float:
+    """Parse a fraction while accepting an old percentage representation."""
+    value = parse_float_setting(raw, key, default)
+    if isfinite(value) and abs(value) > 1.0:
+        value /= 100.0
+    if not isfinite(value) or not lower <= value <= upper:
+        logger.warning(
+            "invalid_fraction_setting",
+            key=key,
+            value=value,
+            lower=lower,
+            upper=upper,
+            fallback=default,
+        )
+        return float(default)
+    return float(value)
+
+
 @dataclass(frozen=True)
 class TradingConfig:
     trading_enabled: bool
@@ -360,6 +425,19 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         )
         weighted_fee_exponent = 1.0
 
+    min_direction_prob = _parse_probability_floor(
+        raw,
+        "MIN_DIRECTION_PROB",
+        getattr(settings, "MIN_DIRECTION_PROB", 0.505),
+        floor=0.5,
+    )
+    combined_dir_strong_threshold = _parse_probability_floor(
+        raw,
+        "COMBINED_DIR_STRONG_THRESHOLD",
+        0.65,
+        floor=min_direction_prob,
+    )
+
     return TradingConfig(
         trading_enabled=_parse_bool(raw.get("TRADING_ENABLED"), getattr(settings, "TRADING_ENABLED", True)),
         trading_mode=mode,
@@ -376,15 +454,15 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         active_features_str=raw.get("ACTIVE_FEATURES", getattr(settings, "ACTIVE_FEATURES", "")),
         trade_on_favorite=_parse_bool(raw.get("TRADE_ON_FAVORITE"), getattr(settings, "TRADE_ON_FAVORITE", True)),
         trade_on_flip=_parse_bool(raw.get("TRADE_ON_FLIP"), getattr(settings, "TRADE_ON_FLIP", False)),
-        flip_threshold=parse_float_setting(raw, "FLIP_THRESHOLD", getattr(settings, "FLIP_THRESHOLD", 0.60)),
-        outs_min_edge=parse_float_setting(raw, "OUTS_MIN_EDGE", getattr(settings, "OUTS_MIN_EDGE", 0.04)),
-        favorite_threshold=parse_float_setting(raw, "FAVORITE_THRESHOLD", getattr(settings, "FAVORITE_THRESHOLD", 0.70)),
+        flip_threshold=_parse_fraction_setting(raw, "FLIP_THRESHOLD", getattr(settings, "FLIP_THRESHOLD", 0.60)),
+        outs_min_edge=_parse_fraction_setting(raw, "OUTS_MIN_EDGE", getattr(settings, "OUTS_MIN_EDGE", 0.04), lower=-1.0),
+        favorite_threshold=_parse_fraction_setting(raw, "FAVORITE_THRESHOLD", getattr(settings, "FAVORITE_THRESHOLD", 0.70), lower=0.0),
         trade_assets=trade_assets,
         bet_sizing_mode=raw.get("BET_SIZING_MODE", getattr(settings, "BET_SIZING_MODE", "fixed")),
         max_bet_size_usdc=parse_float_setting(raw, "MAX_BET_SIZE_USDC", getattr(settings, "MAX_BET_SIZE_USDC", 50.0)),
         favorite_min_price=parse_float_setting(raw, "FAVORITE_MIN_PRICE", getattr(settings, "FAVORITE_MIN_PRICE", 0.55)),
         favorite_max_price=parse_float_setting(raw, "FAVORITE_MAX_PRICE", getattr(settings, "FAVORITE_MAX_PRICE", 0.95)),
-        favorite_min_edge=parse_float_setting(raw, "FAVORITE_MIN_EDGE", getattr(settings, "FAVORITE_MIN_EDGE", 0.05)),
+        favorite_min_edge=_parse_fraction_setting(raw, "FAVORITE_MIN_EDGE", getattr(settings, "FAVORITE_MIN_EDGE", 0.05), lower=-1.0),
         outsider_max_price=parse_float_setting(raw, "OUTSIDER_MAX_PRICE", getattr(settings, "OUTSIDER_MAX_PRICE", 0.40)),
         liquidity_fraction=parse_float_setting(raw, "LIQUIDITY_FRACTION", getattr(settings, "LIQUIDITY_FRACTION", 0.1)),
         bypass_bet_size_check=_parse_bool(raw.get("BYPASS_BET_SIZE_CHECK"), getattr(settings, "BYPASS_BET_SIZE_CHECK", False)),
@@ -397,17 +475,17 @@ def parse_trading_settings(raw: dict[str, str]) -> TradingConfig:
         fee_rate=parse_float_setting(raw, "FEE_RATE", getattr(settings, "FEE_RATE", 0.0)),
         slippage_rate=parse_float_setting(raw, "SLIPPAGE_RATE", getattr(settings, "SLIPPAGE_RATE", 0.0)),
         max_exposure_pct=parse_float_setting(raw, "MAX_EXPOSURE_PCT", getattr(settings, "MAX_EXPOSURE_PCT", 15.0)),
-        min_direction_prob=parse_float_setting(raw, "MIN_DIRECTION_PROB", getattr(settings, "MIN_DIRECTION_PROB", 0.505)),
-        min_win_prob=parse_float_setting(raw, "MIN_WIN_PROB", getattr(settings, "MIN_WIN_PROB", 0.51)),
-        combined_dir_discount_weight=parse_float_setting(raw, "COMBINED_DIR_DISCOUNT_WEIGHT", 0.0),
-        combined_dir_strong_threshold=parse_float_setting(raw, "COMBINED_DIR_STRONG_THRESHOLD", 0.65),
+        min_direction_prob=min_direction_prob,
+        min_win_prob=_parse_fraction_setting(raw, "MIN_WIN_PROB", getattr(settings, "MIN_WIN_PROB", 0.51)),
+        combined_dir_discount_weight=_parse_fraction_setting(raw, "COMBINED_DIR_DISCOUNT_WEIGHT", 0.0),
+        combined_dir_strong_threshold=combined_dir_strong_threshold,
         combined_require_consensus=_parse_bool(raw.get("COMBINED_REQUIRE_CONSENSUS"), getattr(settings, "COMBINED_REQUIRE_CONSENSUS", True)),
         combined_fallback_to_logreg_on_none=_parse_bool(raw.get("COMBINED_FALLBACK_TO_LOGREG_ON_NONE"), getattr(settings, "COMBINED_FALLBACK_TO_LOGREG_ON_NONE", True)),
-        combined_logreg_abstain_band=parse_float_setting(raw, "COMBINED_LOGREG_ABSTAIN_BAND", 0.05),
+        combined_logreg_abstain_band=_parse_fraction_setting(raw, "COMBINED_LOGREG_ABSTAIN_BAND", 0.05, upper=0.25),
         invert_lgbm_signal=_parse_bool(raw.get("INVERT_LGBM_SIGNAL"), False),
         max_bet_edge=parse_float_setting(raw, "MAX_BET_EDGE", getattr(settings, "MAX_BET_EDGE", 0.40)),
-        outsider_pwin_discount=parse_float_setting(raw, "OUTSIDER_PWIN_DISCOUNT", getattr(settings, "OUTSIDER_PWIN_DISCOUNT", 0.65)),
-        max_spread_pct=parse_float_setting(raw, "MAX_SPREAD_PCT", getattr(settings, "MAX_SPREAD_PCT", 0.08)),
+        outsider_pwin_discount=_parse_fraction_setting(raw, "OUTSIDER_PWIN_DISCOUNT", getattr(settings, "OUTSIDER_PWIN_DISCOUNT", 0.65)),
+        max_spread_pct=_parse_fraction_setting(raw, "MAX_SPREAD_PCT", getattr(settings, "MAX_SPREAD_PCT", 0.08)),
         combined_cost_buffer=parse_float_setting(raw, "COMBINED_COST_BUFFER", 0.02),
         lgbm_unavailable_policy=raw.get("COMBINED_LGBM_UNAVAILABLE_POLICY", getattr(settings, "COMBINED_LGBM_UNAVAILABLE_POLICY", "SKIP")).strip().upper(),
         lightgbm_decision_mode=(

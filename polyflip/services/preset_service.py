@@ -26,6 +26,25 @@ TRADING_PRESET_KEYS = {
     "MIN_WIN_PROB",
     "COMBINED_DIR_DISCOUNT_WEIGHT",
     "COMBINED_DIR_STRONG_THRESHOLD",
+    "COMBINED_REQUIRE_CONSENSUS",
+    "COMBINED_FALLBACK_TO_LOGREG_ON_NONE",
+    "COMBINED_LGBM_UNAVAILABLE_POLICY",
+    "COMBINED_LOGREG_ABSTAIN_BAND",
+    "INVERT_LGBM_SIGNAL",
+    "ENABLE_ECE_CORRECTION",
+    "LIGHTGBM_DECISION_MODE",
+    "TRADING_POLICY_MODE",
+    "WEIGHTED_POLICY_ID",
+    "WEIGHTED_MARKET_WEIGHT",
+    "WEIGHTED_LOGREG_WEIGHT",
+    "WEIGHTED_LGBM_WEIGHT",
+    "WEIGHTED_FEE_RATE",
+    "WEIGHTED_FEE_EXPONENT",
+    "WEIGHTED_SLIPPAGE_RATE",
+    "WEIGHTED_EXECUTION_ROLE",
+    "WEIGHTED_MIN_NET_EV_FAVORITE",
+    "WEIGHTED_MIN_NET_EV_OUTSIDER",
+    "WEIGHTED_SIZING_MODE",
     "OUTSIDER_PWIN_DISCOUNT",
     # Edge и цены
     "MIN_EDGE",
@@ -69,6 +88,19 @@ TRADING_PRESET_KEYS = {
     "TRADE_EXECUTION_TIME_SEC",
     "EXECUTION_COOLDOWN_SEC",
     "POLYMARKET_FEE_RATE",
+    "PAPER_EXECUTION_PROFILE",
+    "PAPER_LIVE_DELAY_SEC",
+    "PAPER_SLIPPAGE_PCT",
+    "PAPER_FEE_MODEL",
+    "PAPER_FEE_RATE",
+    "PAPER_MAKER_FEE_RATE",
+    "PAPER_FEE_EXPONENT",
+    "PAPER_MIN_ORDER_SHARES",
+    "LIVE_ORDER_MODE",
+    "LIVE_GTC_TTL_SECONDS",
+    "LIVE_MAKER_REPRICE_ON_CROSS",
+    "LIVE_MAKER_REPRICE_MAX_RETRIES",
+    "LIVE_MAKER_TICK_SIZE",
 }
 
 OPERATIONAL_KEYS = {
@@ -111,7 +143,11 @@ class PresetService:
     async def capture_snapshot(db: AsyncSession) -> Dict[str, str]:
         """Читает RuntimeSettings и возвращает только торговые параметры."""
         rows = (await db.execute(select(RuntimeSettings))).scalars().all()
-        all_settings = {r.key: r.value for r in rows}
+        # Include registry defaults so a snapshot is a complete reproducible
+        # configuration even when a key has never been written to the DB.
+        from polyflip.settings_registry import registry_defaults
+
+        all_settings = {**registry_defaults(), **{r.key: r.value for r in rows}}
         return PresetService.sanitize_snapshot(all_settings)
 
     @staticmethod
@@ -167,32 +203,35 @@ class PresetService:
         changed = 0
         updated_params = {}
 
-        for key, value in safe_params.items():
-            row = await db.get(RuntimeSettings, key)
-            if row:
-                if row.value != str(value):
-                    row.value = str(value)
-                    row.updated_at = now
-                    row.updated_by = (
-                        f"preset_restore:{preset_id}:{restored_by}"
+        try:
+            for key, value in safe_params.items():
+                row = await db.get(RuntimeSettings, key)
+                if row:
+                    if row.value != str(value):
+                        row.value = str(value)
+                        row.updated_at = now
+                        row.updated_by = (
+                            f"preset_restore:{preset_id}:{restored_by}"
+                        )
+                        changed += 1
+                        updated_params[key] = str(value)
+                else:
+                    db.add(
+                        RuntimeSettings(
+                            key=key,
+                            value=str(value),
+                            updated_at=now,
+                            updated_by=(
+                                f"preset_restore:{preset_id}:{restored_by}"
+                            ),
+                        )
                     )
                     changed += 1
                     updated_params[key] = str(value)
-            else:
-                db.add(
-                    RuntimeSettings(
-                        key=key,
-                        value=str(value),
-                        updated_at=now,
-                        updated_by=(
-                            f"preset_restore:{preset_id}:{restored_by}"
-                        ),
-                    )
-                )
-                changed += 1
-                updated_params[key] = str(value)
-
-        await db.commit()
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
         logger.info(
             "preset_restored",
             id=preset_id,

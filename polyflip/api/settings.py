@@ -11,6 +11,7 @@ from polyflip.db.models import RuntimeSettings, StrategyConfig
 from polyflip.api.auth import verify_api_key
 from polyflip.config import settings
 from polyflip.settings_registry import registry_defaults, editable_keys as _registry_editable_keys
+from polyflip.trading.policy_contract import effective_policy_snapshot
 
 logger = structlog.get_logger(__name__)
 
@@ -52,6 +53,17 @@ async def api_get_all_settings():
     Возвращает текущие настройки (сначала из БД, если нет - из конфига/констант).
     """
     return await get_all_settings()
+
+
+@router.get("/effective")
+async def api_get_effective_policy():
+    """Return the parsed policy, active fields, warnings and stable hash.
+
+    The ordinary endpoint is intentionally kept backwards-compatible with the
+    dashboard.  This endpoint is the canonical audit view used by operators,
+    replay jobs and trade telemetry.
+    """
+    return effective_policy_snapshot(await get_all_settings())
 
 @router.get("/recommended_thresholds")
 async def get_recommended_thresholds():
@@ -237,6 +249,48 @@ async def update_setting(key: str, payload: SettingValue, request: Optional[Requ
             
     if key not in valid_keys and not is_per_asset_key:
         raise HTTPException(status_code=400, detail="Invalid setting key")
+
+    # UI stores these controls as percentages while the engine consumes
+    # fractions.  Normalize direct API writes too; otherwise a hand-edited
+    # value such as ``20`` silently disables the intended probability guard.
+    fraction_percent_keys = {
+        "MIN_DIRECTION_PROB",
+        "MIN_WIN_PROB",
+        "OUTSIDER_PWIN_DISCOUNT",
+        "COMBINED_DIR_DISCOUNT_WEIGHT",
+        "COMBINED_LOGREG_ABSTAIN_BAND",
+        "MAX_SPREAD_PCT",
+    }
+    if key in fraction_percent_keys:
+        try:
+            val = float(str(payload.value).replace(",", "."))
+            if val > 1.0:
+                val /= 100.0
+            lower = 0.5 if key == "MIN_DIRECTION_PROB" else 0.0
+            upper = 0.25 if key == "COMBINED_LOGREG_ABSTAIN_BAND" else 1.0
+            if not (lower <= val <= upper):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{key} must be between {lower} and {upper} as a fraction or percentage",
+                )
+            payload.value = f"{val:.6f}".rstrip("0").rstrip(".")
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail=f"Value for {key} must be a number")
+
+    # Validate boolean controls consistently.  Previously arbitrary strings
+    # were accepted and parsed as false by the engine.
+    boolean_keys = {
+        "COMBINED_REQUIRE_CONSENSUS",
+        "COMBINED_FALLBACK_TO_LOGREG_ON_NONE",
+        "INVERT_LGBM_SIGNAL",
+        "ENABLE_ECE_CORRECTION",
+        "TAKE_PROFIT_ENABLED",
+    }
+    if key in boolean_keys:
+        normalized_bool = str(payload.value).strip().lower()
+        if normalized_bool not in {"true", "false"}:
+            raise HTTPException(status_code=400, detail=f"{key} must be 'true' or 'false'")
+        payload.value = normalized_bool
 
     # Валидация и нормализация порогов вероятности флипа и мертвой зоны
     is_threshold_key = (

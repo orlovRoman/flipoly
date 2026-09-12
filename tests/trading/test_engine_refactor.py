@@ -148,6 +148,40 @@ class TestStep2TradingConfig:
         except Exception as e:
             pytest.fail(f'parse_trading_settings упал на нулевом значении: {e}')
 
+    def test_direction_probability_cannot_disable_guard(self):
+        from polyflip.trading.trading_config import parse_trading_settings
+
+        cfg = parse_trading_settings({"MIN_DIRECTION_PROB": "0.20"})
+        assert cfg.min_direction_prob == pytest.approx(0.505)
+
+    def test_strong_direction_threshold_cannot_be_below_floor(self):
+        from polyflip.trading.trading_config import parse_trading_settings
+
+        cfg = parse_trading_settings(
+            {
+                "MIN_DIRECTION_PROB": "0.55",
+                "COMBINED_DIR_STRONG_THRESHOLD": "0.30",
+            }
+        )
+        assert cfg.min_direction_prob == pytest.approx(0.55)
+        assert cfg.combined_dir_strong_threshold == pytest.approx(0.55)
+
+    def test_legacy_dashboard_percent_values_are_normalized(self):
+        from polyflip.trading.trading_config import parse_trading_settings
+
+        cfg = parse_trading_settings(
+            {
+                "MIN_WIN_PROB": "51",
+                "COMBINED_LOGREG_ABSTAIN_BAND": "5",
+                "MAX_SPREAD_PCT": "8",
+                "FLIP_THRESHOLD": "80",
+            }
+        )
+        assert cfg.min_win_prob == pytest.approx(0.51)
+        assert cfg.combined_logreg_abstain_band == pytest.approx(0.05)
+        assert cfg.max_spread_pct == pytest.approx(0.08)
+        assert cfg.flip_threshold == pytest.approx(0.80)
+
 class TestStep3LoadEligibleMarkets:
     """Контракт для load_eligible_markets(db_session, cfg, start_time) → list | None."""
 

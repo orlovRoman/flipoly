@@ -15,6 +15,8 @@ from dataclasses import asdict, dataclass, replace
 from math import exp, isfinite, log
 from typing import Any, Optional
 
+from polyflip.trading.fee_model import fee_per_share
+
 
 BUY_YES = "BUY_YES"
 BUY_NO = "BUY_NO"
@@ -264,7 +266,15 @@ def polymarket_taker_fee_per_share(
     rate = _finite_nonnegative(fee_rate)
     exponent = _finite_nonnegative(fee_exponent, 1.0)
     assert p is not None
-    return rate * (p * (1.0 - p)) ** exponent
+    return float(
+        fee_per_share(
+            p,
+            fee_rate=rate,
+            fee_exponent=exponent,
+            role="TAKER",
+            fee_model="POLYMARKET_PRICE_DEPENDENT",
+        )
+    )
 
 
 def estimate_trade_cost(

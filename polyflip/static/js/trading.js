@@ -612,6 +612,27 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function getPerAssetFields() { return []; }
 
+  async function loadEffectivePolicy() {
+    const status = document.getElementById("effective-policy-status");
+    if (!status) return;
+    try {
+      const res = await fetch(window.API_BASE + "/api/settings/effective", {
+        headers: { "X-API-Key": apiKey },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const policy = await res.json();
+      const warnings = Array.isArray(policy.warnings) ? policy.warnings : [];
+      const suffix = warnings.length ? ` · предупреждений: ${warnings.length}` : "";
+      status.innerHTML = `Эффективная политика <code>${String(policy.policy_hash || "").slice(0, 12)}</code>${suffix}`;
+      status.title = warnings.map((item) => `${item.code}: ${item.message}`).join("\n");
+      status.style.color = warnings.length ? "#fbbf24" : "var(--text-muted)";
+    } catch (e) {
+      status.textContent = "Эффективная политика недоступна";
+      status.style.color = "#f87171";
+      console.warn("Failed to load effective policy", e);
+    }
+  }
+
   async function checkCalibrationWarnings() {
     try {
       const res = await fetch(window.API_BASE + "/api/analytics/models", {
@@ -649,6 +670,7 @@ document.addEventListener("DOMContentLoaded", () => {
         headers: { "X-API-Key": apiKey },
       });
       const data = await res.json();
+      await loadEffectivePolicy();
 
       if (settingsElements.favorMinTimeLeft && data.FAVOR_MIN_TIME_LEFT_SEC)
         settingsElements.favorMinTimeLeft.value = data.FAVOR_MIN_TIME_LEFT_SEC;
@@ -928,7 +950,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (settingsElements.betSize) settingsToSave.TRADE_BET_SIZE_USDC = settingsElements.betSize.value;
       if (settingsElements.minDirectionProb) settingsToSave.MIN_DIRECTION_PROB = parseFloat(settingsElements.minDirectionProb.value) / 100;
       if (settingsElements.minWinProb) settingsToSave.MIN_WIN_PROB = parseFloat(settingsElements.minWinProb.value) / 100;
-      if (settingsElements.outsiderPwinDiscount) settingsToSave.OUTSIDER_PWIN_DISCOUNT = parseFloat(settingsElements.outsiderPwinDiscount.value) / 100;
+      // OUTSIDER_PWIN_DISCOUNT is a legacy control and is intentionally not
+      // sent by the current COMBINED dashboard.  It remains visible only so
+      // old saved values can be identified during migration.
       if (settingsElements.combinedDirDiscountWeight) settingsToSave.COMBINED_DIR_DISCOUNT_WEIGHT = parseFormattedFloat(settingsElements.combinedDirDiscountWeight.value) / 100;
       if (settingsElements.combinedDirStrongThreshold) settingsToSave.COMBINED_DIR_STRONG_THRESHOLD = parseFormattedFloat(settingsElements.combinedDirStrongThreshold.value) / 100;
       if (settingsElements.combinedRequireConsensus) settingsToSave.COMBINED_REQUIRE_CONSENSUS = settingsElements.combinedRequireConsensus.checked ? "true" : "false";
