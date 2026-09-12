@@ -76,13 +76,13 @@ def compute_trajectory_features(
 ) -> Optional[TrajectoryFeatures]:
     """
     Computes pure causal trajectory features from pre-decision observations.
-    
+
     Parameters:
         observations: Sequence of Observation objects.
         decision_at: Strict decision cutoff time. Observations with timestamp > decision_at are ignored.
         rebound_drawdown_thresh: Minimum drawdown for REBOUND classification (default 0.05).
         rebound_rebound_thresh: Minimum rebound for REBOUND classification (default 0.02).
-        
+
     Returns:
         TrajectoryFeatures or None if observations are empty after causal filtering.
     """
@@ -94,7 +94,7 @@ def compute_trajectory_features(
             t = t.replace(tzinfo=decision_at.tzinfo)
         elif t.tzinfo is not None and decision_at.tzinfo is None:
             decision_at = decision_at.replace(tzinfo=t.tzinfo)
-        
+
         if t <= decision_at:
             if obs.mid_price is not None and math.isfinite(obs.mid_price):
                 valid_obs.append(Observation(

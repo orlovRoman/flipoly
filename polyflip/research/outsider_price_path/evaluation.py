@@ -41,7 +41,7 @@ class OpportunityEconomics:
     def compute(cls, ask: float, target: int, budget: float = 1.0) -> OpportunityEconomics:
         if ask <= 0.0 or not math.isfinite(ask):
             return cls(ask=ask, target=target, budget_usdc=budget)
-        
+
         # Use verified trade_economics module
         actual_cost_02, shares, fee_02 = apply_fee_to_budget(
             total_budget=budget,
@@ -224,9 +224,9 @@ def compute_stratified_comparison(
 
     sub = df[df[group_col].isin([group_a, group_b])].copy()
     strata_keys = ["asset", "side", "ask_bin", "calendar_week"]
-    
+
     sub["_stratum"] = sub[strata_keys].astype(str).agg("_".join, axis=1)
-    
+
     counts = sub.groupby(["_stratum", group_col]).size().unstack(fill_value=0)
     has_both = (counts.get(group_a, 0) > 0) & (counts.get(group_b, 0) > 0)
     common_strata = counts[has_both].index.tolist()
@@ -278,7 +278,7 @@ def compute_stratified_comparison(
     wrb = stratum_agg[("wins", group_b)].values / nb
     pnla = stratum_agg[("tot_pnl", group_a)].values / na
     pnlb = stratum_agg[("tot_pnl", group_b)].values / nb
-    
+
     if "ask" in common_df.columns:
         aska = stratum_agg[("tot_ask", group_a)].values / na
         askb = stratum_agg[("tot_ask", group_b)].values / nb
@@ -339,7 +339,7 @@ def compute_stratified_comparison(
         for _ in range(n_boot):
             sample_days = rng.choice(unique_days, size=n_days, replace=True)
             row_idx = np.concatenate([day_indices[d] for d in sample_days])
-            
+
             b_df = pd.DataFrame({
                 "s": strata_arr[row_idx],
                 "a": is_a_arr[row_idx],
@@ -632,7 +632,7 @@ def compute_concentration_audit(
         return {}
 
     total_net = float(df_trades["net_pnl_02pct"].sum())
-    
+
     # Top 5 wins
     wins = df_trades[df_trades["target"] == 1].sort_values("net_pnl_02pct", ascending=False)
     top5 = wins.head(5)

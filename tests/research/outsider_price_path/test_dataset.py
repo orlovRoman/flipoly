@@ -55,7 +55,7 @@ def test_decision_snapshot_delay_boundary():
         for i in range(12)
     ]
     snaps_valid.append({"recorded_at": _dt(605).isoformat(), "mid_price": "0.25", "best_ask": "0.26", "best_bid": "0.24"})
-    
+
     rec_valid = process_single_market(meta, snaps_valid)
     assert rec_valid.selection_status == "OK"
     assert rec_valid.delay_sec == 5.0
@@ -67,7 +67,7 @@ def test_decision_snapshot_delay_boundary():
         for i in range(12)
     ]
     snaps_delayed.append({"recorded_at": _dt(620).isoformat(), "mid_price": "0.25", "best_ask": "0.26", "best_bid": "0.24"})
-    
+
     rec_delayed = process_single_market(meta, snaps_delayed)
     assert rec_delayed.selection_status == "DELAY_TOO_LARGE"
 

@@ -91,8 +91,14 @@ async def test_trainer_contract_locks_features():
             )
             snaps.append(s)
 
-    mock_scalars = MagicMock()
-    mock_scalars.all.return_value = snaps
+    snapshot_rows = [
+        (
+            s.market_id, s.recorded_at, s.time_left_min, s.mid_price,
+            s.spread, s.best_bid, s.best_ask, s.price_velocity,
+            s.volume_5min, s.hour_of_day, s.final_outcome,
+        )
+        for s in snaps
+    ]
 
     async def fake_execute(stmt):
         res = MagicMock()
@@ -102,7 +108,7 @@ async def test_trainer_contract_locks_features():
         elif "runtimesettings" in stmt_str:
             res.scalar_one_or_none.return_value = None
         else:
-            res.scalars.return_value = mock_scalars
+            res.all.return_value = snapshot_rows
         return res
 
     mock_db.execute = AsyncMock(side_effect=fake_execute)
