@@ -64,6 +64,16 @@ def _float(row: Mapping[str, Any], key: str) -> float | None:
     return result if result == result and abs(result) != float("inf") else None
 
 
+def _missing(value: Any) -> bool:
+    """Treat CSV/Parquet nulls, including pandas NaN, as missing values."""
+    if value is None or value == "":
+        return True
+    try:
+        return bool(value != value)
+    except (TypeError, ValueError):
+        return False
+
+
 def _outcome(value: Any) -> int | None:
     text = str(value or "").strip().upper()
     if text in {"YES", "UP", "1", "TRUE", "WIN"}:
@@ -94,7 +104,7 @@ def _validate_rows(rows: Sequence[Mapping[str, Any]]) -> None:
             decision_dt = datetime.fromisoformat(str(decision_at).replace("Z", "+00:00"))
             if decision_dt.tzinfo is None:
                 raise ValueError("decision_at must include a timezone")
-            if label_at not in (None, ""):
+            if not _missing(label_at):
                 label_dt = datetime.fromisoformat(str(label_at).replace("Z", "+00:00"))
                 if label_dt.tzinfo is None:
                     raise ValueError("label_available_at must include a timezone")

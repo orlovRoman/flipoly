@@ -53,3 +53,9 @@ def test_replay_rejects_non_causal_label_timestamp():
 def test_replay_requires_timezone_on_decision_timestamp():
     with pytest.raises(ValueError, match="invalid causal timestamp"):
         replay_opportunities([_row(decision_at="2026-09-01T00:00:00")])
+
+
+def test_replay_accepts_csv_nan_as_missing_label_timestamp():
+    rows, summary = replay_opportunities([_row(label_available_at=float("nan"))])
+    assert summary["opportunities"] == 1
+    assert summary["same_opportunity_set"] is True
