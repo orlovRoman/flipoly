@@ -3,6 +3,7 @@ status: CLOSED
 stage_reached: HISTORICAL_GATE
 verdict: STOP
 forward_started: false
+verdict_semantics: PASS means checks executed correctly; trading outcome is FAIL/STOP.
 
 ## Hypothesis
 Binance 5m/15m candles and Polymarket top-of-book microstructure contain
@@ -61,20 +62,40 @@ logit(p_final) = logit(p_market) + delta(features).
   regression-tested).
 - Gate control tests: bad-model FAIL, good-model PASS, order-invariant.
 
+## Bounds of conclusion (exact safe formulations)
+- На этой выборке, с этими признаками и проверенными моделями дополнительное
+  качество вне обучения не обнаружено. Это граница вывода, а не повод
+  повторять подбор (подбор на той же истории запрещён).
+- Агрегированные показатели калибровки близки к целевым (slopes ~1, децили
+  совпадают). Это не подтверждает калибровку каждого актива, стороны и
+  ценового диапазона.
+- Устойчивого улучшения по временным блокам нет (logloss лучше market-only
+  в 1/6 folds у linear и 0/6 у LGBM; экономия положительна в 2/6).
+- Pooled-OOF Wilson-бины рассчитаны с использованием исходов той же
+  оцениваемой выборки, поэтому не являются независимой проверкой выбора
+  сделок. Для отрицательного решения это не повод перезапускать
+  исследование; ограничение зафиксировано здесь.
+
 ## Verdict
 STOP. No candidate passes (7-8 failed conditions each). Forward not started.
-No model registered, activated, or deactivated. Production untouched:
+No model registered, activated, or deactivated. No further tuning on this
+history. Production untouched:
 no migrations ran, no orders, DB read-only, compute local only.
 
 ## Allowed next action
-No more training in this setup (STOP). Branch retained for audit.
+No more training in this setup (STOP). Return to model search only with a
+concrete new information source or a different testable hypothesis (new
+experiment_id, new frozen spec). Branch retained for audit.
 A future v2 (seconds flow, perpetual, strike, depth history) needs its own
 experiment_id and frozen spec; this closeout does not authorize it.
+Dashboard-settings-to-execution propagation is NOT covered by this experiment
+and must be verified separately (open item).
 
 ## Provenance
 - Commits: 0c0d68f4 (T08 dataset freeze), 410c6aae (T09-T18, this closeout follows).
 - Local tests: 50 passed (dataset 11, costs 18, models 8, ev 9, gate 4).
 - Repo suite at T03 stage-gate: 1718 passed, 6 pre-existing failures + 4
   collection errors (env, proven unrelated by isolation run).
-- Artifacts (local, not in git): dataset.csv, oof.csv, signals.csv, eval/.
-- In git: spec+sha, schema, manifest, dataset.sha, code+tests, metrics/gate/bins/manifests.
+- Artifacts (local, not in git): dataset.csv, oof.csv, signals.csv, eval/ full dir.
+- In git: spec+sha, schema, manifest, dataset.sha, code+tests,
+  metrics/gate/bins/run_manifest/medians/manual20.
