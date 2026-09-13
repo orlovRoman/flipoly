@@ -1,0 +1,20 @@
+{
+  "code_versions": {
+    "costs": "v1.0.0",
+    "ev": "v1.0.0",
+    "metrics": "v1.0.0",
+    "train": "v1.0.0"
+  },
+  "config_registry_sha256": "f6ea7b693c68343583bcd7a685f270eccb1565033c7c123aa71fcd6df0937d04",
+  "dataset_sha256": "14ce26d308e20c44c496befa123266f5f379eb78056ea395cf5f4d5629145954",
+  "eval_version": "v1.0.0",
+  "models": [
+    "baseline",
+    "linear",
+    "lgbm_A",
+    "lgbm_B",
+    "lgbm_C"
+  ],
+  "oof_sha256": "623364bb130b59d8ad0c9359f1d694451aebf7379014fa7e0aad1913603c77c0",
+  "signals_sha256": "dc51fb937abdc1078b2d17088e87ed2e435cd055563b0ea6673d13b567054b8f"
+}

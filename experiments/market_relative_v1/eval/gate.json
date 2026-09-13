@@ -1,0 +1,70 @@
+{
+  "conclusion": "STOP_no_forward",
+  "gate_version": "v1.0.0",
+  "spec_sha256": "2dce310ce3d4917061109d154520b0eb932dc9894b88b787d00fd32b0898071c",
+  "verdicts": {
+    "lgbm_A": {
+      "canon_total": 50.43,
+      "failed": [
+        "logloss_improvement_overall=-0.01508",
+        "logloss_pos_folds=0",
+        "canon_pos_folds=2",
+        "fold_share=0.952",
+        "asset_share=0.675",
+        "ece=0.0626",
+        "maxdd_staked=-0.1166",
+        "ci_lo=-0.1437"
+      ],
+      "logloss_imp": -0.01508,
+      "n_signals": 5227,
+      "verdict": "FAIL"
+    },
+    "lgbm_B": {
+      "canon_total": 45.4,
+      "failed": [
+        "logloss_improvement_overall=-0.01509",
+        "logloss_pos_folds=0",
+        "canon_pos_folds=2",
+        "fold_share=0.946",
+        "asset_share=0.661",
+        "ece=0.0625",
+        "maxdd_staked=-0.1174",
+        "ci_lo=-0.1403"
+      ],
+      "logloss_imp": -0.01509,
+      "n_signals": 5323,
+      "verdict": "FAIL"
+    },
+    "lgbm_C": {
+      "canon_total": 0.27,
+      "failed": [
+        "logloss_improvement_overall=-0.01514",
+        "logloss_pos_folds=0",
+        "canon_pos_folds=2",
+        "fold_share=0.960",
+        "asset_share=0.671",
+        "ece=0.0626",
+        "maxdd_staked=-0.1234",
+        "ci_lo=-0.1544"
+      ],
+      "logloss_imp": -0.01514,
+      "n_signals": 5208,
+      "verdict": "FAIL"
+    },
+    "linear": {
+      "canon_total": 101.31,
+      "failed": [
+        "logloss_improvement_overall=-0.00180",
+        "logloss_pos_folds=1",
+        "canon_pos_folds=2",
+        "fold_share=0.834",
+        "asset_share=0.540",
+        "maxdd_staked=-0.0924",
+        "ci_lo=-0.1150"
+      ],
+      "logloss_imp": -0.0018,
+      "n_signals": 6421,
+      "verdict": "FAIL"
+    }
+  }
+}
