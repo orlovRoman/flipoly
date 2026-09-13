@@ -1,0 +1,456 @@
+# =============================================================================
+# experiment_spec.yaml — market_relative_v1 (FROZEN at T03, hash-locked)
+# Any change => new experiment_id. Runners must refuse to start on hash mismatch.
+# =============================================================================
+experiment_id: market_relative_v1
+spec_version: 1.0.4
+supersedes_spec_sha256: 1a64cd54c815aba8759b8d6c6dc47c782a1821ae53deb10f363f9f6227482e67
+changelog_1_0_4:
+  lf_only_outputs: builder v1.0.2 writes LF-only text (newline empty, lineterminator LF); dataset bytes unchanged; gitattributes eol=lf
+changelog_1_0_2:
+  candle_max_age_split: user text scoped 330s to 5m; 15m gets 930s (last-closed semantics; grid complete, zero gaps, zero dup groups measured T07)
+changelog_1_0_3:
+  candle_close_completion: backfilled 5m candles lack close_time; completed as open_time_plus_299999ms (exact on 100k+ rows having both); 15m plus_899999ms; grid complete zero dups; builder v1.0.1
+changelog_1_0_1:
+  F1_pair_key_correction: snapshot_id spans events (57092 ids link YES/NO minutes apart); pair key is now (market_id, event_at); snapshot_id demoted to consistency check
+  F2_historical_coverage_gate: 95 to 90 with rationale; window unchanged [330,270]; forward gates unchanged
+  F6_note: 05-06.09.2026 tracking outage (0 and 185 markets/day); folds frozen as-is
+status: FROZEN
+protocol_choice: D_event_driven
+branch: codex/market-relative-experiment
+base_commit: 7016301be5e6708282618b6d035d7586d23ef1c6
+live_orders_enabled: false
+
+hypothesis: >
+  Binance 5m/15m candles and Polymarket top-of-book microstructure contain
+  information beyond the current market probability, sufficient for a positive
+  net edge after taker costs. The model does NOT predict UP/DOWN from scratch;
+  it corrects the market: market_logit = logit(p_market);
+  model_logit = market_logit + delta_model(features); p_final = sigmoid(model_logit).
+  delta > 0: YES underpriced; delta < 0: NO underpriced; delta ~= 0: ABSTAIN.
+
+# ---------------------------------------------------------------- data (T02 measured, read-only)
+data_inventory:
+  polymarket_snapshots:
+    table: market_snapshots
+    rows: 8650951
+    markets: 36788
+    history_from: '2026-06-25 17:26:53+00'
+    cadence_s: 45
+    top_book_is_up_side: true
+    pipeline_lag_s: 0.0
+  no_side_book:
+    columns: poly_down_best_bid/poly_down_best_ask
+    populated_from: '2026-09-10 04:40:36+00'
+    historical_rule: synthetic_no_ask = 1 - best_bid, flag synthetic_no_book=true
+    complement_exactness: down_ask == 1 - up_bid verified on samples
+    async_sides_rule: sides more than 1s apart are never mixed (forward enforced; historical single book + 0.5pct adverse)
+  orderbook_depth:
+    table: orderbook_depth_snapshots
+    rows: 676616
+    history_from: '2026-09-09 06:53:07+00'
+    levels_per_side: 47
+    cadence_per_side_s: 46
+    pipeline_lag_p50_s: 0.0
+    pipeline_lag_p99_s: 0.7
+    pipeline_lag_le2s_pct: 99.32
+    quality_status_all: UNORDERED_LEVELS_NORMALIZED
+    is_truncated_all: false
+    usd1_fillable_pct_decision_window: 100.0
+    min_ask_notional_usdc: 4.95
+  binance_candles:
+    table: crypto_candles
+    source: binance
+    interval_15m_from: '2026-06-13'
+    interval_5m_common_from: '2026-07-05'
+    fields: [open, high, low, close, volume, taker_buy_volume, open_time, close_time]
+    is_closed_flag_reliable: false
+    closed_rule: close_time <= decision_timestamp
+  strike:
+    status: ABSENT
+    nonzero_strike_markets: 0
+    rule: distance_to_strike excluded from v1; never proxy strike with Binance price
+  settlement:
+    field: market_snapshots.final_outcome
+    yes_markets: 18311
+    no_markets: 18421
+    pending_only_markets: 61
+    yes_no_conflicts: 0
+  expiry_chain:
+    priority: [snapshots.market_end_at, live_markets.market_end_at, live_markets.end_time_est, recorded_at_plus_time_left]
+    est_agrees_within_2s: 1705/1705
+    markets_on_snap_end: 1700
+    markets_on_est: 35088
+  fees_and_fills_reference:
+    table: trade_history
+    fields: [fee, executed_price, realized_pnl_usdc, entry_cost_usdc, status, position_status]
+
+# ------------------------------------------------------- eligibility + decision (choice D)
+eligibility:
+  window: [expiry_minus_330s, expiry_minus_270s]
+  rule: first full valid snapshot strictly after window opens; no backfill of tracking holes
+  no_event_in_window: MISSING_DECISION_SNAPSHOT
+  historical_source: market_snapshots
+  historical_tiebreak: [recorded_at ASC, id ASC]
+  historical_book: top_of_book
+  historical_no_side: synthetic allowed with synthetic_no_book=true
+  forward_source: orderbook_depth_snapshots
+  forward_pair_key: [market_id, event_at]
+  forward_pair_rule: YES and NO rows share one market_id and one event_at
+  forward_snapshot_id_consistency: required; mismatch => pair_snapshot_mismatch=true and MISSING
+  forward_decision_timestamp: max(received_at_yes, received_at_no)
+  forward_sides_receipt_diff_le_s: 1
+  forward_per_side_pipeline_lag_le_s: 2
+  forward_execution: DEPTH_VWAP
+  forward_fill_required_pct: 100
+  time_to_expiry_feature_range_s: [270, 330]
+
+# ------------------------------------------------------------------ costs
+costs:
+  fee_model: POLYMARKET_PRICE_DEPENDENT
+  fee_rate: 0.07
+  fee_formula_per_unit: shares * 0.07 * exec_price * (1 - exec_price)
+  historical_execution: TOP_OF_BOOK_PLUS_SLIPPAGE
+  historical_slippage_pct: 0.5
+  forward_execution: DEPTH_VWAP
+  stake_usdc: 1.0
+  partial_fills: false
+  kelly: false
+  sizing: fixed_1usd_no_scaling
+  pnl_levels: [raw_signal, executable_pre_fee, canonical_taker_net]
+  raw_formula: payout - reference_market_price
+  executable_formula: payout - depth_vwap
+  canonical_net_formula: executable - fee_0.07
+  paper_counterfactual: diagnostic appendix only, never training/selection/verdict
+
+# ------------------------------------------------------------------ label
+target:
+  type: binary_outcome_with_market_logit_offset
+  label: polymarket_final_yes
+  yes_wins: 1
+  no_wins: 0
+  use_binance_move_as_target: false
+  exclude: [no_confirmed_settlement, cancelled_or_ambiguous, bad_mapping, no_predecision_snapshot]
+  conflict_rule: all non-empty finals per market must agree incl PENDING vs YES/NO mix check; conflict => exclude market
+  side_mix_test: inverted YES/NO must fail tests
+
+market_prior:
+  p_market_yes: poly_up_mid fallback mid_price
+  valid_range: (0, 1)
+  executable_yes: poly_up_best_ask fallback best_ask
+  executable_no: poly_down_best_ask fallback 1-minus-best_bid
+  store_separately: [midpoint, ask_yes, ask_no, spread, microprice_where_available, depth_where_available]
+  invariants_report_only: [ask_yes_plus_ask_no_usually_ge_1]
+  exclude_rules:
+    price_outside_0_1: exclude_row
+    bid_gt_ask_same_side: exclude_row
+    empty_ask: side_not_executable
+    one_side_missing: row_out_of_main_comparative_dataset
+    ask_yes_plus_ask_no_lt_1: keep with cross_token_arbitrage=true if both books fresh and valid
+    async_sides_gt_1s: exclude_row
+  unordered_levels: allowed iff normalized and not truncated and top prices match aggregates
+
+# ------------------------------------------------------------------ features (exact frozen order)
+features_order:
+  - p_market_yes
+  - spread
+  - dprob_90s
+  - dprob_180s
+  - dprob_300s
+  - prob_vel_90s
+  - time_to_expiry_s
+  - volume_5min
+  - price_velocity
+  - ret_5m_1
+  - ret_15m_1
+  - vol_5m_12
+  - candle_vol_5m_1
+  - taker_buy_share_5m_1
+  - breadth_ret_5m
+  - btc_ret_5m
+  - btc_vol_5m_12
+  - trend_15m
+feature_definitions:
+  spread: best_ask_minus_best_bid_up_book
+  dprob_Ns: p_market_yes(decision) minus p_at(last snapshot at_or_before decision_minus_N)
+  lookback_tolerance_s: 60
+  lookback_no_future_fill: true
+  prob_vel_90s: dprob_90s / 90
+  time_to_expiry_s: canonical_end_minus_decision_timestamp
+  ret_5m_1: last_closed_5m_candle close_over_open_minus_1
+  ret_15m_1: last_closed_15m_candle close_over_open_minus_1
+  closed_candle_rule: close_time <= decision_timestamp
+  closed_candle_max_age_5m_s: 330
+  closed_candle_max_age_15m_s: 930
+  candle_grid_measured: complete_zero_missing_slots_zero_dup_groups
+  candle_close_completion: open_time_plus_299999ms_5m_899999ms_15m_where_missing
+  candle_dedup_rule: unique_on_symbol_interval_open_time_asserted_by_builder
+  vol_5m_12: stdev of last 12 closed 5m returns, needs 12 else missing
+  taker_buy_share_5m_1: taker_buy_volume_over_volume, div0_guarded
+  breadth_ret_5m: mean ret_5m_1 over 5 assets, needs_ge_3 else missing
+  trend_15m: mean ret_15m_1 over 5 assets, needs_ge_3 else missing
+  symbol_map: {BTC: BTCUSDT, ETH: ETHUSDT, SOL: SOLUSDT, DOGE: DOGEUSDT, XRP: XRPUSDT}
+missing_rules:
+  flag_per_feature: true
+  flag_suffix: _m
+  flag_columns_follow_features_in_same_order: true
+  total_columns: 36
+  row_excluded_if: p_market_yes_or_spread_invalid
+  lightgbm: native_NaN_no_imputation
+  linear: median_impute_with_train_fold_medians_in_artifact
+  categories_or_encoding: none_all_numeric
+excluded_features_with_reason:
+  distance_to_strike: strike_absent
+  size_depth_imbalance_microprice: sizes_absent_historically
+  prob_change_15s_30s_60s: cadence_45s_cannot_support
+  binance_seconds_returns: no_seconds_history
+  perpetual_basis_oi_liquidations_funding: no_history
+  hour_of_day: outside_allowed_groups
+leakage:
+  rule: feature_timestamp <= decision_timestamp
+  received_guard: event_at <= decision_timestamp and received_at <= decision_timestamp else exclude
+  scan: automatic per-feature source timestamps
+  forbidden: [settlement, final_price, post_decision]
+  parity_check: offline_vs_runtime_on_20_samples within tolerance
+
+# ------------------------------------------------------------------ folds
+time:
+  timezone: UTC
+  development_from: '2026-07-06 00:00:00+00'
+  development_to_exclusive: '2026-09-12 00:00:00+00'
+  unused_gap_08_to_12_sep: true
+  fold_assignment_key: canonical_market_end
+  one_market_one_fold: true
+  preprocessing_train_only: true
+folds:
+  type: expanding_window
+  embargo_days: 1
+  validation_days: 7
+  count: 6
+  F1: {train: '06.07-26.07 excl', embargo: '26-27.07', validation: '27.07-03.08'}
+  F2: {train: '06.07-02.08 excl', embargo: '02-03.08', validation: '03-10.08'}
+  F3: {train: '06.07-09.08 excl', embargo: '09-10.08', validation: '10-17.08'}
+  F4: {train: '06.07-16.08 excl', embargo: '16-17.08', validation: '17-24.08'}
+  F5: {train: '06.07-23.08 excl', embargo: '23-24.08', validation: '24-31.08'}
+  F6: {train: '06.07-31.08 excl', embargo: '31.08-01.09', validation: '01-08.09'}
+  year: 2026
+  all_bounds_00_00_UTC_upper_exclusive: true
+
+# ------------------------------------------------------------------ models
+seed: 20260912
+models_allowed: [REGULARIZED_LINEAR_OFFSET, LIGHTGBM_OFFSET]
+baseline: MARKET_ONLY
+max_configurations: 1 linear plus max 3 LightGBM, lgbm winner chosen on walk-forward validation only
+posthoc_fourth_lgbm: forbidden
+
+linear:
+  enabled: true
+  loss: binary_logloss_with_fixed_market_offset
+  fit_intercept: true
+  penalty: l2
+  lambda_l2: 10.0
+  standardize_continuous: true
+  max_iterations: 2000
+  tolerance: 1.0e-8
+  seed: 20260912
+
+lightgbm_common:
+  objective: binary_with_market_logit_offset
+  metric: binary_logloss
+  boosting_type: gbdt
+  learning_rate: 0.03
+  n_estimators: 2000
+  early_stopping_rounds: 100
+  max_bin: 255
+  deterministic: true
+  force_col_wise: true
+  feature_pre_filter: false
+  seed: 20260912
+  feature_fraction_seed: 20260912
+  bagging_seed: 20260912
+  data_random_seed: 20260912
+  verbosity: -1
+
+lightgbm_configs:
+  A: {max_depth: 3, num_leaves: 7, min_data_in_leaf: 200, feature_fraction: 0.8, bagging_fraction: 0.8, bagging_freq: 1, lambda_l1: 0.0, lambda_l2: 10.0, min_gain_to_split: 0.01}
+  B: {max_depth: 4, num_leaves: 15, min_data_in_leaf: 200, feature_fraction: 0.8, bagging_fraction: 0.8, bagging_freq: 1, lambda_l1: 1.0, lambda_l2: 10.0, min_gain_to_split: 0.01}
+  C: {max_depth: 5, num_leaves: 15, min_data_in_leaf: 500, feature_fraction: 1.0, bagging_fraction: 1.0, bagging_freq: 0, lambda_l1: 2.0, lambda_l2: 20.0, min_gain_to_split: 0.02}
+
+# ------------------------------------------------------------------ historical gate
+historical_gate_all_required:
+  logloss_improvement_overall_ge: 0.002
+  logloss_improvement_positive_folds_ge: 4
+  canonical_roi_overall_gt: 0
+  canonical_pnl_positive_folds_ge: 4
+  signals_total_ge: 200
+  signals_ge_20_in_folds_ge: 4
+  max_share_positive_pnl_one_fold_pct: 50
+  max_share_positive_pnl_one_asset_pct: 50
+  ece_le: 0.03
+  calibration_slope_within: [0.8, 1.2]
+  maxdd_over_staked_le_pct: 7.5
+  ci95_lower_bound_mean_canon_per_1usd_stake_gt: -0.01
+  historical_signals_use: same EV_plus_Wilson_rule with pooled-OOF bins
+  fail_action: STOP no forward
+
+# ------------------------------------------------------------------ trading rule
+ev_rule:
+  gross_ev_yes: p_final_minus_executable_ask_yes
+  net_ev_yes: gross_ev_yes_minus_canonical_fee_yes
+  gross_ev_no: one_minus_p_final_minus_executable_ask_no
+  net_ev_no: gross_ev_no_minus_canonical_fee_no
+  pick: side with max positive net EV else ABSTAIN
+  decision_threshold_on_probability: none_EV_gated
+
+uncertainty:
+  method: one_sided_95pct_Wilson_interval_on_OOF_calibration_bins
+  bins: 10
+  binning: equal_frequency
+  min_bin_observations: 200
+  merge_neighbors_until_200: true
+  oof_source: pooled_walk_forward_validation_predictions
+  forward_bins: frozen_from_oof
+  p_side_lower_yes: Wilson_lower_bound
+  p_side_lower_no: 1_minus_Wilson_upper_bound_for_YES
+  signal_rule: net_edge_lower_bound_gt_0
+  store_point_and_bound_separately: true
+
+# ------------------------------------------------------------------ candidate freeze
+freeze_checklist: [artifact, artifact_hash, feature_schema, thresholds_none_EV_gated, cost_model, code_commit, spec_hash]
+clean_env_repro: [load_artifact, build_features, predict, net_EV, identical_result]
+
+run_guard_refuses_on_mismatch: [code_commit, artifact_hash, feature_schema_hash, spec_hash]
+
+# ------------------------------------------------------------------ shadow harness
+shadow_table: market_relative_shadow_decisions
+shadow_fields: [timestamp, market_id, asset, horizon_fixed_300s, model_id, artifact_hash, p_market_yes, p_final_yes, correction, best_bid_ask, depth, expected_vwap, canonical_fee, raw_edge, canonical_net_edge, uncertainty_bound, selected_side, decision, reason_code, settlement_outcome, simulated_pnl]
+reason_codes: [TRADE_YES, TRADE_NO, ABSTAIN_NEGATIVE_EDGE, ABSTAIN_INSUFFICIENT_LIQUIDITY, MISSING_DECISION_SNAPSHOT]
+uniqueness: one_row_per_market_x_model
+idempotent_reprocessing: true
+reason_code_column_type: TEXT
+migration: [upgrade, downgrade_rollback, indexes_for_analysis]
+orders_enabled: false
+gateway_import: forbidden
+mock_gateway_test: any_order_attempt_crashes
+no_side_effects: [no_execution_requests, no_trade_history_SUCCESS, no_positions, no_exposure_reservations]
+dry_run: one_completed_day plus 20_manual plus rerun_idempotent_plus_pnl_stable_plus_no_orders
+
+# ------------------------------------------------------------------ forward
+forward:
+  start: first_00_00_UTC_after_T22_freeze_commit
+  length_max_days: 14
+  min_evaluable_markets: 3000
+  min_signals_for_economic_pass: 300
+  predictive_metrics_on: all_available_markets
+  short_window: INSUFFICIENT_DATA no auto_extend
+  monitor_only: [runner_alive, snapshots_current, errors, field_completeness, duplicates, settlement]
+  blind_forbidden_views: [model_pnl, current_winner, interim_returns, per_asset_results]
+  health_report_fields: [runner_alive, snapshots_current, missing_data_rate, duplicate_rate, settlement_lag, spec_hash_valid, artifact_hash_valid, orders_created]
+  tech_fixes_only_without_logic_change: true
+close:
+  steps: [stop_writing, data_hash, await_settlement, completeness_check, single_reveal]
+  settlement_wait_max_h: 48
+  unresolved_excluded_from_economics_listed_separately: true
+  unresolved_le_2pct_continue: true
+  unresolved_gt_2pct: INSUFFICIENT_DATA
+  systematic_mapping_or_settlement_defect: DATA_BLOCKED
+  late_settlement_never_silently_mutates_report: true
+  insufficient_pre_forward_possible: true
+
+# ------------------------------------------------------------------ data gates (choice D, v1.0.1)
+data_gates:
+  historical_event_driven_decision_on_eligible_resolved_ge_pct: 90
+  historical_coverage_measured_pct: 90.94
+  historical_gate_rationale: verdict comes from forward; historical leg is declared approximate development data; window semantics stay exact at [330,270]; 28.8k rows ample
+  forward_decisions_with_both_sides_ge_pct: 95
+  forward_valid_books_filling_full_1usd_ge_pct: 99
+  forward_depth_pipeline_lag_le2s_ge_pct: 99
+  forward_unresolved_after_48h_le_pct: 2
+  any_breach: DATA_BLOCKED
+
+# ------------------------------------------------------------------ final verdict
+final_metrics: [n_predictions, n_signals, coverage, raw_pnl, spread_slippage, canonical_fees, canonical_net_pnl, roi, max_drawdown, logloss, brier, ece, calibration_slope, bootstrap_ci, halves_7d, concentration_by_asset_and_day]
+final_checks: [pnl_two_implementations, 30_random_decisions, market_only_repro, daily_sums_reconcile, raw_minus_costs_minus_fees_equals_canon]
+bootstrap_ci: {level: 0.95, method: percentile_block, block: full_UTC_day, reps: 10000, metric: mean_canonical_pnl_per_1usd_stake}
+
+pass_taker_all_required:
+  evaluable_markets_ge: 3000
+  evaluable_coverage_ge_pct: 95
+  signals_ge: 300
+  canonical_net_pnl_gt: 0
+  canonical_net_roi_gt: 0
+  ci95_lower_bound_mean_pnl_gt: 0
+  both_7d_halves_net_pnl_gt: 0
+  max_share_positive_pnl_one_day_pct: 35
+  max_share_positive_pnl_one_asset_pct: 50
+  logloss_improvement_ge: 0.002
+  ece_le: 0.03
+  calibration_slope_within: [0.8, 1.2]
+  maxdd_over_staked_le_pct: 7.5
+critical_decalibration_bans_pass:
+  ece_gt: 0.05
+  calibration_slope_outside: [0.6, 1.4]
+
+maker_only_rule:
+  raw_pnl_gt_0_overall: true
+  raw_pnl_gt_0_both_halves: true
+  raw_ci_lower_gt_0: true
+  taker_canon_le_0: true
+
+verdict_priority: [DATA_BLOCKED, INSUFFICIENT_DATA, STOP, MAKER_ONLY, PASS_TAKER]
+stop_low_coverage: evaluable_ge_3000_but_signals_lt_300_from_abstain => STOP subclass STOP_LOW_COVERAGE
+verdict_labels: [PASS_TAKER, MAKER_ONLY, STOP, INSUFFICIENT_DATA, DATA_BLOCKED]
+t32_writes_same_label_no_PASS_shortening: true
+
+closeout_actions:
+  PASS_TAKER: separate_integration_plan
+  MAKER_ONLY: separate_maker_experiment
+  STOP: no_more_training_in_this_setup
+  INSUFFICIENT_DATA: close_without_activation_decide_data_collection_separately
+
+# ------------------------------------------------------------------ blinding
+blinding:
+  health_view: market_relative_shadow_health
+  health_shows_only: [heartbeat, processed_markets, snapshot_delay, missing_pct, errors, duplicates, settlement_lag, hashes, orders_zero]
+  health_hides: [side, probabilities, edge, pnl, outcome, per_model]
+  monitor_role: market_relative_monitor
+  executor_uses_monitor_role_only_during_forward: true
+  no_performance_api: true
+  no_pnl_in_logs: true
+  status_transitions: RUNNING_to_SEALED_to_UNBLINDED
+  unblind_script_only_after_T29: true
+
+# ------------------------------------------------------------------ production safety
+prod_changes_allowed: [new_table, new_table_indexes, health_view, readonly_role, migration_rollback]
+prod_changes_forbidden: [decision_path, runtime_trading_settings, trade_history_writes, execution_requests, model_registry_activation]
+migration_review_and_separate_deploy_confirm: true
+
+# ------------------------------------------------------------------ environment
+training_host: local_computer
+production_host_roles: [collection, postgresql, shadow_harness, settlement, health_view]
+local_tasks: [readonly_export, dataset, training, walkforward, bootstrap, artifacts]
+artifact_binaries_in_git: false
+artifact_storage: dedicated_artifacts_dir
+git_stores: [manifest, sha256, schema, spec]
+one_frozen_candidate_transferred: true
+harness_checks_artifact_hash_at_start: true
+library_versions_local_training:
+  python: 3.14.4
+  lightgbm: 4.6.0
+  scikit_learn: 1.9.0
+  pandas: 3.0.3
+  numpy: 2.4.6
+threads: 4
+cost_calculator_version: v1.0.0
+feature_builder_version: v1.0.2
+text_outputs: LF_only
+
+# ------------------------------------------------------------------ provenance
+t02_probes: [q_t02_schema.sql, q_t02b.sql, q_t02c.sql, q_t02d.sql, q_t02e.sql, q_t02f.sql, q_t02g.sql, q_t02h.sql, q_t02i.sql, q_t02j.sql]
+t02_status: PASS
+t04_probes: [q_t04.sql, q_t04b.sql, q_t04c.sql]
+t04_status: PASS_under_v1_0_1
+t05_probes: [q_t05.sql, q_t05b.sql]
+t05_status: PASS
+dataset_stats_must_include: per_fold_decision_coverage
+choice_D_confirmed: true
