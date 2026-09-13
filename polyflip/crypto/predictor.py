@@ -92,7 +92,7 @@ class CryptoSignal:
     ece: float = 0.0         # BUG-AO
     model_key: str = ""      # Точный ключ фактически загруженной модели (напр. BTCUSDT_low_vol)
     regime: str = ""         # Режим волатильности (low_vol / mid_vol / high_vol)
-    status: str = "READY"    # READY / MODEL_NOT_LOADED / INVALID_FEATURES / REGIME_UNAVAILABLE / DEGENERATE_PREDICTION / INFERENCE_FAILED
+    status: str = "READY"    # READY / MODEL_NOT_LOADED / INVALID_FEATURES / REGIME_UNAVAILABLE / DEGENERATE_PREDICTION / INFERENCE_FAILED / MARKET_PRICE_UNAVAILABLE
     inverted: bool = False
     p_up_raw: float = 0.0
     p_down_raw: float = 0.0
