@@ -33,6 +33,8 @@ def sha_of(path):
 
 def load_spec(base):
     path = os.path.join(base, "experiment_spec.yaml")
+    if not os.path.exists(path):
+        path = os.path.join(os.path.dirname(base), "experiment_spec.yaml")
     assert sha_of(path) == SPEC_SHA256, "spec hash mismatch: %s" % sha_of(path)
     return yaml.safe_load(open(path))
 

@@ -1,5 +1,6 @@
 """T12-T15 self-tests: baseline identity, linear/IRLS, lgbm offset, registry."""
 import json
+import os
 
 import numpy as np
 import pandas as pd
@@ -7,13 +8,16 @@ import pytest
 
 import train as T
 
-DATA = r"C:\Users\orlov\OneDrive\Документы\Default Project\mktrel-v1\data"
-BUILD = r"C:\Users\orlov\OneDrive\Документы\Default Project\mktrel-v1\build"
-DS = BUILD + r"\dataset.csv"
+BASE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.environ.get("MKTREL_ROOT", os.path.dirname(BASE))
+BUILD = os.environ.get("MKTREL_BUILD", os.path.join(ROOT, "build"))
+DS = os.path.join(BUILD, "dataset.csv")
 
 
 @pytest.fixture(scope="module")
 def sample():
+    if not os.path.exists(DS):
+        pytest.skip("frozen dataset is not present; run the read-only export/build step")
     df = pd.read_csv(DS, dtype={"market_id": str})
     use = [c for c in df.columns if c in T_sentinel_features()]
     sub = df.iloc[:1500].reset_index(drop=True)

@@ -19,11 +19,15 @@ DS = os.path.join(BUILD, "dataset.csv")
 
 @pytest.fixture(scope="module")
 def df():
+    if not os.path.exists(DS):
+        pytest.skip("frozen dataset is not present; run the read-only export/build step")
     return pd.read_csv(DS, dtype={"market_id": str})
 
 
 @pytest.fixture(scope="module")
 def snaps():
+    if not os.path.exists(os.path.join(DATA, "snaps.csv")):
+        pytest.skip("frozen snapshot input is not present; run the read-only export/build step")
     from build_dataset import epoch_of
     s = pd.read_csv(os.path.join(DATA, "snaps.csv"), dtype={"market_id": str},
                     usecols=["market_id", "recorded_at", "poly_up_mid", "mid_price"])
@@ -76,6 +80,11 @@ def test_flags_match_nan(df):
 def test_label_swap_sensitivity():
     """Swapped YES/NO inputs must flip labels (mapping actually drives labels)."""
     import shutil
+    if not all(
+        os.path.exists(os.path.join(DATA, name))
+        for name in ("markets.csv", "snaps.csv", "candles.csv")
+    ):
+        pytest.skip("frozen dataset inputs are not present; run the read-only export/build step")
     import tempfile
     tmp = tempfile.mkdtemp(prefix="mktrel_swap_")
     for n in ("markets.csv", "snaps.csv", "candles.csv"):
@@ -114,6 +123,11 @@ def test_lookback_no_future(df, snaps):
 
 def test_manifest_reconciles():
     import json
+    if not all(
+        os.path.exists(os.path.join(BUILD, name))
+        for name in ("manifest.json", "dataset.sha256", "dataset.csv")
+    ):
+        pytest.skip("frozen dataset build artifacts are not present; run the read-only export/build step")
     man = json.load(open(os.path.join(BUILD, "manifest.json")))
     df = pd.read_csv(DS, dtype={"market_id": str})
     assert man["n_rows"] == len(df)
