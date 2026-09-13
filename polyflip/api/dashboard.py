@@ -814,6 +814,10 @@ async def get_trade_logs(
             item["funnel_log"] = {
                 "direction_model_key": funnel.direction_model_key,
                 "direction_model_version": funnel.direction_model_version,
+                "evaluated_model_key": getattr(funnel, "evaluated_model_key", None),
+                "evaluated_model_version": getattr(funnel, "evaluated_model_version", None),
+                "applied_direction_model_key": getattr(funnel, "applied_direction_model_key", None),
+                "applied_direction_model_version": getattr(funnel, "applied_direction_model_version", None),
                 "direction_status": funnel.direction_status,
                 "direction_p_up": funnel.direction_p_up,
                 "direction_p_down": funnel.direction_p_down,

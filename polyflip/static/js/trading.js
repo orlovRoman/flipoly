@@ -1205,10 +1205,12 @@ document.addEventListener("DOMContentLoaded", () => {
             else { phaseSuffix = " <span style='font-size:0.85em; color:var(--text-muted);'>(decided)</span>"; rawPhase = "decided"; }
         }
         let lgbmName = "LightGBM";
-        if (log.funnel_log && log.funnel_log.direction_model_key) {
-            lgbmName = log.funnel_log.direction_model_key;
-            if (log.funnel_log.direction_model_version) {
-                lgbmName += ` v${log.funnel_log.direction_model_version}`;
+        if (log.funnel_log && (log.funnel_log.evaluated_model_key || log.funnel_log.direction_model_key)) {
+            const evaluatedKey = log.funnel_log.evaluated_model_key || log.funnel_log.direction_model_key;
+            const evaluatedVersion = log.funnel_log.evaluated_model_version ?? log.funnel_log.direction_model_version;
+            lgbmName = evaluatedKey;
+            if (evaluatedVersion !== null && evaluatedVersion !== undefined) {
+                lgbmName += ` v${evaluatedVersion}`;
             }
         }
 
