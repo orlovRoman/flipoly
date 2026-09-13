@@ -1,0 +1,117 @@
+# =============================================================================
+# lgbm_direction_audit_v1/spec.yaml — FROZEN at Этап 1 (hash-locked)
+# Audit of EXISTING directional LGBMs and their trading contribution.
+# =============================================================================
+experiment_id: lgbm_direction_audit_v1
+spec_version: 1.0.0
+status: FROZEN
+branch_future: research/lgbm-direction-audit-v1
+parent: lgbm_shared_v1
+live_orders_enabled: false
+
+inventory:
+  blob_primary: model_registry.model_blob
+  blob_fallback: model_weights
+  registry_rows_expected: 1069
+  active_now_expected: 37
+  export_all_active_and_inactive: true
+  deleted_rows_unrecoverable: true
+  missing_model_rule: MISSING_MODEL_ARTIFACT
+  per_version_fields: [model_id, version, asset, volatility_regime, trained_at,
+    activated_at, usage_period, interval, feature_schema, thresholds_up_down,
+    quality_gate, train_params, target_metadata, blob_sha256]
+
+replay_E1:
+  feature_code: era_model_code
+  current_builder_role: counterfactual_only
+  code_epochs_source: CODE_EPOCHS.csv
+  unknown_epoch_excluded_from_parity: true
+  tolerances: {exact_blob_plus_stored_features_abs: 1e-9,
+    reconstructed_features_abs: 1e-6, direction: strict}
+  denominators: rows_with_model_id_blob_target_full_vector
+  always_show_coverage_vs_all: true
+  non_reproducible_label: NON_REPRODUCIBLE_MODEL
+
+native_E2:
+  legacy_compares_to: native_target
+  canonical_compares_to: contract_target
+  metrics: [accuracy, balanced_accuracy, brier, logloss, auc,
+    calibration_slope, ece, coverage, confusion_matrix]
+  controls:
+    prevalence: probabilistic
+    always_up: accuracy_only
+    last_candle_sign: accuracy_only
+    momentum: {kind: L2_LogReg, C: 1, feature: ret_1_last_closed_same_interval,
+      scaler_train_only: true}
+    canonical_extra: polymarket_mid
+  per_fold: true
+  asset_and_regime_cuts: true
+
+alignment_E3:
+  legacy_vs_contract_is_diagnostic_only: true
+  never_declare_legacy_p_up_as_contract_prob: true
+  tte_buckets_min: [0-3, 3-5, 5-8, 8-12, gt-12]
+  probative_min: {rows_per_bucket: 200, rows_per_asset_side: 50}
+  below_min_is_descriptive: true
+  split_up_down: true
+  output: TARGET_ALIGNMENT_MATRIX.csv
+
+mapping_E4:
+  combos: [lgbm_up_down_none, logreg_flip_noflip, yes_no_favorite,
+    favorite_enabled_disabled, outsider_enabled_disabled]
+  reference_code: era_combined_voting
+  inversions_expected: {lgbm_up_not_auto_yes: true, lgbm_down_not_auto_no: true}
+  output: DIRECTION_MAPPING_MATRIX.csv
+
+paired_replay_E5:
+  arms:
+    R0: recorded_decision
+    R1: exact_era_model_and_policy
+    R2: LGBM_BYPASS_logreg_and_rest_run_lgbm_imposes_no_veto_discount_inversion_or_side
+    R2b: actual_runtime_behavior_at_LGBM_NONE
+    R3: lgbm_picks_yes_for_up_no_for_down_plus_freshness_time_enabled_side_price_spread_duplicate_budget_guards_logreg_mrf_off
+    R3_sensitivity: MRF_on
+    R4: forecast_market_only_trading_use_canonical_only_never_as_legacy_equivalent
+  main_effect: R1_minus_R2
+  r1_r2_differ_only_in_lgbm: true
+  parity_gate: {buy_skip_match_ge_pct: 99, side_match_on_buy_pct: 100}
+  parity_fail_action: TECHNICAL_INVALID_main_pnl_halted_replay_code_fixable_no_spec_change_descriptive_kept_no_trading_verdict
+
+economics_E6:
+  main_budget_usd: 1
+  actual_budget_cut: separate
+  historical_exec: causal_L1_ask_plus_0pt5pct_adverse
+  depth_exec: separate_analysis_from_2026_09_09
+  fills_exec: separate_reconciliation
+  never_splice_L1_and_depth_in_main_series: true
+  fee: canonical
+  levels: [raw, executable, canonical_net]
+  include_no_trade: true
+  partial_fill_not_full: true
+  fee_once: true
+  spread_not_double_counted: true
+  identity: canonical_eq_executable_minus_fee_minus_adverse
+  waterfall: [U0_opportunity, U1_model_expected, U2_blob_available,
+    U3_inference_reproduced, U4_direction_not_none, U5_candidate_side_formed,
+    U6_combined_logreg_passed, U7_dashboard_guards_passed, U8_request_created,
+    U9_filled, U10_resolved]
+  bootstrap: {reps: 5000, seed: 20260913, resample: UTC_days,
+    primary: mean_paired_canonical_net_per_opportunity}
+  cuts: [folds, assets, regimes, up_down, favorite_outsider]
+
+directional_gate:
+  primary_metric: logloss
+  margin_overall_ge: 0.002
+  positive_folds_ge: 4
+  dayblock_ci_lower_of_improvement_gt: 0
+  baselines:
+    binance_target: [prevalence, momentum]
+    final_outcome: [polymarket_mid]
+    flip_target: [prevalence, frozen_3feat_logreg_mid_price_spread_time_left_L2_C1_intercept_scaler_train_seed_20260913]
+  min_pairs: 200
+  concentration: {one_fold_le_pct: 50, one_asset_le_pct: 50}
+  mismatch_rule: legacy_usable_as_direction_veto_never_as_contract_prob
+  mismatch_label_when_misinterpreted_or_unconfirmed: TARGET_MISMATCH
+  verdicts: [FORWARD_CANDIDATE, SHADOW_ONLY, REMOVE_FROM_DECISION,
+    TARGET_MISMATCH, NON_REPRODUCIBLE, INCONCLUSIVE, INCONCLUSIVE_SETTINGS,
+    TECHNICAL_INVALID, STOP]

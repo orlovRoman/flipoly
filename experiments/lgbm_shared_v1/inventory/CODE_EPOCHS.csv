@@ -1,0 +1,13 @@
+epoch_start,event,evidence,notes
+2026-06-25,trainer born (Фаза 3),53b7e2a7,model_registry starts 06-26
+2026-07-04,legacy crypto LGBM UpDown ret_1.shift(-1) + predictor,482a6914 + 46c60ffd,legacy era start; retfam trained 07-04..08-06
+2026-07-26,flip_vs_final data restriction,4a8c9b7a,flip concept enters trainer
+2026-08-03,COMBINED direction arch + funnel run_id + UP/DOWN thresholds,4706f5db + 3bd2232c + 139b05cf,direction usage starts = deploy proxy
+2026-08-04,uncertainty discount + combined fallbacks,82f55d75 + 58fc7c9c,
+2026-08-05,legacy ML removal + refactors,adb5f6f0 + voting refactors,
+2026-08-09,canonical guard commit + Release-1 lookahead removal,0968d065 + ecfded5a,commit time 14:28 UTC; NOT deploy time
+2026-08-10,flip logreg research era,79b84a9d,201 flip rows trained 08-10..09-08
+2026-08-12,first FINAL-version usage, funnel observation,guard EFFECTIVE (deploy proxy); NULL-version usage ends 08-09
+2026-09-02,weighted policy era,voting history,decision path churn
+2026-09-07,CT/research era,voting history,
+2026-09-13,dashboard auditability + new base,97f29033 + a1256652,
