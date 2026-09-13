@@ -1,0 +1,58 @@
+{
+  "arb_rate": 0.0,
+  "candle_completion": {
+    "bad_open_dropped": 0,
+    "close_completed": 48949
+  },
+  "code_version": "v1.0.2",
+  "dataset_sha256": "14ce26d308e20c44c496befa123266f5f379eb78056ea395cf5f4d5629145954",
+  "exclusions": {
+    "BAD_P": 28,
+    "GAP_FOLD": 2238,
+    "MISSING_DECISION": 2096,
+    "NO_LABEL": 1,
+    "NO_SNAPS": 737
+  },
+  "folds": {
+    "F1": 2965,
+    "F2": 2711,
+    "F3": 3160,
+    "F4": 3163,
+    "F5": 3247,
+    "F6": 2361,
+    "trainpool": 9021
+  },
+  "input_hashes": {
+    "candles.csv": "8d11194c53a5d077fd85c7e303af953d8a7ed435de12a643588f53b5054fa5bc",
+    "markets.csv": "6a35c6052a7bd88a4c0abab31ef070eea2b359debf2e9b8261331f58ff2bd0b5",
+    "snaps.csv": "de9efbcacfbb303b548185dff73c3e7ade0100bcbc7fb00614fddf7a4550e985"
+  },
+  "label_balance": {
+    "0.0": 13356,
+    "1.0": 13272
+  },
+  "missing_rates": {
+    "breadth_ret_5m": 0.0,
+    "btc_ret_5m": 0.0,
+    "btc_vol_5m_12": 0.0,
+    "candle_vol_5m_1": 0.0,
+    "dprob_180s": 0.031095087877422264,
+    "dprob_300s": 0.021481147664112965,
+    "dprob_90s": 0.033874117470331984,
+    "p_market_yes": 0.0,
+    "price_velocity": 0.0,
+    "prob_vel_90s": 0.033874117470331984,
+    "ret_15m_1": 0.0,
+    "ret_5m_1": 0.0,
+    "spread": 0.0,
+    "taker_buy_share_5m_1": 0.0,
+    "time_to_expiry_s": 0.0,
+    "trend_15m": 0.0,
+    "vol_5m_12": 0.0,
+    "volume_5min": 0.0
+  },
+  "n_rows": 26628,
+  "spec_sha256": "2dce310ce3d4917061109d154520b0eb932dc9894b88b787d00fd32b0898071c",
+  "spec_version": "1.0.4",
+  "synthetic_no_rate": 1.0
+}

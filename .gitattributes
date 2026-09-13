@@ -12,3 +12,4 @@ scripts/research/strike_baseline/*.py text eol=lf
 polyflip/research/strike_baseline/*.py text eol=lf
 artifacts/research/strike_baseline/**/*.parquet binary
 artifacts/research/strike_baseline/**/*.gz binary
+experiments/market_relative_v1/** text eol=lf
