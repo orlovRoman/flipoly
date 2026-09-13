@@ -82,6 +82,26 @@ No model registered, activated, or deactivated. No further tuning on this
 history. Production untouched:
 no migrations ran, no orders, DB read-only, compute local only.
 
+## Scope note (post-closeout clarification, does not alter results)
+- Labels here were contract outcome direction only (builder: YES->1.0,
+  NO->0.0 from market_snapshots.final_outcome). No reversal/upset target.
+- Registry models were NOT tested: our modules contain zero polyflip imports;
+  no registry artifact, coefficient set, original target, or stored prediction
+  was loaded. New LGBM A/B/C were trained from scratch with the
+  logit(p_final) = logit(p_market) + delta construction.
+- For the record, the production trainer path (polyflip/models/trainer.py)
+  builds a different target: 1 iff the current favorite loses
+  ((mid_price > 0.5) != (final_outcome == "YES")), source
+  POLYMARKET_FLIP_VS_FINAL_OUTCOME, on many scheduler rows per market
+  filtered by time_left window - not one event-driven row at T-5min.
+- Correct conclusion: new market-relative LGBMs on the tested 5m/15m
+  features could not stably improve the Polymarket price.
+- Incorrect conclusion: existing directional/flip registry models are useless.
+  No inference about them follows in either direction.
+- Horizon/target/sampling mismatch: a model answering next-candle direction,
+  a contract asking expiry-vs-start, and a decision at ~5min left are three
+  different questions; good performance in one setup need not transfer.
+
 ## Allowed next action
 No more training in this setup (STOP). Return to model search only with a
 concrete new information source or a different testable hypothesis (new
