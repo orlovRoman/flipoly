@@ -311,13 +311,25 @@ async def get_funnel_stats(
         ).label("lgbm_evaluated"),
         func.count(
             sa_case(
-                (DecisionFunnelLog.direction_value.in_(["UP", "DOWN"]), 1),
+                (
+                    and_(
+                        DecisionFunnelLog.direction_probability.isnot(None),
+                        DecisionFunnelLog.direction_value.in_(["UP", "DOWN"]),
+                    ),
+                    1,
+                ),
                 else_=None,
             )
         ).label("lgbm_directional"),
         func.count(
             sa_case(
-                (DecisionFunnelLog.final_action.in_(["BUY_YES", "BUY_NO"]), 1),
+                (
+                    and_(
+                        DecisionFunnelLog.direction_probability.isnot(None),
+                        DecisionFunnelLog.final_action.in_(["BUY_YES", "BUY_NO"]),
+                    ),
+                    1,
+                ),
                 else_=None,
             )
         ).label("lgbm_traded"),
@@ -384,13 +396,25 @@ async def get_funnel_stats(
             ).label("lgbm_evaluated"),
             func.count(
                 sa_case(
-                    (DecisionFunnelLog.direction_value.in_(["UP", "DOWN"]), 1),
+                    (
+                        and_(
+                            DecisionFunnelLog.direction_probability.isnot(None),
+                            DecisionFunnelLog.direction_value.in_(["UP", "DOWN"]),
+                        ),
+                        1,
+                    ),
                     else_=None,
                 )
             ).label("lgbm_directional"),
             func.count(
                 sa_case(
-                    (DecisionFunnelLog.final_action.in_(["BUY_YES", "BUY_NO"]), 1),
+                    (
+                        and_(
+                            DecisionFunnelLog.direction_probability.isnot(None),
+                            DecisionFunnelLog.final_action.in_(["BUY_YES", "BUY_NO"]),
+                        ),
+                        1,
+                    ),
                     else_=None,
                 )
             ).label("lgbm_traded"),
