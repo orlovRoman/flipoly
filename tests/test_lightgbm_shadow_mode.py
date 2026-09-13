@@ -1,4 +1,8 @@
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
 from polyflip.trading.trading_config import parse_trading_settings
 from polyflip.trading.combined_voting import evaluate_combined_entry
 from polyflip.crypto.predictor import CryptoSignal
@@ -205,6 +209,8 @@ def test_active_lgbm_abstention_is_not_recorded_as_applied_model():
     attribution = _resolve_lgbm_attribution("ACTIVE", "", "ETHUSDT_mid_vol", 12)
 
     assert attribution["direction_value"] == "NONE"
+    assert attribution["evaluated_model_key"] == "ETHUSDT_mid_vol"
+    assert attribution["evaluated_model_version"] == 12
     assert attribution["applied_model_key"] is None
     assert attribution["applied_model_version"] is None
     assert attribution["funnel_model_key"] is None
@@ -216,7 +222,10 @@ def test_active_lgbm_direction_is_recorded_as_applied_model():
     attribution = _resolve_lgbm_attribution("ACTIVE", " down ", "ETHUSDT_mid_vol", 12)
 
     assert attribution["direction_value"] == "DOWN"
+    assert attribution["evaluated_model_key"] == "ETHUSDT_mid_vol"
+    assert attribution["evaluated_model_version"] == 12
     assert attribution["applied_model_key"] == "ETHUSDT_mid_vol"
+    assert attribution["applied_model_version"] == 12
     assert attribution["funnel_model_key"] == "ETHUSDT_mid_vol"
 
 
@@ -227,5 +236,36 @@ def test_off_mode_returns_none_attribution():
     attribution = _resolve_lgbm_attribution("OFF", "UP", "BTCUSDT_low_vol", 5)
 
     assert attribution["direction_value"] == "NONE"
+    assert attribution["evaluated_model_key"] is None
+    assert attribution["evaluated_model_version"] is None
     assert attribution["funnel_model_key"] is None
     assert attribution["applied_model_key"] is None
+
+
+@pytest.mark.asyncio
+async def test_fresh_yes_price_retries_one_transient_miss():
+    from polyflip.trading.decision_runners import _fetch_fresh_yes_prices
+
+    api_client = MagicMock()
+    api_client.get_market_prices = AsyncMock(
+        side_effect=[None, {"current_yes_price": 0.27, "best_ask": 0.28}]
+    )
+    with patch("polyflip.trading.decision_runners.asyncio.sleep", new=AsyncMock()) as sleep:
+        prices = await _fetch_fresh_yes_prices(api_client, "yes-token")
+
+    assert prices["current_yes_price"] == 0.27
+    assert api_client.get_market_prices.await_count == 2
+    sleep.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_fresh_yes_price_returns_none_after_bounded_retry():
+    from polyflip.trading.decision_runners import _fetch_fresh_yes_prices
+
+    api_client = MagicMock()
+    api_client.get_market_prices = AsyncMock(side_effect=[None, RuntimeError("CLOB down")])
+    with patch("polyflip.trading.decision_runners.asyncio.sleep", new=AsyncMock()):
+        prices = await _fetch_fresh_yes_prices(api_client, "yes-token")
+
+    assert prices is None
+    assert api_client.get_market_prices.await_count == 2

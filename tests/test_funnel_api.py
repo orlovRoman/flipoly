@@ -16,6 +16,8 @@ async def test_funnel_stats_empty():
     assert res["total"] == 0
     assert res["traded"] == 0
     assert res["by_gate"] == {}
+    assert res["lightgbm"]["evaluated"] == 0
+    assert res["lightgbm"]["trade_passed"] == 0
 
 @pytest.mark.asyncio
 async def test_funnel_stats_pct_calculation():
@@ -38,6 +40,7 @@ async def test_funnel_stats_pct_calculation():
     assert res["by_gate"]["g4_no_flip"]["pct"] == 40.0
     assert res["by_gate"]["g1_model_loaded"]["pct"] == 0.0
     assert res["mrf"]["evaluated"] == 100
+    assert res["lightgbm"]["evaluated"] == 0
 
 @pytest.mark.asyncio
 async def test_funnel_detail_empty():

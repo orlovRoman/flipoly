@@ -1785,6 +1785,10 @@ window.showFunnelDiagnostic = function(logId) {
         "INSUFFICIENT_NET_EDGE": "Недостаточный Edge"
     };
     const mappedEntryStatus = entryStatusMap[funnel.entry_status] || funnel.entry_status || "—";
+    const evaluatedModelKey = funnel.evaluated_model_key || funnel.direction_model_key || "—";
+    const evaluatedModelVersion = funnel.evaluated_model_version ?? funnel.direction_model_version;
+    const appliedDirectionModelKey = funnel.applied_direction_model_key || "—";
+    const appliedDirectionModelVersion = funnel.applied_direction_model_version;
 
     const gateLabels = {
         g1_model_loaded:   `G1: Модели (LGBM + LogReg)`,
@@ -1814,7 +1818,8 @@ window.showFunnelDiagnostic = function(logId) {
     <div style="font-family: monospace; display:flex; flex-direction:column; gap:12px; overflow-y:auto; max-height:65vh;">
         <div>
             <div style="font-weight:600; color:#fff; margin-bottom:4px;">Direction Model</div>
-            <div>Key: <span style="color:#e2e8f0;">${funnel.direction_model_key || "—"}</span></div>
+            <div>LightGBM рассчитал вероятность: <span style="color:#e2e8f0;">${evaluatedModelKey}${evaluatedModelVersion !== null && evaluatedModelVersion !== undefined ? ` v${evaluatedModelVersion}` : ""}</span></div>
+            <div>Применён для направления: <span style="color:#e2e8f0;">${appliedDirectionModelKey}${appliedDirectionModelVersion !== null && appliedDirectionModelVersion !== undefined ? ` v${appliedDirectionModelVersion}` : ""}</span></div>
             <div>Status: <span style="color:${funnel.direction_status === 'READY' ? '#00ff88' : '#ff3366'};">${funnel.direction_status || "—"}</span></div>
             <div>calibrated p_up: <b>${fmt(funnel.direction_p_up)}</b>
                  (UP при raw p_up ≥ ${funnel.direction_threshold_up ?? "—"}; DOWN при raw p_up ≤ ${funnel.direction_threshold_down ?? "—"})</div>

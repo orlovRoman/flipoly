@@ -24,6 +24,48 @@ from polyflip.crypto.market_regime_classifier import Regime
 
 logger = structlog.get_logger(__name__)
 
+# A transient CLOB response must not turn into a permanent "model" failure.
+# Keep the retry bounded so a slow price endpoint cannot hold the decision loop.
+FRESH_PRICE_MAX_ATTEMPTS = 2
+FRESH_PRICE_RETRY_DELAY_SEC = 0.15
+
+
+async def _fetch_fresh_yes_prices(
+    api_client: Any,
+    token_id: str,
+) -> Optional[dict[str, Any]]:
+    """Fetch a usable YES quote, retrying one transient/malformed response.
+
+    The combined decision requires ``current_yes_price`` because this is the
+    price used by the entry calculation.  A missing quote is returned as
+    ``None`` after the bounded retry; callers record the explicit
+    ``MARKET_PRICE_UNAVAILABLE`` status instead of pretending that LightGBM
+    failed.
+    """
+    for attempt in range(1, FRESH_PRICE_MAX_ATTEMPTS + 1):
+        try:
+            prices = await api_client.get_market_prices(token_id)
+        except Exception as exc:  # noqa: BLE001 - quote provider is external
+            logger.warning(
+                "combined_fresh_prices_attempt_failed",
+                token_id=token_id,
+                attempt=attempt,
+                max_attempts=FRESH_PRICE_MAX_ATTEMPTS,
+                error=str(exc),
+            )
+            prices = None
+        if isinstance(prices, dict) and prices.get("current_yes_price") is not None:
+            return prices
+        if attempt < FRESH_PRICE_MAX_ATTEMPTS:
+            logger.info(
+                "combined_fresh_prices_retry",
+                token_id=token_id,
+                attempt=attempt,
+                max_attempts=FRESH_PRICE_MAX_ATTEMPTS,
+            )
+            await asyncio.sleep(FRESH_PRICE_RETRY_DELAY_SEC)
+    return None
+
 
 def _best_book_level_size(prices: Any, side: str) -> Optional[float]:
     """Return the size at the best normalized CLOB level, if present."""
@@ -93,6 +135,8 @@ def _resolve_lgbm_attribution(
         return {
             "direction_value": "NONE",
             "actually_decided": False,
+            "evaluated_model_key": None,
+            "evaluated_model_version": None,
             "applied_model_key": None,
             "applied_model_version": None,
             "shadow_model_key": None,
@@ -106,9 +150,15 @@ def _resolve_lgbm_attribution(
     actually_decided = normalized_value in {"UP", "DOWN"} or bool(probability_applied)
     is_active = mode == "ACTIVE"
     is_shadow = mode == "SHADOW"
+    evaluated_model_key = model_key or None
+    evaluated_model_version = (
+        model_version if model_version is not None and model_version >= 0 else None
+    )
     return {
         "direction_value": normalized_value,
         "actually_decided": actually_decided,
+        "evaluated_model_key": evaluated_model_key,
+        "evaluated_model_version": evaluated_model_version,
         "applied_model_key": model_key if is_active and actually_decided else None,
         "applied_model_version": model_version if is_active and actually_decided else None,
         "shadow_model_key": model_key if is_shadow else None,
@@ -574,8 +624,11 @@ async def decide_combined_mode(
     t0 = time.monotonic()
     decision_run_id = f"dec_{uuid.uuid4().hex[:12]}"
 
-    # 1. Запрашиваем актуальные цены Polymarket (YES и NO)
-    fresh_yes_prices = await api_client.get_market_prices(market.yes_token_id)
+    # 1. Запрашиваем актуальные цены Polymarket (YES и NO).  One bounded
+    # retry separates a transient CLOB response from a real data outage.
+    fresh_yes_prices = await _fetch_fresh_yes_prices(
+        api_client, market.yes_token_id
+    )
     if not fresh_yes_prices or fresh_yes_prices.get("current_yes_price") is None:
         logger.warning("combined_fresh_prices_failed", asset=asset_upper, market_id=market.market_id)
         await log_funnel(
@@ -593,19 +646,24 @@ async def decide_combined_mode(
             min_edge_used=cfg.favorite_min_edge,
             g1_model_loaded=bool(models_cache and models_cache.models),
             g2_price_fetched=False,
+            direction_status="MARKET_PRICE_UNAVAILABLE",
+            entry_status="MARKET_PRICE_UNAVAILABLE",
+            direction_error_detail=(
+                f"fresh_yes_price_unavailable_after_{FRESH_PRICE_MAX_ATTEMPTS}_attempts"
+            ),
             final_action="SKIP",
-            skip_reason="Failed to fetch fresh Polymarket YES price",
+            skip_reason="Failed to fetch fresh Polymarket YES price [MARKET_PRICE_UNAVAILABLE]",
         )
         return DecisionResult(
             decision_obj=TradeDecision(
                 action="SKIP", buy_price=0.0, bet_size_usdc=0.0,
-                reason="Failed to fetch fresh Polymarket YES price",
+                reason="Failed to fetch fresh Polymarket YES price [MARKET_PRICE_UNAVAILABLE]",
                 strategy_type="COMBINED", p_flip=None, edge=0.0
             ),
             p_flip=0.0,
             model_ver=None,
             edge=None,
-            skip_reason="Failed to fetch fresh Polymarket YES price",
+            skip_reason="Failed to fetch fresh Polymarket YES price [MARKET_PRICE_UNAVAILABLE]",
         )
 
     fresh_yes_price = float(fresh_yes_prices["current_yes_price"])
@@ -917,6 +975,8 @@ async def decide_combined_mode(
         probability_applied=weighted_lgbm_used,
     )
     lgbm_direction_value = lgbm_attribution["direction_value"]
+    evaluated_direction_key = lgbm_attribution["evaluated_model_key"]
+    evaluated_direction_version = lgbm_attribution["evaluated_model_version"]
     applied_direction_key = lgbm_attribution["applied_model_key"]
     applied_direction_version = lgbm_attribution["applied_model_version"]
 
@@ -973,6 +1033,10 @@ async def decide_combined_mode(
         "weighted_fee_source": comb_res.weighted_fee_source,
         "consensus_type": comb_res.consensus_type,
         "direction_status": "SHADOW_NOT_APPLIED" if lgbm_shadow else ("DISABLED_BY_OPERATOR" if effective_lgbm_mode == "OFF" else comb_res.direction_status),
+        "evaluated_model_key": evaluated_direction_key,
+        "evaluated_model_version": evaluated_direction_version,
+        "applied_direction_model_key": applied_direction_key,
+        "applied_direction_model_version": applied_direction_version,
         "direction_model_key": applied_direction_key,
         "direction_model_version": applied_direction_version,
         "shadow_direction_model_key": lgbm_attribution["shadow_model_key"],
@@ -1030,6 +1094,10 @@ async def decide_combined_mode(
         # SHADOW retains model attribution even though it is excluded from trading.
         "lgbm_version": comb_res.direction_model_version,
         "lgbm_model_key": comb_res.direction_model_key,
+        "evaluated_model_key": evaluated_direction_key,
+        "evaluated_model_version": evaluated_direction_version,
+        "applied_direction_model_key": applied_direction_key,
+        "applied_direction_model_version": applied_direction_version,
         "lgbm_direction": lgbm_direction_value,
         "lgbm_features_ok": direction_signal.features_ok if direction_signal else False,
         "shadow_inference_status": direction_signal.status if direction_signal else "NONE",
@@ -1305,6 +1373,10 @@ async def decide_combined_mode(
         direction_status=final_dir_status,
         direction_model_key=lgbm_attribution["funnel_model_key"],
         direction_model_version=lgbm_attribution["funnel_model_version"],
+        evaluated_model_key=evaluated_direction_key,
+        evaluated_model_version=evaluated_direction_version,
+        applied_direction_model_key=applied_direction_key,
+        applied_direction_model_version=applied_direction_version,
         direction_regime=comb_res.direction_regime,
         direction_probability=comb_res.direction_probability,
         direction_p_up=comb_res.direction_p_up,
@@ -1934,4 +2006,3 @@ async def decide_ct_outsider_mode(
         skip_reason=reason if action == "SKIP" else None,
         decision_at=eff_decision_at,
     )
-

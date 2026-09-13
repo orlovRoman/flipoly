@@ -25,6 +25,24 @@ from polyflip.db.connection import async_session
 from polyflip.db.models import ModelRegistry, ModelRegistryOOFArtifact
 
 
+# ``normalize_experiment_config`` also returns policy metadata (for example
+# ``policy_mode``) used by the live/weighted backtest.  The threshold
+# evaluator is deliberately narrower; passing unknown options made the
+# otherwise read-only ETH/SOL audit fail before producing any result.
+_EVALUATOR_OPTIONS = frozenset(
+    {
+        "min_edge",
+        "cost_buffer",
+        "fee_rate",
+        "min_price",
+        "max_price",
+        "outsider_max_price",
+        "stake_usdc",
+        "slippage_pct",
+    }
+)
+
+
 def _backtest_options(params: dict[str, Any]) -> dict[str, Any]:
     raw = params.get("backtest_config")
     if raw is None:
@@ -32,7 +50,8 @@ def _backtest_options(params: dict[str, Any]) -> dict[str, Any]:
         raw = experiment.get("backtest") if isinstance(experiment, dict) else None
     if raw is None:
         return {}
-    return normalize_experiment_config({"backtest": raw})["backtest"]
+    normalized = normalize_experiment_config({"backtest": raw})["backtest"]
+    return {key: value for key, value in normalized.items() if key in _EVALUATOR_OPTIONS}
 
 
 async def audit_models(

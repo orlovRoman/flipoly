@@ -4,7 +4,7 @@ STATIC_VERSION = os.getenv("POLYFLIP_BUILD_SHA", "dev")
 import time
 import asyncio
 from fastapi.templating import Jinja2Templates
-from typing import Optional
+from typing import Any, Optional
 from datetime import datetime, time as dt_time, timezone, timedelta
 from fastapi import APIRouter, Request, Depends, Query
 
@@ -255,6 +255,12 @@ async def get_trading_stats(
 from polyflip.db.models import DecisionFunnelLog
 
 
+def _funnel_count(row: Any, name: str) -> int:
+    """Read an aggregate count safely, including lightweight mocked rows."""
+    value = getattr(row, name, None)
+    return int(value) if isinstance(value, (int, float)) else 0
+
+
 @router.get("/trading/funnel/stats")
 @router.get("/funnel/stats")
 async def get_funnel_stats(
@@ -297,13 +303,59 @@ async def get_funnel_stats(
                 else_=None,
             )
         ).label("traded"),
+        func.count(
+            sa_case(
+                (DecisionFunnelLog.direction_probability.isnot(None), 1),
+                else_=None,
+            )
+        ).label("lgbm_evaluated"),
+        func.count(
+            sa_case(
+                (DecisionFunnelLog.direction_value.in_(["UP", "DOWN"]), 1),
+                else_=None,
+            )
+        ).label("lgbm_directional"),
+        func.count(
+            sa_case(
+                (DecisionFunnelLog.final_action.in_(["BUY_YES", "BUY_NO"]), 1),
+                else_=None,
+            )
+        ).label("lgbm_traded"),
+        func.count(
+            sa_case(
+                (DecisionFunnelLog.direction_status == "MARKET_PRICE_UNAVAILABLE", 1),
+                else_=None,
+            )
+        ).label("lgbm_price_unavailable"),
+        func.count(
+            sa_case(
+                (DecisionFunnelLog.direction_probability.is_(None), 1),
+                else_=None,
+            )
+        ).label("lgbm_unavailable"),
         *gate_cols,
     ).where(and_(*base_filter))
 
     row = (await db.execute(q)).one()
     total = row.total
     if total == 0:
-        return {"total": 0, "traded": 0, "hours": hours, "by_gate": {}, "by_asset": {}}
+        return {
+            "total": 0,
+            "traded": 0,
+            "hours": hours,
+            "by_gate": {},
+            "by_asset": {},
+            "lightgbm": {
+                "evaluated": 0,
+                "directional": 0,
+                "trade_passed": 0,
+                "price_unavailable": 0,
+                "unavailable": 0,
+                "evaluated_pct": 0.0,
+                "directional_pct": 0.0,
+                "trade_passed_pct": 0.0,
+            },
+        }
 
     by_gate = {
         g: {
@@ -324,12 +376,61 @@ async def get_funnel_stats(
                     else_=None,
                 )
             ).label("traded"),
+            func.count(
+                sa_case(
+                    (DecisionFunnelLog.direction_probability.isnot(None), 1),
+                    else_=None,
+                )
+            ).label("lgbm_evaluated"),
+            func.count(
+                sa_case(
+                    (DecisionFunnelLog.direction_value.in_(["UP", "DOWN"]), 1),
+                    else_=None,
+                )
+            ).label("lgbm_directional"),
+            func.count(
+                sa_case(
+                    (DecisionFunnelLog.final_action.in_(["BUY_YES", "BUY_NO"]), 1),
+                    else_=None,
+                )
+            ).label("lgbm_traded"),
+            func.count(
+                sa_case(
+                    (DecisionFunnelLog.direction_status == "MARKET_PRICE_UNAVAILABLE", 1),
+                    else_=None,
+                )
+            ).label("lgbm_price_unavailable"),
+            func.count(
+                sa_case(
+                    (DecisionFunnelLog.direction_probability.is_(None), 1),
+                    else_=None,
+                )
+            ).label("lgbm_unavailable"),
         )
         .where(and_(*base_filter))
         .group_by(DecisionFunnelLog.asset)
     )
     asset_rows = (await db.execute(asset_q)).all()
-    by_asset = {r.asset: {"total": r.total, "traded": r.traded} for r in asset_rows}
+    by_asset = {}
+    for asset_row in asset_rows:
+        asset_total = _funnel_count(asset_row, "total")
+        evaluated = _funnel_count(asset_row, "lgbm_evaluated")
+        directional = _funnel_count(asset_row, "lgbm_directional")
+        trade_passed = _funnel_count(asset_row, "lgbm_traded")
+        by_asset[asset_row.asset] = {
+            "total": asset_total,
+            "traded": _funnel_count(asset_row, "traded"),
+            "lightgbm": {
+                "evaluated": evaluated,
+                "directional": directional,
+                "trade_passed": trade_passed,
+                "price_unavailable": _funnel_count(asset_row, "lgbm_price_unavailable"),
+                "unavailable": _funnel_count(asset_row, "lgbm_unavailable"),
+                "evaluated_pct": round(evaluated / asset_total * 100, 1) if asset_total else 0.0,
+                "directional_pct": round(directional / asset_total * 100, 1) if asset_total else 0.0,
+                "trade_passed_pct": round(trade_passed / asset_total * 100, 1) if asset_total else 0.0,
+            },
+        }
 
     # MRF summary (MRF-FIX-11): counts by mrf_mode
     mrf_q = (
@@ -364,6 +465,16 @@ async def get_funnel_stats(
         "hours": hours,
         "by_gate": by_gate,
         "by_asset": by_asset,
+        "lightgbm": {
+            "evaluated": _funnel_count(row, "lgbm_evaluated"),
+            "directional": _funnel_count(row, "lgbm_directional"),
+            "trade_passed": _funnel_count(row, "lgbm_traded"),
+            "price_unavailable": _funnel_count(row, "lgbm_price_unavailable"),
+            "unavailable": _funnel_count(row, "lgbm_unavailable"),
+            "evaluated_pct": round(_funnel_count(row, "lgbm_evaluated") / total * 100, 1),
+            "directional_pct": round(_funnel_count(row, "lgbm_directional") / total * 100, 1),
+            "trade_passed_pct": round(_funnel_count(row, "lgbm_traded") / total * 100, 1),
+        },
         "mrf": {
             "evaluated": mrf_row.total,
             "applied": mrf_row.applied,
@@ -403,6 +514,15 @@ async def get_funnel_detail(
             "p_flip": r.p_flip,
             "edge": r.edge,
             "fresh_price": r.fresh_price,
+            "direction_status": r.direction_status,
+            # ``direction_model_*`` is the legacy funnel alias.  The explicit
+            # fields below let the UI distinguish evaluated from applied.
+            "direction_model_key": r.direction_model_key,
+            "direction_model_version": r.direction_model_version,
+            "evaluated_model_key": r.evaluated_model_key,
+            "evaluated_model_version": r.evaluated_model_version,
+            "applied_direction_model_key": r.applied_direction_model_key,
+            "applied_direction_model_version": r.applied_direction_model_version,
             "thresholds": {
                 "lower": r.threshold_lower,
                 "upper": r.threshold_upper,

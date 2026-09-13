@@ -473,6 +473,12 @@
                         <div><strong id="funnel-traded" style="color: #4ade80;">—</strong> сделок</div>
                         <div style="color: var(--text-muted);">conversion: <strong id="funnel-conv" style="color: white;">—</strong>%</div>
                     </div>
+                    <div id="funnel-lgbm-summary" style="display: flex; flex-wrap: wrap; gap: 1.25rem; margin: 0 0 1rem; padding: 0.7rem 0.9rem; border: 1px solid rgba(96,165,250,0.25); border-radius: 8px; background: rgba(96,165,250,0.06); font-size: 0.85rem;">
+                        <div>LightGBM рассчитал вероятность: <strong id="funnel-lgbm-evaluated" style="color: #60a5fa;">—</strong> (<span id="funnel-lgbm-evaluated-pct">—</span>%)</div>
+                        <div>выдал направление: <strong id="funnel-lgbm-directional" style="color: #a78bfa;">—</strong> (<span id="funnel-lgbm-directional-pct">—</span>%)</div>
+                        <div>сделка прошла: <strong id="funnel-lgbm-traded" style="color: #4ade80;">—</strong> (<span id="funnel-lgbm-traded-pct">—</span>%)</div>
+                        <div>цена недоступна: <strong id="funnel-lgbm-price-unavailable" style="color: #f59e0b;">—</strong></div>
+                    </div>
                     <div style="overflow-x: auto; background: rgba(0,0,0,0.2); border-radius: 8px; padding: 1rem; border: 1px solid var(--border-color);">
                         <table class="data-table" id="funnel-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
                             <thead>
@@ -1015,7 +1021,7 @@
     </div>
 
     <script src="{{ url_for('static', path='/js/utils.js') }}?v={{ static_version }}" defer></script>
-    <script src="{{ url_for('static', path='/js/trading.js') }}?v={{ static_version }}&cb=6" defer></script>
+    <script src="{{ url_for('static', path='/js/trading.js') }}?v={{ static_version }}&cb=7" defer></script>
     <script>
     const GATE_LABELS = {
       g1_model_loaded:   "G1: Модели загружены (LGBM + LogReg)",
@@ -1049,6 +1055,18 @@
         document.getElementById("funnel-traded").textContent = data.traded ?? 0;
         const conv = data.total > 0 ? ((data.traded / data.total) * 100).toFixed(1) : "0.0";
         document.getElementById("funnel-conv").textContent = conv;
+
+        // Keep the three LightGBM stages separate: a probability can be
+        // evaluated even when it does not cross the direction threshold, and
+        // a direction can still be stopped by later entry/price gates.
+        const lgbm = data.lightgbm || {};
+        document.getElementById("funnel-lgbm-evaluated").textContent = lgbm.evaluated ?? 0;
+        document.getElementById("funnel-lgbm-evaluated-pct").textContent = lgbm.evaluated_pct ?? "0.0";
+        document.getElementById("funnel-lgbm-directional").textContent = lgbm.directional ?? 0;
+        document.getElementById("funnel-lgbm-directional-pct").textContent = lgbm.directional_pct ?? "0.0";
+        document.getElementById("funnel-lgbm-traded").textContent = lgbm.trade_passed ?? 0;
+        document.getElementById("funnel-lgbm-traded-pct").textContent = lgbm.trade_passed_pct ?? "0.0";
+        document.getElementById("funnel-lgbm-price-unavailable").textContent = lgbm.price_unavailable ?? 0;
 
         const tbody = document.getElementById("funnel-tbody");
         if (!tbody) return;

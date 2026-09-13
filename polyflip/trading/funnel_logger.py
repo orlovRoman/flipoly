@@ -59,6 +59,13 @@ async def log_funnel(
     direction_status: Optional[str] = None,
     direction_model_key: Optional[str] = None,
     direction_model_version: Optional[int] = None,
+    # Keep model evaluation separate from the directional model that the
+    # policy actually applied.  ``direction_model_*`` remains the legacy
+    # funnel alias for compatibility with existing readers.
+    evaluated_model_key: Optional[str] = None,
+    evaluated_model_version: Optional[int] = None,
+    applied_direction_model_key: Optional[str] = None,
+    applied_direction_model_version: Optional[int] = None,
     required_direction_model_key: Optional[str] = None,
     direction_regime: Optional[str] = None,
     direction_probability: Optional[float] = None,
@@ -165,6 +172,10 @@ async def log_funnel(
             direction_status=direction_status,
             direction_model_key=direction_model_key,
             direction_model_version=direction_model_version,
+            evaluated_model_key=evaluated_model_key,
+            evaluated_model_version=evaluated_model_version,
+            applied_direction_model_key=applied_direction_model_key,
+            applied_direction_model_version=applied_direction_model_version,
             direction_regime=direction_regime,
             direction_probability=direction_probability,
             direction_p_up=direction_p_up,

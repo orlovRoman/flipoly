@@ -848,6 +848,12 @@ class DecisionFunnelLog(Base):
     decision_run_id = Column(String(64), nullable=True)
     direction_model_key = Column(String(64), nullable=True)
     direction_model_version = Column(Integer, nullable=True)
+    # Distinguish a loaded/evaluated LightGBM model from a model whose
+    # directional output was actually applied by the policy.
+    evaluated_model_key = Column(String(64), nullable=True)
+    evaluated_model_version = Column(Integer, nullable=True)
+    applied_direction_model_key = Column(String(64), nullable=True)
+    applied_direction_model_version = Column(Integer, nullable=True)
     required_direction_model_key = Column(String(64), nullable=True)
     direction_regime = Column(String(32), nullable=True)
     direction_status = Column(String(32), nullable=True)

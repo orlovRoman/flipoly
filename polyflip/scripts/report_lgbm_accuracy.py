@@ -33,7 +33,7 @@ async def main():
         stats = (await s.execute(text("""
             SELECT
                 COUNT(*) as total,
-                COUNT(direction_value) as with_signal,
+                COUNT(CASE WHEN COALESCE(evaluated_model_key, direction_model_key) IS NOT NULL THEN 1 END) as with_signal,
                 COUNT(CASE WHEN direction_value IN ('UP','DOWN') THEN 1 END) as clear_signal,
                 COUNT(CASE WHEN direction_value = 'UP'   THEN 1 END) as up_cnt,
                 COUNT(CASE WHEN direction_value = 'DOWN' THEN 1 END) as down_cnt,
@@ -41,7 +41,7 @@ async def main():
                 MIN(created_at) as first_log,
                 MAX(created_at) as last_log
             FROM decision_funnel_log
-            WHERE direction_model_key IS NOT NULL
+            WHERE COALESCE(evaluated_model_key, direction_model_key) IS NOT NULL
               AND created_at >= NOW() - INTERVAL '24 hours';
         """))).mappings().one()
 
@@ -57,7 +57,7 @@ async def main():
         # ── 1. Сигналы по монете + режиму ────────────────────────────────
         by_coin = (await s.execute(text("""
             SELECT
-                direction_model_key,
+                COALESCE(evaluated_model_key, direction_model_key) AS direction_model_key,
                 direction_regime,
                 direction_value,
                 COUNT(*) as cnt,
@@ -70,7 +70,7 @@ async def main():
                 COUNT(CASE WHEN g7_crypto_confirm = true  THEN 1 END) as g7_passed,
                 COUNT(CASE WHEN g7_crypto_confirm = false THEN 1 END) as g7_blocked
             FROM decision_funnel_log
-            WHERE direction_model_key IS NOT NULL
+            WHERE COALESCE(evaluated_model_key, direction_model_key) IS NOT NULL
               AND direction_value IS NOT NULL
               AND created_at >= NOW() - INTERVAL '24 hours'
             GROUP BY direction_model_key, direction_regime, direction_value
@@ -98,7 +98,7 @@ async def main():
         print_subheader("2. Итог по монете: uверенность модели и G7-фильтр")
         by_asset = (await s.execute(text("""
             SELECT
-                SPLIT_PART(direction_model_key, '_', 1) as coin,
+                SPLIT_PART(COALESCE(evaluated_model_key, direction_model_key), '_', 1) as coin,
                 COUNT(CASE WHEN direction_value IN ('UP','DOWN') THEN 1 END) as clear,
                 COUNT(CASE WHEN direction_value = 'UP'   THEN 1 END) as up_cnt,
                 COUNT(CASE WHEN direction_value = 'DOWN' THEN 1 END) as down_cnt,
@@ -108,9 +108,9 @@ async def main():
                 COUNT(CASE WHEN g7_crypto_confirm = false THEN 1 END) as g7_no,
                 COUNT(CASE WHEN final_action = 'BUY' THEN 1 END) as buys
             FROM decision_funnel_log
-            WHERE direction_model_key IS NOT NULL
+            WHERE COALESCE(evaluated_model_key, direction_model_key) IS NOT NULL
               AND created_at >= NOW() - INTERVAL '24 hours'
-            GROUP BY SPLIT_PART(direction_model_key, '_', 1)
+            GROUP BY SPLIT_PART(COALESCE(evaluated_model_key, direction_model_key), '_', 1)
             ORDER BY coin;
         """))).mappings().all()
 
@@ -132,7 +132,7 @@ async def main():
                 final_action,
                 COUNT(*) as cnt
             FROM decision_funnel_log
-            WHERE direction_model_key IS NOT NULL
+            WHERE COALESCE(evaluated_model_key, direction_model_key) IS NOT NULL
               AND direction_value IN ('UP', 'DOWN')
               AND created_at >= NOW() - INTERVAL '24 hours'
             GROUP BY g7_crypto_confirm, final_action
