@@ -3,7 +3,7 @@ import pickle
 from unittest.mock import patch, AsyncMock
 from sqlalchemy import select
 from datetime import datetime, timezone, timedelta
-from polyflip.db.models import RuntimeSettings, LiveMarket, ModelRegistry, TradeHistory
+from polyflip.db.models import RuntimeSettings, LiveMarket, ModelRegistry, TradeHistory, DecisionFunnelLog
 from polyflip.trading.engine import trade_worker_cycle
 
 class MockModel:
@@ -61,6 +61,13 @@ async def test_engine_skips_when_no_fresh_prices(db_session):
         assert len(trades) == 1
         assert trades[0].status == 'SKIPPED'
         assert 'Failed to fetch fresh Polymarket YES price' in trades[0].error_msg
+        funnel = (await db_session.execute(
+            select(DecisionFunnelLog).where(DecisionFunnelLog.market_id == 'm_no_price')
+        )).scalars().all()
+        assert len(funnel) == 1
+        assert funnel[0].direction_status == 'MARKET_PRICE_UNAVAILABLE'
+        assert funnel[0].entry_status == 'MARKET_PRICE_UNAVAILABLE'
+        assert funnel[0].g2_price_fetched is False
 
 @pytest.mark.asyncio
 async def test_engine_skips_when_clob_error(db_session):
@@ -82,3 +89,9 @@ async def test_engine_skips_when_clob_error(db_session):
         target_trade = next((t for t in trades if t.market_id == 'm_clob_err'))
         assert target_trade.status == 'SKIPPED'
         assert 'Failed to fetch fresh Polymarket YES price' in target_trade.error_msg
+        funnel = (await db_session.execute(
+            select(DecisionFunnelLog).where(DecisionFunnelLog.market_id == 'm_clob_err')
+        )).scalars().all()
+        assert len(funnel) == 1
+        assert funnel[0].direction_status == 'MARKET_PRICE_UNAVAILABLE'
+        assert funnel[0].entry_status == 'MARKET_PRICE_UNAVAILABLE'
