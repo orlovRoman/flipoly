@@ -1,0 +1,154 @@
+# =============================================================================
+# lgbm_shared_v1/spec.yaml — FROZEN at Этап 1 (hash-locked)
+# Common causal dataset + cross-audit rules for both audits.
+# =============================================================================
+experiment_id: lgbm_shared_v1
+spec_version: 1.0.0
+status: FROZEN
+branch: research/lgbm-audit-shared-v1
+base_commit: a12566526fa2135611938955a46f2f262351f669
+live_orders_enabled: false
+production_changes: forbidden
+model_activation: forbidden
+dashboard_settings_changes: forbidden
+posthoc_threshold_tuning: forbidden
+future_data_use: forbidden
+target_mixing: forbidden
+
+development_period:
+  from: '2026-07-06 00:00:00+00'
+  to_exclusive: '2026-09-12 00:00:00+00'
+funnel_starts: '2026-07-22 00:00:00+00'
+policy_replay_limited_to_funnel_period: true
+forecast_audit_may_use_earlier_data: true
+
+folds:
+  type: expanding_window
+  embargo_days: 1
+  validation_days: 7
+  assignment_key: canonical_market_end
+  train_extra_rule: native_horizon_end < embargo_start
+  one_market_one_fold: true
+  F1: {train: '06.07-26.07 excl', embargo: '26-27.07', validation: '27.07-03.08'}
+  F2: {train: '06.07-02.08 excl', embargo: '02-03.08', validation: '03-10.08'}
+  F3: {train: '06.07-09.08 excl', embargo: '09-10.08', validation: '10-17.08'}
+  F4: {train: '06.07-16.08 excl', embargo: '16-17.08', validation: '17-24.08'}
+  F5: {train: '06.07-23.08 excl', embargo: '23-24.08', validation: '24-31.08'}
+  F6: {train: '06.07-31.08 excl', embargo: '31.08-01.09', validation: '01-08.09'}
+  year: 2026
+  all_bounds_00_00_UTC_upper_exclusive: true
+
+target_taxonomy:
+  classes: [BINANCE_NEXT_RETURN, POLYMARKET_FINAL_OUTCOME,
+            POLYMARKET_FLIP_VS_FINAL_OUTCOME, UNKNOWN_TARGET]
+  flip_is_not_contract_direction: true
+  truth_priority:
+    - signed_manifest_or_training_params_target_source
+    - producing_commit_and_code
+    - stored_dataset_description
+    - interval_field_auxiliary_only
+  conflict_action: TARGET_CONFLICT_excluded_from_evidence
+
+regimes:
+  model_regime: runtime-selected regime of the corresponding era (stored separately)
+  evaluation_regime: single frozen reporting strata (stored separately)
+  interchangeable: false
+
+library_lock: requirements-lock.txt
+
+export:
+  read_only_transaction: true
+  prelude: ['BEGIN TRANSACTION READ ONLY', 'SHOW transaction_read_only']
+  allow_list: [SELECT, WITH, COPY_SELECT]
+  application_name: lgbm_audit_export
+  chunking: daily
+  heavy_files_out_of_git: true
+  git_stores: [SQL, builder, schema, row_counts, logical_hashes, manifest]
+  expected_counts: {funnel: 1496619, execution_requests: 10539,
+    execution_attempts: 10680, execution_fills: 9122, execution_events: 10639}
+  sources: [market_snapshots, live_markets, crypto_candles, decision_funnel_log,
+    trade_history, execution_requests, execution_attempts, execution_fills,
+    execution_events, settings_records, model_registry_and_blobs]
+
+dataset:
+  unit_key: [decision_event_id, model_slot]
+  model_unknown_slot: UNKNOWN_MODEL
+  no_forecast_sentinel: {model_id: null, model_slot: NO_MODEL, model_version: -1}
+  decision_at_priority: [trade_history_decision_at, structured_decision_timestamp,
+    funnel_created_at_as_LOG_WRITE_TIME_PROXY]
+  proxy_sensitivity_s: 5
+  no_journal_no_replay: true
+  snapshot_rule: {event_at_lte: decision_at, received_at_lte: decision_at}
+  l1_source: market_snapshots
+  depth_join: [market, token, causal_event_at, causal_received_at]
+  synthetic_no_flag: synthetic_no
+  candle_rule: {close_time_lte: decision_at}
+  candle_close_completion: {m5: open_plus_299999ms, m15: open_plus_899999ms,
+    flag: close_time_imputed, must_match_native_where_both: true}
+  native_targets:
+    BINANCE_NEXT_RETURN: ret_1_shift_minus1_gt_0_on_model_interval_grid_adjacent
+    POLYMARKET_FINAL_OUTCOME: YES_1_NO_0
+    POLYMARKET_FLIP_VS_FINAL_OUTCOME: favorite_by_causal_mid_loses_is_1_exclude_mid_eq_05
+    UNKNOWN_TARGET: no_native_metrics
+  contract_target: final_outcome_YES_1_NO_0
+  stored_fields_add: [native_target, contract_target, target_alignment,
+    native_horizon_end, market_end, horizon_gap, time_to_expiry]
+  settings_tiers:
+    Tier_A: restored_from_telemetry_registry_era_code
+    Tier_B: partial_fixed_scenarios_only
+    Tier_C: insufficient_data
+  probative_replay_requires: {tier_A_share_ge_pct: 90, min_pairs: 200}
+  never_backfill_current_settings: true
+  unknown_setting_mark: UNKNOWN_SETTING
+  joins:
+    decision_trade: trade_history.id
+    requests: execution_requests.trade_history_id
+    attempts: execution_attempts.request_id
+    fills: execution_fills.attempt_id
+    events: execution_events.request_id_attempt_id_trade_history_id
+    live_mirror: source_paper_request_id
+  determinism: {fixed_sort: true, fixed_types: true, utc: true,
+    canonical_null: true, canonical_float: true,
+    file_sha: stored, logical_sha: gated}
+
+dataset_gate:
+  leakage_rows: 0
+  target_conflicts_admitted: 0
+  unexplained_duplicates: 0
+  reason_codes_valid_pct: 100
+  tier_A_share_for_policy_replay_ge_pct: 90
+  paired_opportunities_ge: 200
+  checksums_match: true
+  settings_coverage_fail_action: forecast_continues_policy_verdict_INCONCLUSIVE_SETTINGS
+
+fork_rule:
+  after_dataset_gate_pass: create_branches
+  branches: [research/lgbm-direction-audit-v1, research/lgbm-feature-audit-v1]
+  from: shared_freeze_commit
+  cross_reads_forbidden: true
+
+verdict_labels_direction: [FORWARD_CANDIDATE, SHADOW_ONLY, REMOVE_FROM_DECISION,
+  TARGET_MISMATCH, NON_REPRODUCIBLE, INCONCLUSIVE, INCONCLUSIVE_SETTINGS,
+  TECHNICAL_INVALID, STOP]
+
+joint_closeout_table:
+  - {direction: useful, features: stable, decision: candidate_for_new_frozen_forward}
+  - {direction: useless, features: useful, decision: new_model_in_separate_experiment}
+  - {direction: useful, features: unstable, decision: shadow_and_investigate_mechanism}
+  - {direction: useless, features: useless, decision: STOP}
+  - {direction: target_mismatch, features: native_useful, decision: not_for_current_contracts}
+
+forward_policy:
+  only_for_prefrozen_candidate: true
+  readiness: [clean_git, one_spec_hash, dataset_code_model_hashes,
+    twenty_manual_parity, schema_validation_100pct, collector_freshness,
+    clock_skew_lt_1s, no_write_verification, shadow_dry_run,
+    zero_unexplained_side_mismatches]
+  final_start: first_00_15_30_45_UTC_at_least_5min_after_readiness_and_shadow_start
+  new_contracts_only: true
+  duration_days: 14
+  no_spec_changes: true
+  single_final_gate_after_settlement: true
+  no_automatic_activation: true
+
+research_questions_traceability: 26_final_questions_in_plan
