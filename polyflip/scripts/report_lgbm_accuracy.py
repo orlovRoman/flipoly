@@ -73,8 +73,8 @@ async def main():
             WHERE COALESCE(evaluated_model_key, direction_model_key) IS NOT NULL
               AND direction_value IS NOT NULL
               AND created_at >= NOW() - INTERVAL '24 hours'
-            GROUP BY direction_model_key, direction_regime, direction_value
-            ORDER BY direction_model_key, direction_regime, direction_value;
+            GROUP BY COALESCE(evaluated_model_key, direction_model_key), direction_regime, direction_value
+            ORDER BY COALESCE(evaluated_model_key, direction_model_key), direction_regime, direction_value;
         """))).mappings().all()
 
         print_subheader("1. Сигналы по модели / режиму / направлению")
