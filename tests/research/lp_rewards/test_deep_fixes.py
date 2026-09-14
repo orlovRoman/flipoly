@@ -443,3 +443,73 @@ def test_shadow_collector_quote_hours_calculation():
     avg_ticks = sum(market_uptime.values()) / len(market_uptime)
     quote_hours = (avg_ticks * interval_sec) / 3600.0
     assert quote_hours == 2.0
+
+
+def test_subtract_orders_deduplication():
+    """Verify subtract_orders removes our resting liquidity from public orderbook."""
+    from polyflip.research.lp_rewards.scoring import subtract_orders
+    public = [
+        OrderbookLevel(price=Decimal("0.50"), size=Decimal("100.0")),
+        OrderbookLevel(price=Decimal("0.49"), size=Decimal("50.0")),
+    ]
+    ours = [
+        OrderbookLevel(price=Decimal("0.50"), size=Decimal("40.0")),
+        OrderbookLevel(price=Decimal("0.49"), size=Decimal("60.0")),
+    ]
+    result = subtract_orders(public, ours)
+    assert len(result) == 1
+    assert result[0].price == Decimal("0.50")
+    assert result[0].size == Decimal("60.0")
+
+
+def test_clob_v2_sdk_import_and_init():
+    """Verify py_clob_client_v2 is importable and initializes with standard params."""
+    from py_clob_client_v2 import ClobClient, ApiCreds
+    creds = ApiCreds(api_key="k", api_secret="s", api_passphrase="p")
+    client = ClobClient(
+        host="https://clob.polymarket.com",
+        chain_id=137,
+        key="0x" + "11" * 32,
+        creds=creds,
+        signature_type=0,
+    )
+    assert client is not None
+    assert hasattr(client, "post_order") or hasattr(client, "create_and_post_order")
+
+
+def test_evaluate_gate_a_missing_protocol_hash_rejected():
+    """Verify evaluate_gate_a_full rejects records that omit protocol_hash."""
+    from polyflip.research.lp_rewards.evaluation import evaluate_gate_a_full
+    records_no_hash = [
+        {
+            "day": d,
+            "date": f"2026-09-0{d+1}",
+            "net_pnl": "4.00",
+            "quote_hours": "20.0",
+            "book_uncertain_count": 0,
+            "market_breakdown": {f"c_{m}": {"net_pnl": "0.40", "coverage_ratio": "0.995"} for m in range(10)},
+        }
+        for d in range(7)
+    ]
+    rep = evaluate_gate_a_full(records_no_hash, expected_protocol_hash="expected_hash_123")
+    assert rep.protocol_hash_valid is False
+    assert any("Protocol hash missing" in r for r in rep.rejection_reasons)
+
+
+def test_evaluate_gate_a_duplicate_dates_rejected():
+    """Verify evaluate_gate_a_full rejects records with duplicate calendar dates."""
+    from polyflip.research.lp_rewards.evaluation import evaluate_gate_a_full
+    records_dup_date = [
+        {
+            "day": d,
+            "date": "2026-09-01",
+            "net_pnl": "4.00",
+            "quote_hours": "20.0",
+            "protocol_hash": "hash_123",
+            "book_uncertain_count": 0,
+            "market_breakdown": {f"c_{m}": {"net_pnl": "0.40", "coverage_ratio": "0.995"} for m in range(10)},
+        }
+        for d in range(7)
+    ]
+    rep = evaluate_gate_a_full(records_dup_date, expected_protocol_hash="hash_123")
+    assert any("Duplicate evaluation dates" in r for r in rep.rejection_reasons)

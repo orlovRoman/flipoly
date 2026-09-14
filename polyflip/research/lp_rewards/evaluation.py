@@ -164,9 +164,16 @@ def evaluate_gate_a_full(
 
     protocol_hash_valid = True
     if expected_protocol_hash:
-        if hashes_seen and expected_protocol_hash not in hashes_seen:
+        if not hashes_seen:
+            protocol_hash_valid = False
+            rejection_reasons.append(f"Protocol hash missing from evaluation records; expected {expected_protocol_hash}")
+        elif any(h != expected_protocol_hash for h in hashes_seen):
             protocol_hash_valid = False
             rejection_reasons.append(f"Protocol hash mismatch. Seen: {hashes_seen}, Expected: {expected_protocol_hash}")
+
+    dates_seen = [str(r.get("date")) for r in daily_records if r.get("date")]
+    if len(dates_seen) != len(set(dates_seen)):
+        rejection_reasons.append(f"Duplicate evaluation dates detected: {len(dates_seen)} records, {len(set(dates_seen))} unique")
 
     if total_book_uncertain > 0:
         rejection_reasons.append(f"BOOK_UNCERTAIN detected: {total_book_uncertain} occurrences")

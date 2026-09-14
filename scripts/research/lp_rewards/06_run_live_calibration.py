@@ -78,8 +78,7 @@ def main():
     logger.info(f"[ALLOWLIST LOADED] {len(active_configs)} markets ({len(allowlist_tokens)} tokens allowed).")
 
     try:
-        from py_clob_client.client import ClobClient
-        from py_clob_client.clob_types import ApiCreds
+        from py_clob_client_v2 import ClobClient, ApiCreds
         
         creds = ApiCreds(
             api_key=os.getenv("POLY_API_KEY", ""),
@@ -87,7 +86,7 @@ def main():
             api_passphrase=os.getenv("POLY_PASSPHRASE", ""),
         )
         clob_client = ClobClient(
-            "https://clob.polymarket.com",
+            host="https://clob.polymarket.com",
             chain_id=137,
             key=wallet_key,
             creds=creds,
@@ -96,7 +95,7 @@ def main():
         )
         clob_client.set_api_creds(creds)
     except Exception as e:
-        logger.error(f"[BLOCKED BY HARD GATE] Failed to initialize real ClobClient. Error: {e}")
+        logger.error(f"[BLOCKED BY HARD GATE] Failed to initialize real CLOB V2 ClobClient: {e}")
         sys.exit(1)
 
     # Initialize Live Executor
