@@ -1,0 +1,54 @@
+{
+  "asset": {
+    "BTC": 310518,
+    "DOGE": 307275,
+    "ETH": 329008,
+    "SOL": 246405,
+    "XRP": 304612
+  },
+  "evaluation_regime": {
+    "high_vol": 726838,
+    "low_vol": 353064,
+    "mid_vol": 417916
+  },
+  "fold": {
+    "F1": 454476,
+    "F2": 240293,
+    "F3": 112110,
+    "F4": 114251,
+    "F5": 106398,
+    "F6": 94140,
+    "gap": 99238,
+    "trainpool": 276912
+  },
+  "model_regime": {
+    "high_vol": 85943,
+    "low_vol": 152887,
+    "mid_vol": 146603,
+    "null": 1112385
+  },
+  "model_slot": {
+    "BTCUSDT_high_vol": 26210,
+    "BTCUSDT_low_vol": 28770,
+    "BTCUSDT_mid_vol": 24759,
+    "DOGEUSDT_high_vol": 9699,
+    "DOGEUSDT_low_vol": 52575,
+    "DOGEUSDT_mid_vol": 37949,
+    "ETHUSDT_high_vol": 10564,
+    "ETHUSDT_low_vol": 17744,
+    "ETHUSDT_mid_vol": 14687,
+    "NO_MODEL": 795562,
+    "SOLUSDT_high_vol": 20131,
+    "SOLUSDT_low_vol": 30319,
+    "SOLUSDT_mid_vol": 26792,
+    "UNKNOWN_MODEL": 316823,
+    "XRPUSDT_high_vol": 19339,
+    "XRPUSDT_low_vol": 23479,
+    "XRPUSDT_mid_vol": 42416
+  },
+  "settings_tier": {
+    "A": 366952,
+    "B": 3599,
+    "C": 1127267
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "candle_notes": {
+    "bad_open_dropped": 0,
+    "close_completed": 48949
+  },
+  "code_version": "v1.0.0",
+  "logical_sha256": "b1895f2ae4394131177415ff7df182b4b80f5e94023ff415a1b75b8b679b7c1b",
+  "regime": {
+    "cut_hi": 0.0009056922794711718,
+    "cut_lo": 0.0005859439992274561,
+    "reference": "trainpool_trailing24h_sigma"
+  },
+  "spec_sha256": "1649bc7c7c3459353bec571f5b3d501e9c71dfacf5f1a32772503aef87fcefea",
+  "stats": {
+    "days": 52,
+    "quote_ok": 764077,
+    "rows": 1497818,
+    "tierA": 366952,
+    "tierB": 3599,
+    "tierC": 1127267
+  }
+}

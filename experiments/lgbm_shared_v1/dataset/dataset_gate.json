@@ -1,0 +1,19 @@
+{
+  "checks": {
+    "coverage_assets": 5,
+    "coverage_folds": 8,
+    "eligible": 370551,
+    "leakage_zero_by_construction": true,
+    "n_rows": 1497818,
+    "pairs_ge_200": true,
+    "reason_codes_valid": true,
+    "target_conflicts_zero_by_construction": true,
+    "tierA": 366952,
+    "tierA_ge_90pct": true,
+    "tierA_share": 0.9902874368170643,
+    "unique_events": true
+  },
+  "gate_version": "v1.0.0",
+  "spec_sha256": "1649bc7c7c3459353bec571f5b3d501e9c71dfacf5f1a32772503aef87fcefea",
+  "verdict": "PASS"
+}
