@@ -174,6 +174,8 @@ def test_executor_eip712_signing_and_cancel_all(monkeypatch):
         wallet_address=test_addr,
     )
     executor.verify_gate_a = lambda: True
+    executor.get_pusd_balance_onchain = lambda x: Decimal("1000.0")
+    executor.get_pusd_allowance_onchain = lambda x, y: Decimal("1000.0")
 
     res = executor.submit_order(
         token_id="12345",

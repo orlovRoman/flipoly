@@ -74,13 +74,13 @@ def main():
 
     # 2. Check latest reward prediction error from reconciliation reports
     recon_dir = storage_path / "reconciliation"
-    mean_prediction_error = Decimal("0.0")
+    mean_prediction_error = Decimal("1.0")
     if recon_dir.exists():
         reward_reports = sorted(recon_dir.glob("rewards_*.json"))
         if reward_reports:
             with open(reward_reports[-1], "r", encoding="utf-8") as rf:
                 rdata = json.load(rf)
-                mean_prediction_error = Decimal(str(rdata.get("mean_error_ratio", "0.0")))
+                mean_prediction_error = Decimal(str(rdata.get("mean_error_ratio", "1.0")))
 
     # 3. Calculate bootstrap CI and drawdown
     point, lower, upper = compute_block_bootstrap_ci(

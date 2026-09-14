@@ -15,7 +15,7 @@ getcontext().prec = 28
 logger = logging.getLogger(__name__)
 
 POLYGON_CHAIN_ID = 137
-CTF_EXCHANGE_ADDRESS = "0xE111425114D4B830423406323c280B811B3e1d13"
+CTF_EXCHANGE_ADDRESS = "0xE11118001712aA868d4aB713A2c8f85fBB9161aB"
 
 
 class LiveOrderExecutor:
@@ -167,8 +167,61 @@ class LiveOrderExecutor:
 
         return True
 
+    def get_pusd_balance_onchain(self, wallet_address: str) -> Decimal:
+        import urllib.request
+        import json
+        rpc_url = os.getenv("POLYGON_RPC_URL", "https://polygon-rpc.com")
+        pusd_address = "0xC011a7E12a19f7b1f670d46f03b03f3342e82dfb"
+        addr = wallet_address.lower().replace("0x", "").zfill(64)
+        data_payload = "0x70a08231" + addr
+        payload = {
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{"to": pusd_address, "data": data_payload}, "latest"],
+            "id": 1
+        }
+        try:
+            req = urllib.request.Request(rpc_url, data=json.dumps(payload).encode(), headers={'Content-Type': 'application/json'})
+            with urllib.request.urlopen(req, timeout=5) as response:
+                res = json.loads(response.read())
+                balance_hex = res.get("result", "0x0")
+                if balance_hex == "0x": balance_hex = "0x0"
+                balance_int = int(balance_hex, 16)
+                return Decimal(balance_int) / Decimal("1e6")
+        except Exception as e:
+            logger.warning(f"On-chain balance fetch failed: {e}")
+            return Decimal("0.0")
+
+    def get_pusd_allowance_onchain(self, wallet_address: str, spender_address: str) -> Decimal:
+        import urllib.request
+        import json
+        rpc_url = os.getenv("POLYGON_RPC_URL", "https://polygon-rpc.com")
+        pusd_address = "0xC011a7E12a19f7b1f670d46f03b03f3342e82dfb"
+        owner = wallet_address.lower().replace("0x", "").zfill(64)
+        spender = spender_address.lower().replace("0x", "").zfill(64)
+        data_payload = "0xdd62ed3e" + owner + spender
+        payload = {
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{"to": pusd_address, "data": data_payload}, "latest"],
+            "id": 1
+        }
+        try:
+            req = urllib.request.Request(rpc_url, data=json.dumps(payload).encode(), headers={'Content-Type': 'application/json'})
+            with urllib.request.urlopen(req, timeout=5) as response:
+                res = json.loads(response.read())
+                allow_hex = res.get("result", "0x0")
+                if allow_hex == "0x": allow_hex = "0x0"
+                allow_int = int(allow_hex, 16)
+                return Decimal(allow_int) / Decimal("1e6")
+        except Exception as e:
+            logger.warning(f"On-chain allowance fetch failed: {e}")
+            return Decimal("0.0")
+
     def check_live_balance(self, cost: Decimal, available_balance: Optional[Decimal] = None) -> bool:
-        """Verify wallet has sufficient USDC balance."""
+        """Verify wallet has sufficient pUSD balance."""
+        if available_balance is None and self.wallet_address:
+            available_balance = self.get_pusd_balance_onchain(self.wallet_address)
         if available_balance is not None:
             if available_balance < cost:
                 raise ValueError(f"Insufficient live balance: available=${available_balance}, required=${cost}")
@@ -176,6 +229,8 @@ class LiveOrderExecutor:
 
     def check_allowance(self, required_amount: Decimal, current_allowance: Optional[Decimal] = None) -> bool:
         """Verify collateral allowance is sufficient for order execution."""
+        if current_allowance is None and self.wallet_address:
+            current_allowance = self.get_pusd_allowance_onchain(self.wallet_address, self.verifying_contract)
         if current_allowance is not None:
             if current_allowance < required_amount:
                 raise PermissionError(

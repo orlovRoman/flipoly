@@ -219,7 +219,8 @@ async def periodic_fsm_and_scoring(
                 }
 
             uncertain_count = sum(1 for v in collector.reconciler.uncertain_markets.values() if v)
-            quote_hours = (time.time() - loop_start_time) / 3600.0
+            avg_ticks = sum(market_uptime.values()) / max(1, len(active_markets))
+            quote_hours = (avg_ticks * interval_sec) / 3600.0
 
             eval_record = {
                 "date": date_str,

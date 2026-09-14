@@ -59,22 +59,44 @@ class RewardCalibrator:
         poly_signature = os.getenv("POLY_SIGNATURE")
         poly_timestamp = os.getenv("POLY_TIMESTAMP")
         poly_passphrase = os.getenv("POLY_PASSPHRASE")
-        if poly_address: headers["POLY_ADDRESS"] = poly_address
-        if poly_signature: headers["POLY_SIGNATURE"] = poly_signature
-        if poly_timestamp: headers["POLY_TIMESTAMP"] = poly_timestamp
-        if poly_passphrase: headers["POLY_PASSPHRASE"] = poly_passphrase
+        
+        if not (poly_address and poly_signature and poly_timestamp and poly_passphrase):
+            if should_close: await client.aclose()
+            raise PermissionError("Missing required L2 authenticated headers for /rewards/user")
+            
+        headers["POLY_ADDRESS"] = poly_address
+        headers["POLY_SIGNATURE"] = poly_signature
+        headers["POLY_TIMESTAMP"] = poly_timestamp
+        headers["POLY_PASSPHRASE"] = poly_passphrase
 
+        all_rewards = []
+        cursor = ""
         try:
-            url = f"{base_url}/rewards/user"
-            resp = await client.get(url, params={"address": wallet_address}, headers=headers)
-            if resp.status_code == 200:
+            while True:
+                url = f"{base_url}/rewards/user"
+                params = {"address": wallet_address}
+                if cursor:
+                    params["next_cursor"] = cursor
+                resp = await client.get(url, params=params, headers=headers)
+                if resp.status_code != 200:
+                    break
                 data = resp.json()
+                
+                rewards_data = []
                 if isinstance(data, list):
-                    return data
+                    rewards_data = data
                 elif isinstance(data, dict):
-                    # API returns earnings
-                    return data.get("earnings") or data.get("data") or data.get("rewards") or [data]
-            return []
+                    rewards_data = data.get("earnings") or data.get("data") or data.get("rewards") or [data]
+                
+                if isinstance(rewards_data, list):
+                    all_rewards.extend(rewards_data)
+                
+                next_cursor = data.get("next_cursor") if isinstance(data, dict) else None
+                if not next_cursor or next_cursor == "LTE=":
+                    break
+                cursor = next_cursor
+                
+            return all_rewards
         except Exception as e:
             logger.warning(f"Failed to fetch actual rewards for wallet {wallet_address}: {e}")
             return []

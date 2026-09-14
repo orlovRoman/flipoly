@@ -121,6 +121,8 @@ def test_executor_clob_v2_domain_and_post_order(monkeypatch):
         clob_client=client,
     )
     executor.verify_gate_a = lambda: True
+    executor.get_pusd_balance_onchain = lambda x: Decimal("1000.0")
+    executor.get_pusd_allowance_onchain = lambda x, y: Decimal("1000.0")
 
     res = executor.submit_order(
         token_id="0xabc123",
@@ -262,8 +264,12 @@ async def test_reconcile_orders_v2_orders_endpoint():
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_reconcile_rewards_user_endpoint():
+async def test_reconcile_rewards_user_endpoint(monkeypatch):
     """Verify fetch_actual_user_rewards uses /rewards/user with api key."""
+    monkeypatch.setenv("POLY_ADDRESS", "0x123")
+    monkeypatch.setenv("POLY_SIGNATURE", "sig")
+    monkeypatch.setenv("POLY_TIMESTAMP", "123")
+    monkeypatch.setenv("POLY_PASSPHRASE", "pass")
     route = respx.get("https://clob.polymarket.com/rewards/user").respond(
         status_code=200,
         json=[{"market": "c_1", "earnings": "100.0", "date": "2023-01-01"}],

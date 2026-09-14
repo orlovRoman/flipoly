@@ -50,22 +50,30 @@ async def main():
             with open(f, "r", encoding="utf-8") as jf:
                 data = json.load(jf)
                 date_key = f.stem
-                projected_reward = Decimal(str(data.get("lp_rewards", data.get("net_pnl", "0.0"))))
+                projected_reward = Decimal(str(data.get("total_rewards_accrued", "0.0")))
                 projected_by_date[date_key] = projected_reward
 
     # Reconcile each payout against projected
     payout_records: List[Dict[str, Any]] = []
+    
+    # Sum actual rewards by date
+    actual_by_date: Dict[str, Decimal] = {}
     for item in actual_rewards:
-        cid = item.get("condition_id", item.get("market", "c_unknown"))
+        raw_date = item.get("date", "")
+        date_val = raw_date[:10] if "T" in raw_date else raw_date
+        if not date_val: continue
         actual_val = Decimal(str(item.get("earnings", "0.0")))
-        date_val = item.get("date", "")
+        actual_by_date[date_val] = actual_by_date.get(date_val, Decimal("0.0")) + actual_val
+        
+    for date_val, actual_val in actual_by_date.items():
         if date_val not in projected_by_date:
             logger.error(f"DATA_INSUFFICIENT: No live projection found for date {date_val}")
             sys.exit(1)
         projected_val = projected_by_date[date_val]
-        err = calibrator.record_observation(cid, projected_val, actual_val)
+        err = calibrator.record_observation("ALL_MARKETS", projected_val, actual_val)
         payout_records.append({
-            "condition_id": cid,
+            "condition_id": "ALL_MARKETS",
+            "date": date_val,
             "actual_reward": str(actual_val),
             "projected_reward": str(projected_val),
             "error_ratio": str(err),
