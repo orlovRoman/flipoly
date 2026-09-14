@@ -905,3 +905,90 @@ def test_executor_sign_eip712_order_blocks_missing_or_zero_wallet():
     with pytest.raises(PermissionError) as exc3:
         executor_zero.sign_eip712_order("12345", "BUY", Decimal("0.50"), Decimal("10.0"))
     assert "Order signing requires configured non-zero wallet_address" in str(exc3.value)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_reconcile_orders_fetch_remote_http_error_fails_closed():
+    """Verify fetch_remote_orders raises RuntimeError and fails closed on non-200 HTTP status."""
+    respx.get("https://clob.polymarket.com/data/orders").respond(
+        status_code=500,
+        text="Internal Server Error",
+    )
+
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(RuntimeError) as exc:
+            await fetch_remote_orders(
+                wallet_address="0xabc",
+                client=client,
+            )
+    assert "CLOB orders query returned status 500" in str(exc.value)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_reconcile_orders_fetch_remote_network_error_fails_closed():
+    """Verify fetch_remote_orders raises RuntimeError on network/connection exception."""
+    respx.get("https://clob.polymarket.com/data/orders").mock(
+        side_effect=httpx.ConnectError("Connection refused")
+    )
+
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(RuntimeError) as exc:
+            await fetch_remote_orders(
+                wallet_address="0xabc",
+                client=client,
+            )
+    assert "Network error querying remote CLOB orders" in str(exc.value)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_reconcile_orders_fetch_remote_invalid_json_fails_closed():
+    """Verify fetch_remote_orders raises RuntimeError when response body is not valid JSON."""
+    respx.get("https://clob.polymarket.com/data/orders").respond(
+        status_code=200,
+        content=b"not-a-valid-json-string",
+        headers={"content-type": "application/json"},
+    )
+
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(RuntimeError) as exc:
+            await fetch_remote_orders(
+                wallet_address="0xabc",
+                client=client,
+            )
+    assert "Failed to parse CLOB orders JSON response" in str(exc.value)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_reconcile_orders_fetch_remote_unexpected_format_fails_closed():
+    """Verify fetch_remote_orders raises RuntimeError when JSON response is neither list nor dict."""
+    respx.get("https://clob.polymarket.com/data/orders").respond(
+        status_code=200,
+        json=12345,
+    )
+
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(RuntimeError) as exc:
+            await fetch_remote_orders(
+                wallet_address="0xabc",
+                client=client,
+            )
+    assert "Unexpected response format from CLOB orders API" in str(exc.value)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_reconcile_orders_main_remote_error_fails_closed(monkeypatch):
+    """Verify 07_reconcile_orders.py main() logs error and exits with code 1 when remote fetch fails."""
+    monkeypatch.setenv("LP_ISOLATED_WALLET_ADDRESS", "0x1111111111111111111111111111111111111111")
+    respx.get("https://clob.polymarket.com/data/orders").respond(
+        status_code=503,
+        text="Service Unavailable",
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        await reconcile_07.main()
+    assert exc.value.code == 1

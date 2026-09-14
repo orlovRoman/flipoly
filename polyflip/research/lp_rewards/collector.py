@@ -7,6 +7,10 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 import pandas as pd
 import websockets
+try:
+    from websockets.asyncio.client import ClientConnection
+except ImportError:
+    ClientConnection = Any  # type: ignore
 
 from .models import MarketRewardConfig, OrderbookLevel, OrderbookSnapshot, OrderSide
 from .reconciler import BookReconciler
@@ -152,7 +156,7 @@ class MarketDataCollector:
                 return cid
         return None
 
-    async def _ping_loop(self, ws: websockets.WebSocketClientProtocol) -> None:
+    async def _ping_loop(self, ws: ClientConnection) -> None:
         while self.running:
             await asyncio.sleep(self.ping_interval_sec)
             now = time.time()
@@ -168,7 +172,7 @@ class MarketDataCollector:
                 await ws.close()
                 break
 
-    async def _message_loop(self, ws: websockets.WebSocketClientProtocol) -> None:
+    async def _message_loop(self, ws: ClientConnection) -> None:
         async for raw_msg in ws:
             # Handle text PONG frame
             if isinstance(raw_msg, str) and raw_msg.strip().upper() == "PONG":

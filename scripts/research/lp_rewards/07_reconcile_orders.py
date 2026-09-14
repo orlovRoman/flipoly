@@ -45,28 +45,41 @@ async def fetch_remote_orders(
 
     url = f"{CLOB_API_URL}/data/orders"
     while True:
-        try:
-            params = {"maker_address": wallet_address}
-            if cursor:
-                params["next_cursor"] = cursor
+        params = {"maker_address": wallet_address}
+        if cursor:
+            params["next_cursor"] = cursor
 
+        try:
             resp = await client.get(url, params=params, headers=headers)
-            if resp.status_code == 200:
-                data = resp.json()
-                if isinstance(data, list):
-                    all_orders.extend(data)
-                    break
-                elif isinstance(data, dict):
-                    all_orders.extend(data.get("data", []))
-                    cursor = data.get("next_cursor")
-                    if not cursor or cursor == "LTE=":
-                        break
-            else:
-                logger.warning(f"CLOB orders query returned status {resp.status_code}: {resp.text}")
-                break
         except Exception as e:
-            logger.warning(f"Network error querying remote CLOB orders: {e}")
+            logger.error(f"Network error querying remote CLOB orders: {e}")
+            raise RuntimeError(f"Network error querying remote CLOB orders: {e}") from e
+
+        if resp.status_code != 200:
+            logger.error(f"CLOB orders query returned status {resp.status_code}: {resp.text}")
+            raise RuntimeError(f"CLOB orders query returned status {resp.status_code}: {resp.text}")
+
+        try:
+            data = resp.json()
+        except Exception as e:
+            logger.error(f"Failed to parse CLOB orders JSON response: {e}")
+            raise RuntimeError(f"Failed to parse CLOB orders JSON response: {e}") from e
+
+        if isinstance(data, list):
+            all_orders.extend(data)
             break
+        elif isinstance(data, dict):
+            orders_page = data.get("data", [])
+            if not isinstance(orders_page, list):
+                logger.error(f"Invalid 'data' field type in CLOB orders response: {type(orders_page)}")
+                raise RuntimeError(f"Invalid 'data' field type in CLOB orders response: {type(orders_page)}")
+            all_orders.extend(orders_page)
+            cursor = data.get("next_cursor")
+            if not cursor or cursor == "LTE=":
+                break
+        else:
+            logger.error(f"Unexpected response format from CLOB orders API: {type(data)}")
+            raise RuntimeError(f"Unexpected response format from CLOB orders API: {type(data)}")
 
     return all_orders
 
@@ -139,7 +152,11 @@ async def main():
             local_orders = json.load(f)
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        remote_orders = await fetch_remote_orders(wallet_address, client, api_key)
+        try:
+            remote_orders = await fetch_remote_orders(wallet_address, client, api_key)
+        except Exception as e:
+            logger.error(f"Failed to fetch remote orders: {e}")
+            sys.exit(1)
 
     recon_result = reconcile_orders(local_orders, remote_orders)
 
