@@ -22,15 +22,18 @@
   "self_checks": {
     "t00_initial_state_verified": true,
     "t01_code_and_dependencies_verified": {
-      "lp_rewards_tests_passed": 132,
+      "lp_rewards_tests_passed": 146,
       "lp_rewards_warnings": 0,
-      "full_research_tests_passed": 363,
+      "full_research_tests_passed": 389,
       "poetry_lock_consistent": true,
       "uv_lock_consistent": true,
       "git_diff_check_passed": true
     },
     "t02_staging_isolation_verified": {
       "dedicated_storage_path": "D:\\flipoly-research\\lp-rewards",
+      "linux_storage_fallback": "~/flipoly-research/lp-rewards",
+      "storage_root_env_override_supported": true,
+      "storage_root_cli_flag_supported": true,
       "live_enabled_blocked_by_default": true,
       "secrets_logged": false
     },
@@ -41,7 +44,10 @@
       "post_orders_count": 0,
       "live_order_executor_invoked": false,
       "quote_hours_order_presence_tracking": true,
-      "daily_rollover_reset_verified": true
+      "daily_rollover_reset_verified": true,
+      "launcher_bare_python_eliminated": true,
+      "launcher_poetry_uv_detection_supported": true,
+      "launcher_chmod_executable": true
     },
     "t04_data_quality_audit": {
       "status": "DATA_QUALITY_ACCUMULATING",

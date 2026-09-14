@@ -4,11 +4,13 @@ Fetches all active rewards markets from Polymarket CLOB with full pagination unt
 Enriches top reward-yielding candidates via CLOB market info, excludes neg_risk, and saves active universe.
 """
 
+import argparse
 import asyncio
 from decimal import Decimal
 import json
 from pathlib import Path
 import sys
+from typing import Optional
 import httpx
 
 repo_root = Path(__file__).resolve().parents[3]
@@ -24,8 +26,8 @@ from polyflip.research.lp_rewards.universe import (
 )
 
 
-async def main():
-    protocol = load_protocol()
+async def main(storage_root: Optional[str] = None):
+    protocol = load_protocol(storage_root=storage_root)
     print(f"Loaded protocol: {protocol.protocol_id} (SHA-256: {protocol.sha256_hash[:12]}...)")
     print(f"Querying rewards endpoint: {protocol.universe.rewards_endpoint}")
 
@@ -103,4 +105,12 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    parser = argparse.ArgumentParser(description="Fetch active rewards markets universe.")
+    parser.add_argument(
+        "--storage-root",
+        type=str,
+        default=None,
+        help="Path to root storage directory (overrides protocol default and LP_STORAGE_ROOT).",
+    )
+    cli_args = parser.parse_args()
+    asyncio.run(main(storage_root=cli_args.storage_root))

@@ -269,8 +269,8 @@ async def periodic_fsm_and_scoring(
             logger.error(f"Error in FSM and scoring loop: {e}")
 
 
-async def main(smoke_seconds: Optional[float] = None):
-    protocol = load_protocol()
+async def main(smoke_seconds: Optional[float] = None, storage_root: Optional[str] = None):
+    protocol = load_protocol(storage_root=storage_root)
     storage_path = Path(protocol.data_storage.root_path)
     storage_path.mkdir(parents=True, exist_ok=True)
 
@@ -366,6 +366,12 @@ if __name__ == "__main__":
         default=None,
         help="Path to rotating log file for continuous background execution.",
     )
+    parser.add_argument(
+        "--storage-root",
+        type=str,
+        default=None,
+        help="Path to root storage directory (overrides protocol default and LP_STORAGE_ROOT).",
+    )
     cli_args = parser.parse_args()
 
     if cli_args.log_file:
@@ -381,4 +387,4 @@ if __name__ == "__main__":
         file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
         logging.getLogger().addHandler(file_handler)
 
-    asyncio.run(main(smoke_seconds=cli_args.smoke_seconds))
+    asyncio.run(main(smoke_seconds=cli_args.smoke_seconds, storage_root=cli_args.storage_root))

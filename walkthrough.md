@@ -340,7 +340,48 @@ python -m pytest tests/research/lp_rewards -v
 - Тестовый набор LP Rewards:
   ```bash
   uv run pytest tests/research/lp_rewards -v -W error
-  ============================= 132 passed in 1.93s =============================
+  ============================= 146 passed in 1.81s =============================
   ```
-- 132 теста проходят со 100% успехом под `-W error`, 0 предупреждений.
+- 146 тестов проходят со 100% успехом под `-W error`, 0 предупреждений.
 - `git diff --check` выполняется чисто.
+
+---
+
+### 7. Устранение операционных блокеров непрерывного сбора (Launcher и Linux Storage Path)
+
+В рамках подготовки к 7-дневному фоновому сбору данных устранены два ключевых операционных блокера:
+
+#### 1. Модернизация скрипта запуска `scripts/research/lp_rewards/run_continuous_shadow.sh`
+- **Проблема**: Скрипт вызывал bare `python`, который отсутствует на сервере (где доступны только `/usr/bin/python3` и проектное окружение через `~/.local/bin/poetry`).
+- **Решение**:
+  - Устранен вызов bare `python`.
+  - Реализован автоматический каскад поиска интерпретатора и виртуального окружения:
+    1. Переопределение пользователем через переменную `PYTHON_RUNNER`.
+    2. `poetry` в `$PATH`, `~/.local/bin/poetry` или `$HOME/.local/bin/poetry` -> запуск через `poetry run python`.
+    3. `uv` в `$PATH`, `~/.local/bin/uv` или `~/.cargo/bin/uv` -> запуск через `uv run python`.
+    4. Активный `$VIRTUAL_ENV/bin/python` или локальный `.venv/bin/python`.
+    5. Системный `/usr/bin/python3`, `python3` или fallback `python`.
+  - Гарантирован экспорт `export PATH="${HOME}/.local/bin:${HOME}/.cargo/bin:${PATH}"` и `export PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}"`.
+  - Добавлена поддержка переменной `LP_STORAGE_ROOT` с дефолтным безопасным путем для Linux: `${HOME}/flipoly-research/lp-rewards`.
+  - Обеспечена проброска флага `--storage-root "${LP_STORAGE_ROOT}"` сборщику (если не переопределен в аргументах CLI).
+  - Сохранены права исполнения `chmod +x` (`100755` в git-индексе).
+
+#### 2. Кросс-платформенное разрешение Storage Path в `protocol.py` и CLI
+- **Проблема**: В `protocol_v0.1.yaml` зашит Windows-путь `D:\flipoly-research\lp-rewards`, который на Linux трактуется как относительный каталог `/home/.../D:\...`, приводя к записи не на целевой диск.
+- **Решение**:
+  - В `polyflip/research/lp_rewards/protocol.py` реализована функция `resolve_storage_root`:
+    - Проверяет наличие явного аргумента `storage_root`.
+    - Проверяет переменные окружения `LP_STORAGE_ROOT` и `LP_STORAGE_PATH`.
+    - При отсутствии переопределений на не-Windows платформах (`sys.platform != "win32"` и `os.name != "nt"`) проверяет шаблон Windows-диска (`^[A-Za-z]:`). При совпадении логирует предупреждение и выполняет безопасный fallback на `os.path.expanduser("~/flipoly-research/lp-rewards")`, предотвращая создание некорректных путей.
+  - В `load_protocol` добавлен опциональный параметр `storage_root`. Вычисление криптографического SHA-256 хэша файла протокола выполняется строго до подстановки пути, благодаря чему хэш протокола `04d378dcd4954277338964790a7a363fe662075591506990c320571fabaefb67` остается неизменным и полностью валидным.
+  - В CLI скриптов `03_run_shadow_collector.py`, `04_audit_data_quality.py`, `05_evaluate_gate_a.py`, а также `01_fetch_universe.py` и `02_rank_and_allocate.py` добавлен аргумент `--storage-root`.
+
+#### 3. Модульное тестирование и верификация
+- В `tests/research/lp_rewards/test_storage_root_and_launcher.py` добавлено 14 тестов, проверяющих:
+  - Корректность сохранения Windows-пути на платформе `win32`.
+  - Fallback на Linux и Darwin с логированием предупреждения.
+  - Приоритет `LP_STORAGE_ROOT` над `LP_STORAGE_PATH` и приоритет явного `storage_root` над переменными окружения.
+  - Неизменность SHA-256 хэша протокола при переопределении путей.
+  - Парсинг флага `--storage-root` во всех CLI-скриптах.
+  - Структуру, отсутствие bare `python`, валидность bash-синтаксиса (`bash -n`) и права `100755` для `run_continuous_shadow.sh`.
+- Все 146 тестов LP Rewards проходят под `-W error`, 389 тестов проходят в общем исследовательском наборе.

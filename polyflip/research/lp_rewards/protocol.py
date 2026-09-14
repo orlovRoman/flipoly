@@ -1,9 +1,15 @@
 from decimal import Decimal, getcontext
 import hashlib
+import logging
+import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+import re
+import sys
+from typing import Any, Dict, List, Optional, Tuple, Union
 import yaml
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 # Ensure global precision is set to 28 digits minimum
 getcontext().prec = 28
@@ -110,6 +116,46 @@ class LPProtocol(BaseModel):
     sha256_hash: Optional[str] = None
 
 
+WINDOWS_DRIVE_PATTERN = re.compile(r"^[A-Za-z]:")
+DEFAULT_LINUX_STORAGE_FALLBACK = "~/flipoly-research/lp-rewards"
+
+
+def resolve_storage_root(
+    configured_path: str,
+    override: Optional[Union[str, Path]] = None,
+    platform: Optional[str] = None,
+) -> str:
+    """Resolve the storage root path with cross-platform validation and environment overrides.
+
+    Order of precedence:
+    1. Explicit override argument (e.g. from CLI --storage-root)
+    2. Environment variable LP_STORAGE_ROOT (or LP_STORAGE_PATH)
+    3. Configured path from protocol YAML. If running on a non-Windows platform and the path
+       contains Windows drive syntax (e.g. 'D:\\...'), it falls back to a safe Unix path
+       (defaulting to '~/flipoly-research/lp-rewards') to avoid creating malformed directories.
+    """
+    if override is not None and str(override).strip():
+        return str(override).strip()
+
+    env_root = os.environ.get("LP_STORAGE_ROOT") or os.environ.get("LP_STORAGE_PATH")
+    if env_root is not None and env_root.strip():
+        return env_root.strip()
+
+    target_platform = platform if platform is not None else sys.platform
+    is_windows = (target_platform == "win32" or (platform is None and os.name == "nt"))
+
+    if not is_windows and WINDOWS_DRIVE_PATTERN.match(configured_path):
+        fallback = os.path.expanduser(DEFAULT_LINUX_STORAGE_FALLBACK)
+        logger.warning(
+            f"Windows storage path '{configured_path}' detected on non-Windows platform '{target_platform}'. "
+            f"Falling back to safe Linux path '{fallback}' to prevent creating invalid directories. "
+            f"Set LP_STORAGE_ROOT or use --storage-root to override."
+        )
+        return fallback
+
+    return configured_path
+
+
 def compute_file_sha256(path: Path) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -118,7 +164,10 @@ def compute_file_sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def load_protocol(protocol_path: Optional[Path] = None) -> LPProtocol:
+def load_protocol(
+    protocol_path: Optional[Path] = None,
+    storage_root: Optional[Union[str, Path]] = None,
+) -> LPProtocol:
     if protocol_path is None:
         # Default path relative to flipoly repository root
         base = Path(__file__).resolve().parents[3]
@@ -133,4 +182,10 @@ def load_protocol(protocol_path: Optional[Path] = None) -> LPProtocol:
 
     protocol = LPProtocol(**raw_data)
     protocol.sha256_hash = content_hash
+
+    # Cross-platform validation and storage root override
+    protocol.data_storage.root_path = resolve_storage_root(
+        configured_path=protocol.data_storage.root_path,
+        override=storage_root,
+    )
     return protocol

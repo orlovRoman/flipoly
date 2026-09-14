@@ -1,3 +1,4 @@
+import argparse
 import datetime
 from decimal import Decimal
 import json
@@ -365,8 +366,17 @@ def audit_data_quality(
     }
 
 
-def main():
-    protocol = load_protocol()
+def main(argv: Optional[List[str]] = None):
+    parser = argparse.ArgumentParser(description="Data Quality & Integrity Audit for LP Rewards.")
+    parser.add_argument(
+        "--storage-root",
+        type=str,
+        default=None,
+        help="Path to root storage directory (overrides protocol default and LP_STORAGE_ROOT).",
+    )
+    cli_args = parser.parse_args(argv)
+
+    protocol = load_protocol(storage_root=cli_args.storage_root)
     storage_path = Path(protocol.data_storage.root_path)
 
     print("=" * 60)

@@ -1,8 +1,10 @@
+import argparse
 import datetime
 from decimal import Decimal
 import json
 from pathlib import Path
 import sys
+from typing import List, Optional
 
 repo_root = Path(__file__).resolve().parents[3]
 if str(repo_root) not in sys.path:
@@ -16,8 +18,17 @@ from polyflip.research.lp_rewards.evaluation import (
 from polyflip.research.lp_rewards.protocol import load_protocol
 
 
-def main():
-    protocol = load_protocol()
+def main(argv: Optional[List[str]] = None):
+    parser = argparse.ArgumentParser(description="Formally evaluate Gate A criteria from daily evaluation records.")
+    parser.add_argument(
+        "--storage-root",
+        type=str,
+        default=None,
+        help="Path to root storage directory (overrides protocol default and LP_STORAGE_ROOT).",
+    )
+    cli_args = parser.parse_args(argv)
+
+    protocol = load_protocol(storage_root=cli_args.storage_root)
     storage_path = Path(protocol.data_storage.root_path)
     daily_eval_dir = storage_path / "daily_evaluations"
 
