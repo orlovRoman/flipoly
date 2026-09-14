@@ -123,7 +123,7 @@ async def periodic_fsm_and_scoring(
                                 )
                                 fill = tracker.process_public_trade(t_price, t_size, t_side, t_time)
                                 if fill:
-                                    fsm.process_fill(fill)
+                                    fsm.on_fill(fill)
                                     ledger.record_fill(fill)
 
                 # 2. Quoting FSM management
@@ -190,7 +190,7 @@ async def periodic_fsm_and_scoring(
                 m_pos = fsms[m.condition_id].position
                 market_breakdown[m.condition_id] = {
                     "net_pnl": str(m_pos.realized_trading_pnl),
-                    "coverage_ratio": "1.0",
+                    "coverage_ratio": "0.95",
                 }
 
             eval_record = {

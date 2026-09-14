@@ -19,7 +19,7 @@ def test_executor_gate_a_rejection(tmp_path, monkeypatch):
     )
     with pytest.raises(PermissionError) as exc:
         executor.submit_order(
-            token_id="tok_1",
+            token_id="12345",
             side="BUY",
             price=Decimal("0.50"),
             size=Decimal("10.0"),
@@ -41,7 +41,7 @@ def test_executor_gate_a_rejection(tmp_path, monkeypatch):
     )
     with pytest.raises(PermissionError) as exc:
         executor.submit_order(
-            token_id="tok_1",
+            token_id="12345",
             side="BUY",
             price=Decimal("0.50"),
             size=Decimal("10.0"),
@@ -69,9 +69,10 @@ def test_executor_isolated_wallet_rejection(monkeypatch):
         wallet_address=shared_address,
         main_wallet_address=shared_address,
     )
+    executor_shared.verify_gate_a = lambda: True
     with pytest.raises(PermissionError) as exc:
         executor_shared.submit_order(
-            token_id="tok_1",
+            token_id="12345",
             side="BUY",
             price=Decimal("0.50"),
             size=Decimal("10.0"),
@@ -86,10 +87,11 @@ def test_executor_working_capital_limit(monkeypatch):
         expected_protocol_hash="hash_123",
         allocated_capital_limit=Decimal("100.00"),
     )
+    executor.verify_gate_a = lambda: True
 
     # First order: $80 (price 0.80 * 100 = 80) -> OK
     res1 = executor.submit_order(
-        token_id="tok_1",
+        token_id="12345",
         side="BUY",
         price=Decimal("0.80"),
         size=Decimal("100.0"),
@@ -100,7 +102,7 @@ def test_executor_working_capital_limit(monkeypatch):
     # Second order: $30 (total 80 + 30 = 110 > 100) -> Rejected
     with pytest.raises(ValueError) as exc:
         executor.submit_order(
-            token_id="tok_1",
+            token_id="12345",
             side="BUY",
             price=Decimal("0.30"),
             size=Decimal("100.0"),
@@ -115,6 +117,7 @@ def test_executor_token_allowlist_rejection(monkeypatch):
         expected_protocol_hash="hash_123",
         allowlist_tokens={"approved_tok_a", "approved_tok_b"},
     )
+    executor.verify_gate_a = lambda: True
     with pytest.raises(ValueError) as exc:
         executor.submit_order(
             token_id="unapproved_tok_c",
@@ -133,11 +136,12 @@ def test_executor_tick_size_and_min_size(monkeypatch):
         min_size=Decimal("10.0"),
         tick_size=Decimal("0.01"),
     )
+    executor.verify_gate_a = lambda: True
 
     # Size too small
     with pytest.raises(ValueError) as exc:
         executor.submit_order(
-            token_id="tok_1",
+            token_id="12345",
             side="BUY",
             price=Decimal("0.50"),
             size=Decimal("5.0"),
@@ -148,7 +152,7 @@ def test_executor_tick_size_and_min_size(monkeypatch):
     # Price invalid tick (0.505 with tick_size 0.01)
     with pytest.raises(ValueError) as exc:
         executor.submit_order(
-            token_id="tok_1",
+            token_id="12345",
             side="BUY",
             price=Decimal("0.505"),
             size=Decimal("10.0"),
@@ -169,6 +173,7 @@ def test_executor_eip712_signing_and_cancel_all(monkeypatch):
         wallet_private_key=test_key,
         wallet_address=test_addr,
     )
+    executor.verify_gate_a = lambda: True
 
     res = executor.submit_order(
         token_id="12345",

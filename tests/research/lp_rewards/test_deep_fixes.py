@@ -35,7 +35,8 @@ def test_executor_token_id_parsing_hex_and_int():
     assert LiveOrderExecutor._parse_token_id("987654321") == 987654321
     assert LiveOrderExecutor._parse_token_id("0x1a") == 26
     assert LiveOrderExecutor._parse_token_id("0X2B") == 43
-    assert LiveOrderExecutor._parse_token_id("invalid_text") == 1
+    with pytest.raises(ValueError):
+        LiveOrderExecutor._parse_token_id("invalid_text")
 
 
 def test_executor_allowance_verification(monkeypatch):
@@ -44,12 +45,13 @@ def test_executor_allowance_verification(monkeypatch):
     executor = LiveOrderExecutor(
         expected_protocol_hash="hash_123",
     )
+    executor.verify_gate_a = lambda: True
 
     # Cost = 0.50 * 50 = $25.00
     # Case 1: Allowance $10.00 < $25.00 -> raise PermissionError
     with pytest.raises(PermissionError) as exc:
         executor.submit_order(
-            token_id="tok_1",
+            token_id="12345",
             side="BUY",
             price=Decimal("0.50"),
             size=Decimal("50.0"),
@@ -60,7 +62,7 @@ def test_executor_allowance_verification(monkeypatch):
 
     # Case 2: Allowance $30.00 >= $25.00 -> OK
     res = executor.submit_order(
-        token_id="tok_1",
+        token_id="12345",
         side="BUY",
         price=Decimal("0.50"),
         size=Decimal("50.0"),
@@ -117,6 +119,7 @@ def test_executor_clob_v2_domain_and_post_order(monkeypatch):
         wallet_address=account.address,
         clob_client=client,
     )
+    executor.verify_gate_a = lambda: True
 
     res = executor.submit_order(
         token_id="0xabc123",

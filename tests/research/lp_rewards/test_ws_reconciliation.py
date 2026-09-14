@@ -11,9 +11,9 @@ def test_reconciliation_within_tolerance():
     local_asks = [OrderbookLevel(price=Decimal("0.51"), size=Decimal("50.0"))]
 
     # REST matches exactly
-    ok = reconciler.reconcile_book("tok_1", local_bids, local_asks, Decimal("0.49"), Decimal("0.51"))
+    ok = reconciler.reconcile_book("12345", local_bids, local_asks, Decimal("0.49"), Decimal("0.51"))
     assert ok is True
-    assert reconciler.uncertain_markets["tok_1"] is False
+    assert reconciler.uncertain_markets["12345"] is False
 
 
 def test_reconciliation_mismatch_triggers_uncertain():
@@ -22,9 +22,9 @@ def test_reconciliation_mismatch_triggers_uncertain():
     local_asks = [OrderbookLevel(price=Decimal("0.51"), size=Decimal("50.0"))]
 
     # REST shows bid 0.45 (discrepancy 0.04 > 0.01)
-    ok = reconciler.reconcile_book("tok_1", local_bids, local_asks, Decimal("0.45"), Decimal("0.51"))
+    ok = reconciler.reconcile_book("12345", local_bids, local_asks, Decimal("0.45"), Decimal("0.51"))
     assert ok is False
-    assert reconciler.uncertain_markets["tok_1"] is True
+    assert reconciler.uncertain_markets["12345"] is True
 
 
 def test_quiet_market_not_marked_uncertain_without_mismatch():

@@ -3,6 +3,7 @@ import logging
 import os
 from pathlib import Path
 import sys
+from decimal import Decimal
 
 repo_root = Path(__file__).resolve().parents[3]
 if str(repo_root) not in sys.path:
@@ -86,6 +87,7 @@ def main():
         allocated_capital_limit=protocol.capital_allocation.allocated_working_capital,
         allowlist_tokens=allowlist_tokens,
         require_gate_a=True,
+        clob_client=None,  # MUST BE SET WITH REAL CLIENT
     )
 
     logger.info("[ALL GATES PASSED] LiveOrderExecutor initialized with all safety constraints active.")

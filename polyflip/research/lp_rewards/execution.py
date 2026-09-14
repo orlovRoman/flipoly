@@ -15,7 +15,7 @@ getcontext().prec = 28
 logger = logging.getLogger(__name__)
 
 POLYGON_CHAIN_ID = 137
-CTF_EXCHANGE_ADDRESS = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E"
+CTF_EXCHANGE_ADDRESS = "0xE111180000d2663c0091e4f400237545b87b996b"
 
 
 class LiveOrderExecutor:
@@ -68,11 +68,7 @@ class LiveOrderExecutor:
         self.allowlist_tokens = set(allowlist_tokens) if allowlist_tokens is not None else None
         self.min_size = min_size
         self.tick_size = tick_size
-        self.require_gate_a = (
-            require_gate_a
-            if require_gate_a is not None
-            else (os.getenv("LP_REQUIRE_GATE_A", "false").lower() in ("1", "true", "yes") or gate_a_verdict_path is not None)
-        )
+        self.require_gate_a = True
         self.clob_client = clob_client
         self.domain_name = domain_name
         self.domain_version = domain_version
@@ -105,7 +101,7 @@ class LiveOrderExecutor:
             raise PermissionError(f"Gate A verdict is '{verdict}', expected 'PROCEED_LIVE'. Live trading forbidden.")
 
         v_hash = verdict_data.get("protocol_hash")
-        if self.expected_protocol_hash and v_hash and v_hash != self.expected_protocol_hash:
+        if not v_hash or (self.expected_protocol_hash and v_hash != self.expected_protocol_hash):
             raise ValueError(f"Gate A artifact protocol hash mismatch: expected {self.expected_protocol_hash}, got {v_hash}")
 
         return True
@@ -198,7 +194,7 @@ class LiveOrderExecutor:
         try:
             return int(s)
         except ValueError:
-            return 1
+            raise ValueError(f"Invalid token ID: {token_id}")
 
     def _execute_client_call(self, method_name: str, *args, **kwargs) -> Any:
         """Safely execute a method on clob_client without event loop collisions."""
@@ -263,15 +259,13 @@ class LiveOrderExecutor:
                     {"name": "salt", "type": "uint256"},
                     {"name": "maker", "type": "address"},
                     {"name": "signer", "type": "address"},
-                    {"name": "taker", "type": "address"},
                     {"name": "tokenId", "type": "uint256"},
                     {"name": "makerAmount", "type": "uint256"},
                     {"name": "takerAmount", "type": "uint256"},
-                    {"name": "expiration", "type": "uint256"},
-                    {"name": "nonce", "type": "uint256"},
-                    {"name": "feeRateBps", "type": "uint256"},
                     {"name": "side", "type": "uint8"},
-                    {"name": "signatureType", "type": "uint8"},
+                    {"name": "timestamp", "type": "uint256"},
+                    {"name": "metadata", "type": "string"},
+                    {"name": "builder", "type": "address"},
                 ],
             },
             "primaryType": "Order",
@@ -285,15 +279,13 @@ class LiveOrderExecutor:
                 "salt": salt,
                 "maker": maker_address,
                 "signer": maker_address,
-                "taker": "0x0000000000000000000000000000000000000000",
                 "tokenId": self._parse_token_id(token_id),
                 "makerAmount": maker_amount,
                 "takerAmount": taker_amount,
-                "expiration": expiration,
-                "nonce": 0,
-                "feeRateBps": fee_rate_bps,
                 "side": side_int,
-                "signatureType": 0,
+                "timestamp": now_ts,
+                "metadata": "",
+                "builder": "0x0000000000000000000000000000000000000000",
             },
         }
 
