@@ -1,0 +1,277 @@
+import importlib
+from decimal import Decimal
+import json
+from pathlib import Path
+import sys
+import pandas as pd
+import pytest
+
+audit_04 = importlib.import_module("scripts.research.lp_rewards.04_audit_data_quality")
+audit_daily_evaluations = audit_04.audit_daily_evaluations
+audit_data_quality = audit_04.audit_data_quality
+audit_l2_parquet = audit_04.audit_l2_parquet
+audit_trade_parquet = audit_04.audit_trade_parquet
+from polyflip.research.lp_rewards.protocol import LPProtocol, load_protocol
+
+
+def test_audit_l2_parquet_valid(tmp_path):
+    p_file = tmp_path / "valid.parquet"
+    now_ns = 1_700_000_000_000_000_000
+    df = pd.DataFrame([
+        {
+            "timestamp_ns": now_ns,
+            "condition_id": "c1",
+            "asset_id": "tok1",
+            "side": "bid",
+            "price": "0.45",
+            "size": "100.0",
+            "valid_from_ns": now_ns,
+            "valid_to_ns": now_ns + 10_000_000_000,
+            "order_age_sec": "0.0",
+        },
+        {
+            "timestamp_ns": now_ns + 1_000_000_000,
+            "condition_id": "c1",
+            "asset_id": "tok1",
+            "side": "ask",
+            "price": "0.55",
+            "size": "80.0",
+            "valid_from_ns": now_ns,
+            "valid_to_ns": now_ns + 10_000_000_000,
+            "order_age_sec": "1.0",
+        },
+    ])
+    df.to_parquet(p_file, compression="zstd", index=False)
+
+    valid, viols, stats = audit_l2_parquet(p_file, now_ns=now_ns + 5_000_000_000)
+    assert valid is True
+    assert len(viols) == 0
+    assert stats["rows"] == 2
+    assert stats["duplicates"] == 0
+    assert stats["min_price"] == 0.45
+    assert stats["max_price"] == 0.55
+
+
+def test_audit_l2_parquet_missing_columns(tmp_path):
+    p_file = tmp_path / "missing_cols.parquet"
+    df = pd.DataFrame([{"timestamp_ns": 123, "condition_id": "c1"}])
+    df.to_parquet(p_file, compression="zstd", index=False)
+
+    valid, viols, _ = audit_l2_parquet(p_file)
+    assert valid is False
+    assert any("Missing required columns" in v for v in viols)
+
+
+def test_audit_l2_parquet_price_out_of_bounds(tmp_path):
+    p_file = tmp_path / "bad_price.parquet"
+    now_ns = 1_700_000_000_000_000_000
+    df = pd.DataFrame([
+        {
+            "timestamp_ns": now_ns,
+            "condition_id": "c1",
+            "asset_id": "tok1",
+            "side": "bid",
+            "price": "1.45",  # Probability > 1.0 is invalid
+            "size": "100.0",
+            "valid_from_ns": now_ns,
+            "valid_to_ns": now_ns,
+            "order_age_sec": "0.0",
+        }
+    ])
+    df.to_parquet(p_file, compression="zstd", index=False)
+
+    valid, viols, _ = audit_l2_parquet(p_file, now_ns=now_ns)
+    assert valid is False
+    assert any("Prices out of valid probability range" in v for v in viols)
+
+
+def test_audit_l2_parquet_size_non_positive(tmp_path):
+    p_file = tmp_path / "zero_size.parquet"
+    now_ns = 1_700_000_000_000_000_000
+    df = pd.DataFrame([
+        {
+            "timestamp_ns": now_ns,
+            "condition_id": "c1",
+            "asset_id": "tok1",
+            "side": "bid",
+            "price": "0.45",
+            "size": "0.0",  # Zero size is invalid
+            "valid_from_ns": now_ns,
+            "valid_to_ns": now_ns,
+            "order_age_sec": "0.0",
+        }
+    ])
+    df.to_parquet(p_file, compression="zstd", index=False)
+
+    valid, viols, _ = audit_l2_parquet(p_file, now_ns=now_ns)
+    assert valid is False
+    assert any("Non-positive order sizes" in v for v in viols)
+
+
+def test_audit_l2_parquet_future_timestamps(tmp_path):
+    p_file = tmp_path / "future_ts.parquet"
+    now_ns = 1_700_000_000_000_000_000
+    df = pd.DataFrame([
+        {
+            "timestamp_ns": now_ns + 3600 * 1_000_000_000,  # 1 hour in future
+            "condition_id": "c1",
+            "asset_id": "tok1",
+            "side": "bid",
+            "price": "0.45",
+            "size": "10.0",
+            "valid_from_ns": now_ns,
+            "valid_to_ns": now_ns,
+            "order_age_sec": "0.0",
+        }
+    ])
+    df.to_parquet(p_file, compression="zstd", index=False)
+
+    valid, viols, _ = audit_l2_parquet(p_file, now_ns=now_ns)
+    assert valid is False
+    assert any("Future timestamps detected" in v for v in viols)
+
+
+def test_audit_l2_parquet_non_monotonic_timestamps(tmp_path):
+    p_file = tmp_path / "non_monotonic.parquet"
+    now_ns = 1_700_000_000_000_000_000
+    df = pd.DataFrame([
+        {
+            "timestamp_ns": now_ns + 10_000_000_000,
+            "condition_id": "c1",
+            "asset_id": "tok1",
+            "side": "bid",
+            "price": "0.45",
+            "size": "10.0",
+            "valid_from_ns": now_ns,
+            "valid_to_ns": now_ns,
+            "order_age_sec": "0.0",
+        },
+        {
+            "timestamp_ns": now_ns,  # Timestamp went backwards
+            "condition_id": "c1",
+            "asset_id": "tok1",
+            "side": "bid",
+            "price": "0.46",
+            "size": "10.0",
+            "valid_from_ns": now_ns,
+            "valid_to_ns": now_ns,
+            "order_age_sec": "0.0",
+        },
+    ])
+    df.to_parquet(p_file, compression="zstd", index=False)
+
+    valid, viols, _ = audit_l2_parquet(p_file, now_ns=now_ns + 20_000_000_000)
+    assert valid is False
+    assert any("Non-monotonic timestamps" in v for v in viols)
+
+
+def test_audit_l2_parquet_unaggregated_duplicates(tmp_path):
+    p_file = tmp_path / "duplicates.parquet"
+    now_ns = 1_700_000_000_000_000_000
+    df = pd.DataFrame([
+        {
+            "timestamp_ns": now_ns,
+            "condition_id": "c1",
+            "asset_id": "tok1",
+            "side": "bid",
+            "price": "0.45",
+            "size": "10.0",
+            "valid_from_ns": now_ns,
+            "valid_to_ns": now_ns,
+            "order_age_sec": "0.0",
+        },
+        {
+            "timestamp_ns": now_ns,
+            "condition_id": "c1",
+            "asset_id": "tok1",
+            "side": "bid",
+            "price": "0.45",
+            "size": "20.0",
+            "valid_from_ns": now_ns,
+            "valid_to_ns": now_ns,
+            "order_age_sec": "0.0",
+        },
+    ])
+    df.to_parquet(p_file, compression="zstd", index=False)
+
+    valid, viols, stats = audit_l2_parquet(p_file, now_ns=now_ns)
+    assert valid is False
+    assert stats["duplicates"] == 2
+    assert any("Unaggregated duplicate" in v for v in viols)
+
+
+def test_audit_daily_evaluations_hash_mismatch_and_quote_hours(tmp_path):
+    eval_dir = tmp_path / "daily_evaluations"
+    eval_dir.mkdir()
+
+    # Case 1: Hash mismatch
+    f1 = eval_dir / "2026-09-14.json"
+    with open(f1, "w", encoding="utf-8") as f:
+        json.dump({
+            "date": "2026-09-14",
+            "protocol_hash": "wrong_hash",
+            "quote_hours": "12.5",
+            "net_pnl": "1.2",
+        }, f)
+
+    valid, viols, _ = audit_daily_evaluations(eval_dir, expected_protocol_hash="correct_hash")
+    assert valid is False
+    assert any("Protocol hash mismatch" in v for v in viols)
+
+    # Case 2: quote_hours exceeds 24h
+    with open(f1, "w", encoding="utf-8") as f:
+        json.dump({
+            "date": "2026-09-14",
+            "protocol_hash": "correct_hash",
+            "quote_hours": "25.0",
+            "net_pnl": "1.2",
+        }, f)
+
+    valid, viols, _ = audit_daily_evaluations(eval_dir, expected_protocol_hash="correct_hash")
+    assert valid is False
+    assert any("exceeds 24h" in v for v in viols)
+
+
+def test_audit_data_quality_full_flow(tmp_path):
+    protocol = load_protocol()
+    storage = tmp_path / "lp_storage"
+    storage.mkdir()
+
+    # Empty storage
+    res_empty = audit_data_quality(storage, protocol)
+    assert res_empty["status"] == "PENDING_DATA_ACCUMULATION"
+    assert res_empty["is_valid"] is True
+
+    # Add 1 valid market snapshot
+    m1_dir = storage / "l2_snapshots" / "cond1"
+    m1_dir.mkdir(parents=True)
+    now_ns = 1_700_000_000_000_000_000
+    df = pd.DataFrame([
+        {
+            "timestamp_ns": now_ns,
+            "condition_id": "cond1",
+            "asset_id": "tok1",
+            "side": "bid",
+            "price": "0.49",
+            "size": "50.0",
+            "valid_from_ns": now_ns,
+            "valid_to_ns": now_ns,
+            "order_age_sec": "0.0",
+        }
+    ])
+    df.to_parquet(m1_dir / "2026-09-14.parquet", compression="zstd", index=False)
+
+    res_acc = audit_data_quality(storage, protocol, now_ns=now_ns)
+    assert res_acc["status"] == "DATA_QUALITY_ACCUMULATING"
+    assert res_acc["is_valid"] is True
+    assert res_acc["total_l2_files"] == 1
+    assert res_acc["total_l2_rows"] == 1
+
+    # Corrupt the parquet file by writing bad data
+    bad_df = pd.DataFrame([{"invalid_col": 123}])
+    bad_df.to_parquet(m1_dir / "2026-09-15.parquet", compression="zstd", index=False)
+
+    res_bad = audit_data_quality(storage, protocol, now_ns=now_ns)
+    assert res_bad["status"] == "DATA_INTEGRITY_VIOLATION"
+    assert res_bad["is_valid"] is False
+    assert len(res_bad["violations"]) > 0

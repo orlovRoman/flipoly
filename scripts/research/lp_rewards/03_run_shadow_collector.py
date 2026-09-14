@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 from decimal import Decimal
 import json
@@ -5,7 +6,7 @@ import logging
 from pathlib import Path
 import sys
 import time
-from typing import Dict, List
+from typing import Dict, List, Optional
 import httpx
 
 repo_root = Path(__file__).resolve().parents[3]
@@ -17,7 +18,7 @@ from polyflip.research.lp_rewards.collector import MarketDataCollector
 from polyflip.research.lp_rewards.fill_simulation import QueuePositionTracker
 from polyflip.research.lp_rewards.ledger import PortfolioLedger
 from polyflip.research.lp_rewards.models import MarketPosition, MarketRewardConfig, OrderSide, QuotingState, VirtualOrder
-from polyflip.research.lp_rewards.protocol import load_protocol
+from polyflip.research.lp_rewards.protocol import LPProtocol, load_protocol
 from polyflip.research.lp_rewards.quoting_fsm import MarketQuotingFSM
 from polyflip.research.lp_rewards.reconciler import BookReconciler
 from polyflip.research.lp_rewards.scoring import (
@@ -76,7 +77,7 @@ async def periodic_fsm_and_scoring(
     fsms: Dict[str, MarketQuotingFSM],
     ledger: PortfolioLedger,
     allocator: CapitalAllocator,
-    protocol: Any,
+    protocol: LPProtocol,
     interval_sec: float = 60.0,
 ):
     """Periodically evaluate minute scoring samples and advance quoting FSM."""
@@ -84,16 +85,23 @@ async def periodic_fsm_and_scoring(
     storage_path = Path(protocol.data_storage.root_path)
 
     order_trackers = {}
-    fsm_ticks = 0
-    market_uptime = {m.condition_id: 0 for m in active_markets}
-    loop_start_time = time.time()
+    current_eval_date: Optional[str] = None
+    daily_fsm_ticks = 0
+    daily_market_uptime = {m.condition_id: 0 for m in active_markets}
 
     while collector.running:
         try:
             await asyncio.sleep(interval_sec)
             now_ns = time.time_ns()
             date_str = time.strftime("%Y-%m-%d", time.gmtime())
-            fsm_ticks += 1
+
+            # Reset daily metrics at UTC midnight boundary
+            if current_eval_date != date_str:
+                current_eval_date = date_str
+                daily_fsm_ticks = 0
+                daily_market_uptime = {m.condition_id: 0 for m in active_markets}
+
+            daily_fsm_ticks += 1
 
             # Snapshot recent trades to process for fill simulation
             recent_trades = list(collector.simulation_trade_buffer)
@@ -153,7 +161,6 @@ async def periodic_fsm_and_scoring(
                 # 2. Quoting FSM management
                 midpoint = calculate_cutoff_midpoint(yes_snap.bids, yes_snap.asks, market.rewards_min_size)
                 if midpoint is not None and not is_uncertain:
-                    market_uptime[cid] += 1
                     if fsm.state == QuotingState.FLAT:
                         new_quotes = fsm.generate_quote_orders(midpoint=midpoint, timestamp_ns=now_ns)
                         positions = {m.condition_id: fsms[m.condition_id].position for m in active_markets}
@@ -161,6 +168,10 @@ async def periodic_fsm_and_scoring(
                         allowed, _ = allocator.can_allocate_orders(cid, positions, open_orders, new_quotes)
                         if not allowed:
                             fsm.reset_orders()
+
+                # quote_hours must track actual presence of our orders in the book per T04
+                if fsm.open_orders and not is_uncertain:
+                    daily_market_uptime[cid] += 1
 
                 # 3. Competitive LP Scoring and Reward Share Calculation
                 lp_est = calculate_competitor_and_own_scores(
@@ -212,14 +223,14 @@ async def periodic_fsm_and_scoring(
             market_breakdown = {}
             for m in active_markets:
                 m_pos = fsms[m.condition_id].position
-                cov_ratio = market_uptime[m.condition_id] / fsm_ticks if fsm_ticks > 0 else 0.0
+                cov_ratio = daily_market_uptime[m.condition_id] / daily_fsm_ticks if daily_fsm_ticks > 0 else 0.0
                 market_breakdown[m.condition_id] = {
                     "net_pnl": str(m_pos.realized_trading_pnl),
                     "coverage_ratio": f"{cov_ratio:.4f}",
                 }
 
             uncertain_count = sum(1 for v in collector.reconciler.uncertain_markets.values() if v)
-            avg_ticks = sum(market_uptime.values()) / max(1, len(active_markets))
+            avg_ticks = sum(daily_market_uptime.values()) / max(1, len(active_markets))
             quote_hours = (avg_ticks * interval_sec) / 3600.0
 
             eval_record = {
@@ -227,7 +238,7 @@ async def periodic_fsm_and_scoring(
                 "protocol_id": protocol.protocol_id,
                 "protocol_hash": protocol.sha256_hash,
                 "net_pnl": str(net_pnl),
-                "quote_hours": f"{quote_hours:.4f}",
+                "quote_hours": f"{quote_hours:.6f}",
                 "book_uncertain_count": uncertain_count,
                 "market_breakdown": market_breakdown,
                 "total_trades": len(ledger.trades),
@@ -243,7 +254,7 @@ async def periodic_fsm_and_scoring(
             logger.error(f"Error in FSM and scoring loop: {e}")
 
 
-async def main():
+async def main(smoke_seconds: Optional[float] = None):
     protocol = load_protocol()
     storage_path = Path(protocol.data_storage.root_path)
     storage_path.mkdir(parents=True, exist_ok=True)
@@ -298,9 +309,15 @@ async def main():
     reconciler_task = asyncio.create_task(periodic_book_reconciler(collector, reconciler, active_markets, interval_sec=protocol.ws_collector.rest_reconciliation_interval_sec))
     fsm_task = asyncio.create_task(periodic_fsm_and_scoring(collector, active_markets, fsms, ledger, allocator, protocol, interval_sec=60.0))
 
+    start_time = time.time()
     try:
         while True:
-            await asyncio.sleep(60.0)
+            sleep_step = min(5.0, smoke_seconds) if smoke_seconds else 60.0
+            await asyncio.sleep(sleep_step)
+            if smoke_seconds and (time.time() - start_time) >= smoke_seconds:
+                logger.info(f"Smoke test duration ({smoke_seconds}s) reached. Shutting down cleanly...")
+                collector.running = False
+                break
             free_gb, status = watchdog.check_disk_space()
             if status == "EMERGENCY_HALT":
                 logger.critical("Emergency disk halt triggered. Terminating shadow collector.")
@@ -321,4 +338,12 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    parser = argparse.ArgumentParser(description="Run LP Rewards shadow collector.")
+    parser.add_argument(
+        "--smoke-seconds",
+        type=float,
+        default=None,
+        help="Run collector for a limited number of seconds (for smoke tests / verification).",
+    )
+    cli_args = parser.parse_args()
+    asyncio.run(main(smoke_seconds=cli_args.smoke_seconds))

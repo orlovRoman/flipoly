@@ -209,3 +209,71 @@ python -m pytest tests/research/lp_rewards -v
      ```
    - Все 109 тестов проходят успешно без предупреждений.
    - Проверка `git diff --check` выполняется чисто без ошибок форматирования.
+
+---
+
+## 12. Безопасная проверка LP Rewards в staging (Этапы T00–T10)
+
+В соответствии с регламентом безопасной проверки в staging-окружении выполнен полный цикл самопроверок T00–T10 без активации торговых моделей и без вмешательства в боевую ветку `main`.
+
+### T00. Исходное состояние и фиксация SHA
+- **Текущая ветка**: `research/lp-rewards`
+- **Локальный HEAD SHA**: `220ebe238d6666e99269a0de56b37f17490ab2c2` (short: `220ebe23`)
+- **Remote SHA (`origin/research/lp-rewards`)**: `220ebe238d6666e99269a0de56b37f17490ab2c2` (полное совпадение)
+- **Production `main` SHA**: `bc49cb93824555f46f48711a63ebc38f674f06de` (ветка `main` не изменялась)
+- **Хэш протокола LP Rewards**: `04d378dcd4954277338964790a7a363fe662075591506990c320571fabaefb67` (`polymarket_lp_rewards_v0.1`)
+- **Манифест стейджинга**: зафиксирован в `artifacts/research/lp_rewards/staging_manifest.json` и `artifacts/staging_manifest_220ebe23.json`.
+
+### T01. Проверка кода и зависимостей
+- **Тесты LP Rewards**: `uv run pytest tests/research/lp_rewards -v -W error` — **120 passed in 1.47s, 0 warnings** (расширено со 109 до 120 тестов, включая полное покрытие процедур аудита качества данных и логики сборщика).
+- **Тесты модуля Research**: `uv run pytest tests/research -q` — **363 passed**.
+- **Проверка lock-файлов**:
+  - `uv lock --check`: `Resolved 93 packages in 2ms` (код 0).
+  - `uv tool run poetry check --lock`: код 0, лок-файлы согласованы.
+- **Чистота git diff**: `git diff --check` выполнен чисто (код 0).
+- **Устраненные дефекты**:
+  1. В `scripts/research/lp_rewards/03_run_shadow_collector.py` строго типизирован `protocol: LPProtocol`, устранен баг накопления `quote_hours` при смене календарных суток (сброс счетчиков `daily_market_uptime` и `daily_fsm_ticks` на границе полночи UTC), и обеспечен подсчет `quote_hours` строго по фактическому присутствию заявок в стакане (`fsm.open_orders`).
+  2. Добавлен параметр `--smoke-seconds` в CLI сборщика для управляемого безопасного smoke-тестирования в изолированном цикле.
+  3. В `scripts/research/lp_rewards/04_audit_data_quality.py` реализован глубокий аудит L2 Parquet файлов: валидация схемы колонок, проверка диапазона цен $(0.0, 1.0)$, проверка строго положительных объемов, проверка монотонности timestamps и отсутствия будущих меток времени, детекция дубликатов и строгий fail-closed выход с кодом 1 при любых нарушениях целостности.
+
+### T02. Изоляция Staging
+- **Выделенный диск для данных**: Все parquet-снимки и база данных пишутся строго в `D:\flipoly-research\lp-rewards\` (на диске D: свободно >210 GB, в то время как системный диск C: защищен от переполнения).
+- **Контроль ордеров**: Переменная `LP_LIVE_ENABLED` отключена (по умолчанию `false`), выставление реальных ордеров аппаратно заблокировано.
+- **Изолированный кошелек**: Скрипты требуют `LP_ISOLATED_WALLET_ADDRESS` и гарантированно блокируют работу при нулевом адресе (`0x000...000`) или адресе продакшна.
+- **Безопасность логов**: Секреты и приватные ключи не выводятся в консоль и логи.
+
+### T03. Запуск Shadow Collector (Smoke-тестирование)
+- Скрипт `03_run_shadow_collector.py` успешно запущен и отработал smoke-тест (в том числе через `--smoke-seconds 5`).
+- Инициализировано 20 рынков из `universe_active.json`.
+- Запущены фоновые задачи: сборщик WS, периодический сброс L2 снимков, сверка со стаканом REST и FSM-скоринг.
+- L2-снимки успешно записываются в формате Parquet в каталог `D:\flipoly-research\lp-rewards\l2_snapshots\<cid>\`.
+- **POST-запросы на `/order` отсутствуют (0 запросов)**.
+- `LiveOrderExecutor` не импортируется и не вызывается сборщиком.
+
+### T04. Проверка качества собранных данных
+- Выполнен аудит скриптом `04_audit_data_quality.py`.
+- 10 L2 parquet-файлов (188 строк) проверены построчно:
+  - Схема колонок (`timestamp_ns`, `condition_id`, `asset_id`, `side`, `price`, `size`, `valid_from_ns`, `valid_to_ns`, `order_age_sec`) полностью соблюдена.
+  - Все цены находятся в диапазоне $(0.0, 1.0)$.
+  - Все объемы строго положительны.
+  - Временные метки монотонно возрастают и не содержат данных из будущего (`valid_from_ns <= valid_to_ns`).
+  - Дубликаты отсутствуют.
+- Статус аудита: `DATA_QUALITY_ACCUMULATING` (fail-closed логика соблюдена — статус не рапортует PASS до накопления 7 суток и 100 quote-hours).
+
+### T05. Сверка ордеров (`07_reconcile_orders.py`)
+- При отсутствии переменной `LP_ISOLATED_WALLET_ADDRESS` или при нулевом кошельке скрипт завершается с exit code 1 (`DATA_INSUFFICIENT`).
+- При запуске с изолированным кошельком без боевых API-ключей запрос к `/data/orders` возвращает HTTP 401 Unauthorized, скрипт падает в fail-closed с exit code 1 и не формирует фиктивный отчет о синхронизации.
+
+### T06. Сверка rewards и Gate B
+- `08_reconcile_rewards.py` при отсутствии L2-заголовков завершается с `PermissionError: Missing required L2 authenticated headers for /rewards/user` (exit code 1).
+- `09_evaluate_gate_b.py` при отсутствии файлов боевой оценки завершается со статусом `DATA_INSUFFICIENT: No live daily evaluations found.` (exit code 1).
+- Ранее сохраненный артефакт `D:\flipoly-research\lp-rewards\gate_b_verdict.json` имеет вердикт `INSUFFICIENT_DATA`.
+
+### T07–T08. Ограниченная LIVE-калибровка и Canary
+- **Статус**: Не запускались. Live-размещение ордеров заблокировано.
+- Хард-гейты проверены: скрипт `06_run_live_calibration.py` при вызове без подтвержденного Gate A и без `LP_LIVE_ENABLED=true` немедленно завершается с ошибкой `[BLOCKED BY HARD GATE] LP_LIVE_ENABLED is not 'true'. Live trading disabled.`
+
+### T09–T10. Решение и закрытие
+- **Итоговое решение**: **`DATA_INSUFFICIENT`** — продолжить сбор теневых данных (shadow collector) на staging-хранилище `D:\flipoly-research\lp-rewards\` в течение положенных 24–48 часов (и далее до 7 суток для Gate A) без LIVE-расширения.
+- Торговые модели (LightGBM/COMBINED) изолированы и не активировались.
+- Ветка `research/lp-rewards` не сливалась в `main`. Ветка `main` чиста и неизменна.
