@@ -55,7 +55,7 @@ async def main():
 
     # Reconcile each payout against projected
     payout_records: List[Dict[str, Any]] = []
-    
+
     # Sum actual rewards by date
     actual_by_date: Dict[str, Decimal] = {}
     for item in actual_rewards:
@@ -64,7 +64,7 @@ async def main():
         if not date_val: continue
         actual_val = Decimal(str(item.get("earnings", "0.0")))
         actual_by_date[date_val] = actual_by_date.get(date_val, Decimal("0.0")) + actual_val
-        
+
     for date_val, actual_val in actual_by_date.items():
         if date_val not in projected_by_date:
             logger.error(f"DATA_INSUFFICIENT: No live projection found for date {date_val}")

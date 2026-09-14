@@ -57,6 +57,7 @@ def test_executor_allowance_verification(monkeypatch):
             price=Decimal("0.50"),
             size=Decimal("50.0"),
             protocol_hash="hash_123",
+            live_balance=Decimal("100.00"),
             allowance=Decimal("10.00"),
         )
     assert "Insufficient collateral allowance" in str(exc.value)
@@ -68,6 +69,7 @@ def test_executor_allowance_verification(monkeypatch):
         price=Decimal("0.50"),
         size=Decimal("50.0"),
         protocol_hash="hash_123",
+        live_balance=Decimal("100.00"),
         allowance=Decimal("30.00"),
     )
     assert res["status"] == "SUBMITTED"
@@ -293,7 +295,7 @@ async def test_reconcile_rewards_user_endpoint(monkeypatch):
 def test_executor_clob_v2_exact_struct_and_address():
     """Verify official V2 contract address, V2 fields, and removal of V1 legacy fields."""
     from polyflip.research.lp_rewards.execution import CTF_EXCHANGE_ADDRESS
-    assert CTF_EXCHANGE_ADDRESS == "0xE11118001712aA868d4aB713A2c8f85fBB9161aB"
+    assert CTF_EXCHANGE_ADDRESS == "0xE111180000d2663C0091e4f400237545B87B996B"
 
     executor = LiveOrderExecutor(
         expected_protocol_hash="hash_123",
@@ -513,3 +515,209 @@ def test_evaluate_gate_a_duplicate_dates_rejected():
     ]
     rep = evaluate_gate_a_full(records_dup_date, expected_protocol_hash="hash_123")
     assert any("Duplicate evaluation dates" in r for r in rep.rejection_reasons)
+
+
+def test_subtract_orders_sorting_and_aggregation():
+    """Verify subtract_orders aggregates duplicates at same price, sorts bids/asks, and clamps >= 0."""
+    from polyflip.research.lp_rewards.scoring import subtract_orders
+
+    # Duplicate levels at price 0.50 (100 + 50 = 150)
+    public = [
+        OrderbookLevel(price=Decimal("0.50"), size=Decimal("100.0")),
+        OrderbookLevel(price=Decimal("0.48"), size=Decimal("40.0")),
+        OrderbookLevel(price=Decimal("0.50"), size=Decimal("50.0")),
+        OrderbookLevel(price=Decimal("0.49"), size=Decimal("30.0")),
+    ]
+    # Our duplicate orders at 0.50 (60 + 40 = 100) -> remaining 150 - 100 = 50
+    # Our order at 0.48 (50 > 40) -> clamped to 0 and removed
+    ours = [
+        OrderbookLevel(price=Decimal("0.50"), size=Decimal("60.0")),
+        OrderbookLevel(price=Decimal("0.50"), size=Decimal("40.0")),
+        OrderbookLevel(price=Decimal("0.48"), size=Decimal("50.0")),
+    ]
+
+    # Test bids: descending order (0.50, 0.49)
+    res_bids = subtract_orders(public, ours, is_bid=True)
+    assert len(res_bids) == 2
+    assert res_bids[0].price == Decimal("0.50")
+    assert res_bids[0].size == Decimal("50.0")
+    assert res_bids[1].price == Decimal("0.49")
+    assert res_bids[1].size == Decimal("30.0")
+
+    # Test asks: ascending order (0.49, 0.50)
+    res_asks = subtract_orders(public, ours, is_bid=False)
+    assert len(res_asks) == 2
+    assert res_asks[0].price == Decimal("0.49")
+    assert res_asks[1].price == Decimal("0.50")
+
+
+def test_executor_pusd_wallet_guard_fail_closed():
+    """Verify fail-closed behavior when wallet_address and explicit balance/allowance are None."""
+    executor = LiveOrderExecutor(
+        expected_protocol_hash="hash_123",
+        clob_client="mock",
+        wallet_address=None,
+    )
+    with pytest.raises(PermissionError) as exc_bal:
+        executor.check_live_balance(cost=Decimal("10.0"), available_balance=None)
+    assert "Dedicated isolated wallet address or available_balance must be provided" in str(exc_bal.value)
+
+    with pytest.raises(PermissionError) as exc_allow:
+        executor.check_allowance(required_amount=Decimal("10.0"), current_allowance=None)
+    assert "Dedicated isolated wallet address or current_allowance must be provided" in str(exc_allow.value)
+
+
+def test_executor_cancel_all_not_implemented_error():
+    """Verify cancel_all_orders and cancel_all_orders_async raise NotImplementedError if client lacks methods."""
+    class ClientWithoutCancel:
+        pass
+
+    executor = LiveOrderExecutor(
+        expected_protocol_hash="hash_123",
+        clob_client=ClientWithoutCancel(),
+    )
+    with pytest.raises(NotImplementedError) as exc:
+        executor.cancel_all_orders()
+    assert "CLOB client does not support cancel_all_orders" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_executor_cancel_all_async_not_implemented_error():
+    class ClientWithoutCancel:
+        pass
+
+    executor = LiveOrderExecutor(
+        expected_protocol_hash="hash_123",
+        clob_client=ClientWithoutCancel(),
+    )
+    with pytest.raises(NotImplementedError) as exc:
+        await executor.cancel_all_orders_async()
+    assert "CLOB client does not support cancel_all_orders" in str(exc.value)
+
+
+def test_executor_submits_signed_order_v2_to_sdk(monkeypatch):
+    """Verify submit_order constructs SignedOrderV2 with timestamp recognized by CLOB V2 SDK."""
+    from py_clob_client_v2.client import _is_v2_order
+
+    received_orders = []
+
+    class MockV2Client:
+        def post_order(self, order_obj):
+            received_orders.append(order_obj)
+            assert _is_v2_order(order_obj) is True
+            assert hasattr(order_obj, "timestamp")
+            assert hasattr(order_obj, "maker")
+            return {"orderID": "0xv2_ord_success"}
+
+        def cancel_all_orders(self):
+            return {"status": "OK"}
+
+    monkeypatch.setenv("LP_LIVE_ENABLED", "true")
+    client = MockV2Client()
+    executor = LiveOrderExecutor(
+        expected_protocol_hash="hash_123",
+        clob_client=client,
+        wallet_address="0x1111111111111111111111111111111111111111",
+    )
+    executor.verify_gate_a = lambda: True
+
+    res = executor.submit_order(
+        token_id="12345",
+        side="BUY",
+        price=Decimal("0.50"),
+        size=Decimal("10.0"),
+        protocol_hash="hash_123",
+        live_balance=Decimal("100.00"),
+        allowance=Decimal("100.00"),
+    )
+    assert res["status"] == "SUBMITTED"
+    assert res["order_id"] == "0xv2_ord_success"
+    assert len(received_orders) == 1
+    assert _is_v2_order(received_orders[0]) is True
+
+
+@pytest.mark.asyncio
+async def test_reward_calibration_fetch_actual_rewards_error_propagation():
+    """Verify fetch_actual_user_rewards raises RuntimeError on non-200 HTTP response."""
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setenv("POLY_ADDRESS", "0xaddr")
+    monkeypatch.setenv("POLY_SIGNATURE", "0xsig")
+    monkeypatch.setenv("POLY_TIMESTAMP", "123456")
+    monkeypatch.setenv("POLY_PASSPHRASE", "pass")
+
+    with respx.mock(assert_all_called=False) as respx_mock:
+        respx_mock.get("https://clob.polymarket.com/rewards/user").mock(
+            return_value=httpx.Response(500, text="Internal Server Error")
+        )
+        async with httpx.AsyncClient() as client:
+            calibrator = RewardCalibrator(Decimal("0.30"))
+            with pytest.raises(RuntimeError) as exc:
+                await calibrator.fetch_actual_user_rewards("0xabc", client=client)
+            assert "CLOB rewards endpoint returned HTTP 500" in str(exc.value)
+
+
+def test_evaluate_gate_a_rejects_missing_date_in_any_record():
+    """Verify evaluate_gate_a_full rejects when any record is missing date."""
+    from polyflip.research.lp_rewards.evaluation import evaluate_gate_a_full
+    records = [
+        {
+            "day": d,
+            "date": f"2026-09-0{d+1}" if d != 3 else "",
+            "net_pnl": "4.00",
+            "quote_hours": "20.0",
+            "protocol_hash": "hash_123",
+            "book_uncertain_count": 0,
+            "market_breakdown": {f"c_{m}": {"net_pnl": "0.40", "coverage_ratio": "0.995"} for m in range(10)},
+        }
+        for d in range(7)
+    ]
+    rep = evaluate_gate_a_full(records, expected_protocol_hash="hash_123")
+    assert any("Required 'date' field missing" in r for r in rep.rejection_reasons)
+
+
+def test_evaluate_gate_a_rejects_single_mismatched_protocol_hash():
+    """Verify evaluate_gate_a_full rejects if even 1 record has mismatched protocol_hash."""
+    from polyflip.research.lp_rewards.evaluation import evaluate_gate_a_full
+    records = [
+        {
+            "day": d,
+            "date": f"2026-09-0{d+1}",
+            "net_pnl": "4.00",
+            "quote_hours": "20.0",
+            "protocol_hash": "hash_123" if d != 5 else "tampered_hash_999",
+            "book_uncertain_count": 0,
+            "market_breakdown": {f"c_{m}": {"net_pnl": "0.40", "coverage_ratio": "0.995"} for m in range(10)},
+        }
+        for d in range(7)
+    ]
+    rep = evaluate_gate_a_full(records, expected_protocol_hash="hash_123")
+    assert rep.protocol_hash_valid is False
+    assert any("Protocol hash mismatch" in r for r in rep.rejection_reasons)
+
+
+def test_live_calibration_fetch_live_midpoint():
+    """Verify fetch_live_midpoint retrieves mid from CLOB or orderbook correctly."""
+    mod_06 = importlib.import_module("scripts.research.lp_rewards.06_run_live_calibration")
+    fetch_live_midpoint = mod_06.fetch_live_midpoint
+
+    class MockClobWithMidpoint:
+        def get_midpoint(self, token_id):
+            return {"mid": "0.485"}
+
+    client = MockClobWithMidpoint()
+    mid = fetch_live_midpoint(client, "tok_123")
+    assert mid == Decimal("0.485")
+
+    class MockClobWithBook:
+        def get_midpoint(self, token_id):
+            return None
+
+        def get_order_book(self, token_id):
+            return {
+                "bids": [{"price": "0.48", "size": "100"}],
+                "asks": [{"price": "0.52", "size": "100"}],
+            }
+
+    client_book = MockClobWithBook()
+    mid_book = fetch_live_midpoint(client_book, "tok_123")
+    assert mid_book == Decimal("0.50")

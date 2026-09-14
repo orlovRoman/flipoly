@@ -97,7 +97,7 @@ def reconcile_orders(
             r_orig_size = Decimal(str(r_ord.get("original_size", r_ord.get("size", "0"))))
             r_matched = Decimal(str(r_ord.get("size_matched", "0")))
             r_size = r_orig_size - r_matched
-            
+
             if abs(l_size - r_size) > Decimal("0.001"):
                 size_mismatches.append({"order_id": oid, "local": str(l_size), "remote": str(r_size)})
 

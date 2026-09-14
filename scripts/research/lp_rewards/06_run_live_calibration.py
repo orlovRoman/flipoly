@@ -1,9 +1,12 @@
+import asyncio
 import json
 import logging
 import os
 from pathlib import Path
 import sys
+import time
 from decimal import Decimal
+from typing import Optional
 
 repo_root = Path(__file__).resolve().parents[3]
 if str(repo_root) not in sys.path:
@@ -17,7 +20,27 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger("live_calibration")
 
 
-def main():
+def fetch_live_midpoint(clob_client, token_id: str) -> Optional[Decimal]:
+    """Fetch real-time midpoint from CLOB for a given token."""
+    try:
+        if hasattr(clob_client, "get_midpoint"):
+            res = clob_client.get_midpoint(token_id)
+            if isinstance(res, dict) and "mid" in res and res["mid"] is not None:
+                return Decimal(str(res["mid"]))
+        if hasattr(clob_client, "get_order_book"):
+            book = clob_client.get_order_book(token_id)
+            bids = book.get("bids", [])
+            asks = book.get("asks", [])
+            if bids and asks:
+                best_bid = Decimal(str(bids[0].get("price", bids[0][0] if isinstance(bids[0], (list, tuple)) else 0)))
+                best_ask = Decimal(str(asks[0].get("price", asks[0][0] if isinstance(asks[0], (list, tuple)) else 0)))
+                return (best_bid + best_ask) / Decimal("2")
+    except Exception as e:
+        logger.warning(f"Could not fetch live midpoint for token {token_id}: {e}")
+    return None
+
+
+async def run_live_calibration():
     protocol = load_protocol()
     storage_path = Path(protocol.data_storage.root_path)
     logger.info(f"Protocol loaded: {protocol.protocol_id} (SHA-256: {protocol.sha256_hash})")
@@ -79,7 +102,7 @@ def main():
 
     try:
         from py_clob_client_v2 import ClobClient, ApiCreds
-        
+
         creds = ApiCreds(
             api_key=os.getenv("POLY_API_KEY", ""),
             api_secret=os.getenv("POLY_API_SECRET", ""),
@@ -120,7 +143,6 @@ def main():
 
     from polyflip.research.lp_rewards.quoting_fsm import MarketQuotingFSM
     from polyflip.research.lp_rewards.capital_allocator import CapitalAllocator
-    import time
 
     allocator = CapitalAllocator(
         allocated_working_capital=Decimal("50.0"),
@@ -135,14 +157,19 @@ def main():
                 for top_m in active_configs:
                     fsm = fsms[top_m.condition_id]
                     now_ns = time.time_ns()
-                    # Midpoint should ideally come from live orderbook, 
-                    # but using 0.5 as placeholder since full WS integration is complex for this script.
-                    quotes = fsm.generate_quote_orders(midpoint=Decimal("0.5"), timestamp_ns=now_ns)
-                    
+                    live_mid = fetch_live_midpoint(clob_client, top_m.yes_token_id)
+                    if live_mid is None or live_mid <= Decimal("0.0") or live_mid >= Decimal("1.0"):
+                        logger.warning(
+                            f"Skipping market {top_m.condition_id}: live midpoint unavailable from CLOB ({live_mid})"
+                        )
+                        continue
+
+                    quotes = fsm.generate_quote_orders(midpoint=live_mid, timestamp_ns=now_ns)
+
                     positions = {top_m.condition_id: fsm.position}
                     open_orders = {top_m.condition_id: list(fsm.open_orders.values())}
                     allowed, _ = allocator.can_allocate_orders(top_m.condition_id, positions, open_orders, quotes)
-                    
+
                     if allowed:
                         for q in quotes:
                             res = executor.submit_order(
@@ -153,12 +180,12 @@ def main():
                                 protocol_hash=protocol.sha256_hash,
                             )
                             submitted.append(res)
-                
+
                 with open(live_orders_file, "w", encoding="utf-8") as lf:
                     json.dump(submitted, lf, indent=2)
-                
+
                 logger.info("FSM loop calibration: tick complete, waiting 5 seconds...")
-                time.sleep(5)
+                await asyncio.sleep(5)
         except Exception as e:
             logger.warning(f"Could not place initial calibration orders: {e}")
         except KeyboardInterrupt:
@@ -170,6 +197,10 @@ def main():
                 json.dump(submitted, lf, indent=2)
 
     logger.info(f"Updated live open orders registry at {live_orders_file} ({len(submitted)} active orders)")
+
+
+def main():
+    asyncio.run(run_live_calibration())
 
 
 if __name__ == "__main__":

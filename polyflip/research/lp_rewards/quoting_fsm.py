@@ -19,7 +19,7 @@ getcontext().prec = 28
 
 class MarketQuotingFSM:
     """Finite State Machine for market making a single Polymarket binary condition.
-    
+
     States: FLAT -> QUOTING_BOTH -> LONG_YES / LONG_NO -> COMPLETE_SET -> MERGING -> FLAT
     Timeout: 15 minutes in LONG_YES/LONG_NO -> EXITING (VWAP bids + taker fee) -> FLAT
     Safety: HALTED if inventory > $25 or stale data.

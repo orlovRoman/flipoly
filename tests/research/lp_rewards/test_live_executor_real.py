@@ -7,12 +7,22 @@ from eth_account import Account
 from polyflip.research.lp_rewards.execution import LiveOrderExecutor
 
 
+class MockClobClient:
+    def __init__(self):
+        self.cancelled = False
+
+    def cancel_all_orders(self):
+        self.cancelled = True
+        return {"status": "OK"}
+
+
 def test_executor_gate_a_rejection(tmp_path, monkeypatch):
     monkeypatch.setenv("LP_LIVE_ENABLED", "true")
 
     # Gate A file does not exist
     missing_file = tmp_path / "missing_gate_a.json"
-    executor = LiveOrderExecutor(clob_client='mock', 
+    executor = LiveOrderExecutor(
+        clob_client=MockClobClient(),
         expected_protocol_hash="hash_123",
         gate_a_verdict_path=missing_file,
         require_gate_a=True,
@@ -34,7 +44,8 @@ def test_executor_gate_a_rejection(tmp_path, monkeypatch):
         "protocol_hash": "hash_123",
     }), encoding="utf-8")
 
-    executor = LiveOrderExecutor(clob_client='mock', 
+    executor = LiveOrderExecutor(
+        clob_client=MockClobClient(),
         expected_protocol_hash="hash_123",
         gate_a_verdict_path=gate_a_file,
         require_gate_a=True,
@@ -53,7 +64,8 @@ def test_executor_gate_a_rejection(tmp_path, monkeypatch):
 def test_executor_isolated_wallet_rejection(monkeypatch):
     monkeypatch.setenv("LP_LIVE_ENABLED", "true")
     # Missing wallet
-    executor = LiveOrderExecutor(clob_client='mock', 
+    executor = LiveOrderExecutor(
+        clob_client=MockClobClient(),
         expected_protocol_hash="hash_123",
         wallet_address="",
         wallet_private_key="",
@@ -64,7 +76,8 @@ def test_executor_isolated_wallet_rejection(monkeypatch):
 
     # Isolated wallet equals main production wallet
     shared_address = "0x1111111111111111111111111111111111111111"
-    executor_shared = LiveOrderExecutor(clob_client='mock', 
+    executor_shared = LiveOrderExecutor(
+        clob_client=MockClobClient(),
         expected_protocol_hash="hash_123",
         wallet_address=shared_address,
         main_wallet_address=shared_address,
@@ -83,7 +96,8 @@ def test_executor_isolated_wallet_rejection(monkeypatch):
 
 def test_executor_working_capital_limit(monkeypatch):
     monkeypatch.setenv("LP_LIVE_ENABLED", "true")
-    executor = LiveOrderExecutor(clob_client='mock', 
+    executor = LiveOrderExecutor(
+        clob_client=MockClobClient(),
         expected_protocol_hash="hash_123",
         allocated_capital_limit=Decimal("100.00"),
     )
@@ -96,6 +110,8 @@ def test_executor_working_capital_limit(monkeypatch):
         price=Decimal("0.80"),
         size=Decimal("100.0"),
         protocol_hash="hash_123",
+        live_balance=Decimal("1000.0"),
+        allowance=Decimal("1000.0"),
     )
     assert res1["status"] == "SUBMITTED"
 
@@ -107,13 +123,16 @@ def test_executor_working_capital_limit(monkeypatch):
             price=Decimal("0.30"),
             size=Decimal("100.0"),
             protocol_hash="hash_123",
+            live_balance=Decimal("1000.0"),
+            allowance=Decimal("1000.0"),
         )
     assert "Working capital limit exceeded" in str(exc.value)
 
 
 def test_executor_token_allowlist_rejection(monkeypatch):
     monkeypatch.setenv("LP_LIVE_ENABLED", "true")
-    executor = LiveOrderExecutor(clob_client='mock', 
+    executor = LiveOrderExecutor(
+        clob_client=MockClobClient(),
         expected_protocol_hash="hash_123",
         allowlist_tokens={"approved_tok_a", "approved_tok_b"},
     )
@@ -131,7 +150,8 @@ def test_executor_token_allowlist_rejection(monkeypatch):
 
 def test_executor_tick_size_and_min_size(monkeypatch):
     monkeypatch.setenv("LP_LIVE_ENABLED", "true")
-    executor = LiveOrderExecutor(clob_client='mock', 
+    executor = LiveOrderExecutor(
+        clob_client=MockClobClient(),
         expected_protocol_hash="hash_123",
         min_size=Decimal("10.0"),
         tick_size=Decimal("0.01"),
@@ -168,7 +188,9 @@ def test_executor_eip712_signing_and_cancel_all(monkeypatch):
     test_key = account.key.hex()
     test_addr = account.address
 
-    executor = LiveOrderExecutor(clob_client='mock', 
+    mock_client = MockClobClient()
+    executor = LiveOrderExecutor(
+        clob_client=mock_client,
         expected_protocol_hash="hash_123",
         wallet_private_key=test_key,
         wallet_address=test_addr,
@@ -192,6 +214,7 @@ def test_executor_eip712_signing_and_cancel_all(monkeypatch):
 
     # Test cancel all
     assert len(executor.submitted_orders) == 1
-    executor.cancel_all_orders()
+    assert executor.cancel_all_orders() is True
     assert len(executor.submitted_orders) == 0
     assert executor.current_committed_capital == Decimal("0.0")
+    assert mock_client.cancelled is True

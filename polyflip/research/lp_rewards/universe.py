@@ -109,7 +109,7 @@ def parse_market_reward_config(
     exclude_neg_risk: bool = True,
 ) -> Optional[MarketRewardConfig]:
     """Parse raw reward market dictionary into MarketRewardConfig.
-    
+
     Excludes markets with neg_risk=True if exclude_neg_risk is True.
     Extracts tokens, rewards rate, max spread, min size, and oas.
     """

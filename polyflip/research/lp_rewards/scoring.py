@@ -13,7 +13,7 @@ def calculate_cutoff_midpoint(
     min_size: Decimal,
 ) -> Optional[Decimal]:
     """Calculate size-cutoff adjusted midpoint p_mid*.
-    
+
     Filters out levels with size < min_size.
     Returns (best_bid + best_ask) / 2 if both sides exist.
     If either side lacks qualifying levels, returns None (MID_UNCERTAIN).
@@ -44,7 +44,7 @@ def calculate_level_score(
     is_no_token: bool = False,
 ) -> Decimal:
     """Calculate positional score S(v, d) * size for a single order level.
-    
+
     S(v, d) = ((v - d) / v)^2 * b
     d = |price - midpoint| for YES
     d = |price - (1 - midpoint)| for NO
@@ -76,10 +76,10 @@ def calculate_q_components(
     multiplier: Decimal = Decimal("1.0"),
 ) -> Tuple[Decimal, Decimal, Decimal]:
     """Calculate cross-complementary Q_one, Q_two and resulting Q_min.
-    
+
     Q_one = bids(YES) + asks(NO)
     Q_two = asks(YES) + bids(NO)
-    
+
     If midpoint in [0.10, 0.90]:
         Q_min = max(min(Q_one, Q_two), max(Q_one / 3, Q_two / 3))
     Else:
@@ -216,13 +216,41 @@ class LPRewardShareEstimate(BaseModel):
     status: str = "VALID"  # VALID, MID_UNCERTAIN, BOOK_UNCERTAIN
 
 
-def subtract_orders(public_levels: List[OrderbookLevel], our_levels: List[OrderbookLevel]) -> List[OrderbookLevel]:
-    """Deduct our own resting orders from public orderbook levels to isolate competitor liquidity."""
-    public_dict = {lvl.price: lvl.size for lvl in public_levels}
+def subtract_orders(
+    public_levels: List[OrderbookLevel],
+    our_levels: List[OrderbookLevel],
+    is_bid: Optional[bool] = None,
+) -> List[OrderbookLevel]:
+    """Deduct our own resting orders from public orderbook levels to isolate competitor liquidity.
+
+    Aggregates duplicate price levels in both public and our orders, clamps size >= 0,
+    filters out empty levels, and sorts properly (bids descending, asks ascending).
+    """
+    public_agg: Dict[Decimal, Decimal] = {}
+    for lvl in public_levels:
+        sz = max(Decimal("0.0"), lvl.size)
+        public_agg[lvl.price] = public_agg.get(lvl.price, Decimal("0.0")) + sz
+
     for our_lvl in our_levels:
-        if our_lvl.price in public_dict:
-            public_dict[our_lvl.price] = max(Decimal("0.0"), public_dict[our_lvl.price] - our_lvl.size)
-    return [OrderbookLevel(price=p, size=s) for p, s in public_dict.items() if s > Decimal("0.0")]
+        if our_lvl.price in public_agg:
+            deduct_sz = max(Decimal("0.0"), our_lvl.size)
+            public_agg[our_lvl.price] = max(Decimal("0.0"), public_agg[our_lvl.price] - deduct_sz)
+
+    remaining = [
+        OrderbookLevel(price=p, size=s)
+        for p, s in public_agg.items()
+        if s > Decimal("0.0")
+    ]
+
+    if is_bid is True:
+        remaining.sort(key=lambda x: x.price, reverse=True)
+    elif is_bid is False:
+        remaining.sort(key=lambda x: x.price, reverse=False)
+    else:
+        # Default descending
+        remaining.sort(key=lambda x: x.price, reverse=True)
+
+    return remaining
 
 
 def calculate_competitor_and_own_scores(
@@ -298,10 +326,10 @@ def calculate_competitor_and_own_scores(
     )
 
     # 2. Competitor Q components from public book (deducting our own orders)
-    comp_yes_bids = subtract_orders(public_yes_bids, our_yes_bids)
-    comp_yes_asks = subtract_orders(public_yes_asks, our_yes_asks)
-    comp_no_bids = subtract_orders(public_no_bids, our_no_bids)
-    comp_no_asks = subtract_orders(public_no_asks, our_no_asks)
+    comp_yes_bids = subtract_orders(public_yes_bids, our_yes_bids, is_bid=True)
+    comp_yes_asks = subtract_orders(public_yes_asks, our_yes_asks, is_bid=False)
+    comp_no_bids = subtract_orders(public_no_bids, our_no_bids, is_bid=True)
+    comp_no_asks = subtract_orders(public_no_asks, our_no_asks, is_bid=False)
 
     comp_q1, comp_q2, comp_q_expected = calculate_q_components(
         comp_yes_bids, comp_yes_asks, comp_no_bids, comp_no_asks,

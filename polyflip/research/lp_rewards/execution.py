@@ -1,6 +1,9 @@
 import asyncio
+import concurrent.futures
+from dataclasses import dataclass
 import datetime
 from decimal import Decimal, getcontext
+from enum import Enum
 import json
 import logging
 import os
@@ -11,11 +14,42 @@ from typing import Any, Dict, List, Optional, Set
 from eth_account import Account
 from eth_account.messages import encode_typed_data
 
+try:
+    from py_clob_client_v2.order_utils.model.order_data_v2 import SignedOrderV2
+    from py_clob_client_v2.order_utils.model.side import Side
+    from py_clob_client_v2.order_utils.model.signature_type_v2 import SignatureTypeV2
+except ImportError:
+    class Side(Enum):
+        BUY = 0
+        SELL = 1
+
+    class SignatureTypeV2(Enum):
+        EOA = 0
+        POLY_PROXY = 1
+        POLY_GNOSIS_SAFE = 2
+        POLY_1271 = 3
+
+    @dataclass
+    class SignedOrderV2:
+        salt: str
+        maker: str
+        signer: str
+        tokenId: str
+        makerAmount: str
+        takerAmount: str
+        side: Side
+        signatureType: SignatureTypeV2
+        timestamp: str
+        metadata: str
+        builder: str
+        expiration: str = "0"
+        signature: str = ""
+
 getcontext().prec = 28
 logger = logging.getLogger(__name__)
 
 POLYGON_CHAIN_ID = 137
-CTF_EXCHANGE_ADDRESS = "0xE11118001712aA868d4aB713A2c8f85fBB9161aB"
+CTF_EXCHANGE_ADDRESS = "0xE111180000d2663C0091e4f400237545B87B996B"
 
 
 class LiveOrderExecutor:
@@ -220,22 +254,24 @@ class LiveOrderExecutor:
 
     def check_live_balance(self, cost: Decimal, available_balance: Optional[Decimal] = None) -> bool:
         """Verify wallet has sufficient pUSD balance."""
-        if available_balance is None and self.wallet_address:
+        if available_balance is None:
+            if not self.wallet_address:
+                raise PermissionError("Dedicated isolated wallet address or available_balance must be provided to verify live balance.")
             available_balance = self.get_pusd_balance_onchain(self.wallet_address)
-        if available_balance is not None:
-            if available_balance < cost:
-                raise ValueError(f"Insufficient live balance: available=${available_balance}, required=${cost}")
+        if available_balance < cost:
+            raise ValueError(f"Insufficient live balance: available=${available_balance}, required=${cost}")
         return True
 
     def check_allowance(self, required_amount: Decimal, current_allowance: Optional[Decimal] = None) -> bool:
         """Verify collateral allowance is sufficient for order execution."""
-        if current_allowance is None and self.wallet_address:
+        if current_allowance is None:
+            if not self.wallet_address:
+                raise PermissionError("Dedicated isolated wallet address or current_allowance must be provided to verify allowance.")
             current_allowance = self.get_pusd_allowance_onchain(self.wallet_address, self.verifying_contract)
-        if current_allowance is not None:
-            if current_allowance < required_amount:
-                raise PermissionError(
-                    f"Insufficient collateral allowance: available=${current_allowance}, required=${required_amount}"
-                )
+        if current_allowance < required_amount:
+            raise PermissionError(
+                f"Insufficient collateral allowance: available=${current_allowance}, required=${required_amount}"
+            )
         return True
 
     @staticmethod
@@ -257,7 +293,7 @@ class LiveOrderExecutor:
             raise ValueError(f"Invalid token ID: {token_id}")
 
     def _execute_client_call(self, method_name: str, *args, **kwargs) -> Any:
-        """Safely execute a method on clob_client without event loop collisions."""
+        """Safely execute a method on clob_client, synchronously waiting until completion."""
         if not self.clob_client or not hasattr(self.clob_client, method_name):
             return None
         fn = getattr(self.clob_client, method_name)
@@ -268,7 +304,8 @@ class LiveOrderExecutor:
             except RuntimeError:
                 loop = None
             if loop and loop.is_running():
-                return loop.create_task(res)
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    return pool.submit(asyncio.run, res).result(timeout=15)
             else:
                 return asyncio.run(res)
         return res
@@ -372,14 +409,12 @@ class LiveOrderExecutor:
         logger.warning("Emergency CANCEL-ALL triggered on live executor.")
         if not self.clob_client:
             raise PermissionError("CLOB client is not authenticated or provided. Live operations forbidden.")
-        try:
-            if hasattr(self.clob_client, "cancel_all_orders"):
-                self._execute_client_call("cancel_all_orders")
-            elif hasattr(self.clob_client, "cancel_all"):
-                self._execute_client_call("cancel_all")
-        except Exception as e:
-            logger.error(f"Failed to cancel all orders via client: {e}")
-            return False
+        if hasattr(self.clob_client, "cancel_all_orders"):
+            self._execute_client_call("cancel_all_orders")
+        elif hasattr(self.clob_client, "cancel_all"):
+            self._execute_client_call("cancel_all")
+        else:
+            raise NotImplementedError("CLOB client does not support cancel_all_orders or cancel_all.")
         self.submitted_orders.clear()
         self.current_committed_capital = Decimal("0.0")
         return True
@@ -389,14 +424,12 @@ class LiveOrderExecutor:
         logger.warning("Emergency CANCEL-ALL triggered on live executor (async).")
         if not self.clob_client:
             raise PermissionError("CLOB client is not authenticated or provided. Live operations forbidden.")
-        try:
-            if hasattr(self.clob_client, "cancel_all_orders"):
-                await self._execute_client_call_async("cancel_all_orders")
-            elif hasattr(self.clob_client, "cancel_all"):
-                await self._execute_client_call_async("cancel_all")
-        except Exception as e:
-            logger.error(f"Failed to cancel all orders via client: {e}")
-            return False
+        if hasattr(self.clob_client, "cancel_all_orders"):
+            await self._execute_client_call_async("cancel_all_orders")
+        elif hasattr(self.clob_client, "cancel_all"):
+            await self._execute_client_call_async("cancel_all")
+        else:
+            raise NotImplementedError("CLOB client does not support cancel_all_orders or cancel_all.")
         self.submitted_orders.clear()
         self.current_committed_capital = Decimal("0.0")
         return True
@@ -443,15 +476,37 @@ class LiveOrderExecutor:
             signed_payload = self.sign_eip712_order(token_id, side, price, size)
             logger.info(f"Submitting live order: {side} {size} @ {price} for token {token_id}")
 
+            # Construct typed SignedOrderV2 object for CLOB V2 SDK
+            order_msg = signed_payload["order"]
+            sdk_side = Side.BUY if side.upper() in ("BUY", "BID") else Side.SELL
+            sdk_sig_type = SignatureTypeV2.EOA
+
+            signed_order_obj = SignedOrderV2(
+                salt=str(order_msg["salt"]),
+                maker=str(order_msg["maker"]),
+                signer=str(order_msg["signer"]),
+                tokenId=str(order_msg["tokenId"]),
+                makerAmount=str(order_msg["makerAmount"]),
+                takerAmount=str(order_msg["takerAmount"]),
+                side=sdk_side,
+                signatureType=sdk_sig_type,
+                timestamp=str(order_msg["timestamp"]),
+                metadata=str(order_msg["metadata"]),
+                builder=str(order_msg["builder"]),
+                expiration="0",
+                signature=signed_payload["signature"],
+            )
+            signed_payload["signed_order_obj"] = signed_order_obj
+
             # Post order to remote CLOB if client exists
             client_order_id = None
             if self.clob_client:
                 if hasattr(self.clob_client, "post_order"):
-                    post_res = self._execute_client_call("post_order", signed_payload)
+                    post_res = self._execute_client_call("post_order", signed_order_obj)
                     if isinstance(post_res, dict):
                         client_order_id = post_res.get("orderID") or post_res.get("order_id")
                 elif hasattr(self.clob_client, "create_order"):
-                    post_res = self._execute_client_call("create_order", signed_payload)
+                    post_res = self._execute_client_call("create_order", signed_order_obj)
                     if isinstance(post_res, dict):
                         client_order_id = post_res.get("orderID") or post_res.get("order_id")
 

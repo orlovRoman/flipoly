@@ -22,6 +22,7 @@ def test_evaluate_gate_a_full_happy_path():
             }
         daily_records.append({
             "day": day,
+            "date": f"2026-09-0{day+1}",
             "net_pnl": "4.20",
             "quote_hours": "20.0",  # 7 * 20 = 140 quote-hours
             "protocol_hash": "hash_v0.1_verified",

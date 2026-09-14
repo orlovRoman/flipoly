@@ -30,7 +30,7 @@ def compute_block_bootstrap_ci(
     seed: int = 42,
 ) -> Tuple[Decimal, Decimal, Decimal]:
     """Perform block bootstrap strictly by whole UTC days.
-    
+
     Each sample in daily_net_pnls represents the aggregated Net PnL of all markets for one complete UTC day.
     Returns (point_estimate, lower_ci, upper_ci) for daily return on $100 allocated capital.
     """
@@ -163,13 +163,19 @@ def evaluate_gate_a_full(
                 rejection_reasons.append(f"Market {cid} PnL share {share*100:.1f}% > {max_single_market_pnl_share*100:.1f}%")
 
     protocol_hash_valid = True
+    missing_hashes = [i for i, r in enumerate(daily_records) if not r.get("protocol_hash")]
     if expected_protocol_hash:
-        if not hashes_seen:
+        if missing_hashes:
             protocol_hash_valid = False
-            rejection_reasons.append(f"Protocol hash missing from evaluation records; expected {expected_protocol_hash}")
-        elif any(h != expected_protocol_hash for h in hashes_seen):
+            rejection_reasons.append(f"Protocol hash missing from evaluation records at indices {missing_hashes}; expected {expected_protocol_hash}")
+        mismatches = [r.get("protocol_hash") for r in daily_records if r.get("protocol_hash") and r.get("protocol_hash") != expected_protocol_hash]
+        if mismatches:
             protocol_hash_valid = False
-            rejection_reasons.append(f"Protocol hash mismatch. Seen: {hashes_seen}, Expected: {expected_protocol_hash}")
+            rejection_reasons.append(f"Protocol hash mismatch. Seen: {set(mismatches)}, Expected: {expected_protocol_hash}")
+
+    missing_dates = [i for i, r in enumerate(daily_records) if not r.get("date")]
+    if missing_dates:
+        rejection_reasons.append(f"Required 'date' field missing from evaluation records at indices: {missing_dates}")
 
     dates_seen = [str(r.get("date")) for r in daily_records if r.get("date")]
     if len(dates_seen) != len(set(dates_seen)):

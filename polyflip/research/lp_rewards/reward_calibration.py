@@ -22,7 +22,7 @@ class RewardCalibrator:
         actual_reward: Decimal,
     ) -> Decimal:
         """Record reward observation and return relative error ratio strictly relative to actual payout.
-        
+
         Formula: abs(projected - actual) / actual
         """
         if actual_reward <= Decimal("0.0"):
@@ -59,11 +59,11 @@ class RewardCalibrator:
         poly_signature = os.getenv("POLY_SIGNATURE")
         poly_timestamp = os.getenv("POLY_TIMESTAMP")
         poly_passphrase = os.getenv("POLY_PASSPHRASE")
-        
+
         if not (poly_address and poly_signature and poly_timestamp and poly_passphrase):
             if should_close: await client.aclose()
             raise PermissionError("Missing required L2 authenticated headers for /rewards/user")
-            
+
         headers["POLY_ADDRESS"] = poly_address
         headers["POLY_SIGNATURE"] = poly_signature
         headers["POLY_TIMESTAMP"] = poly_timestamp
@@ -79,27 +79,29 @@ class RewardCalibrator:
                     params["next_cursor"] = cursor
                 resp = await client.get(url, params=params, headers=headers)
                 if resp.status_code != 200:
-                    break
+                    raise RuntimeError(
+                        f"CLOB rewards endpoint returned HTTP {resp.status_code}: {resp.text}"
+                    )
                 data = resp.json()
-                
+
                 rewards_data = []
                 if isinstance(data, list):
                     rewards_data = data
                 elif isinstance(data, dict):
                     rewards_data = data.get("earnings") or data.get("data") or data.get("rewards") or [data]
-                
+
                 if isinstance(rewards_data, list):
                     all_rewards.extend(rewards_data)
-                
+
                 next_cursor = data.get("next_cursor") if isinstance(data, dict) else None
                 if not next_cursor or next_cursor == "LTE=":
                     break
                 cursor = next_cursor
-                
+
             return all_rewards
         except Exception as e:
-            logger.warning(f"Failed to fetch actual rewards for wallet {wallet_address}: {e}")
-            return []
+            logger.error(f"Failed to fetch actual rewards for wallet {wallet_address}: {e}")
+            raise
         finally:
             if should_close:
                 await client.aclose()

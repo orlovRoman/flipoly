@@ -23,7 +23,7 @@ class QueuePositionTracker:
         trade_timestamp_ns: int,
     ) -> Optional[VirtualFill]:
         """Evaluate if public trade depletes the queue and fills our order.
-        
+
         Rules:
         1. Order must be at least min_order_age_sec old.
         2. Aggressor side must match:

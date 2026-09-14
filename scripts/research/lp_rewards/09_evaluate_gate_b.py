@@ -62,12 +62,30 @@ def main():
 
     daily_records: List[Dict[str, Any]] = []
     daily_pnls: List[Decimal] = []
+    daily_dates = set()
+    invalid_eval_reason = None
 
     for f in eval_files:
         with open(f, "r", encoding="utf-8") as jf:
             data = json.load(jf)
             daily_records.append(data)
             daily_pnls.append(Decimal(str(data.get("net_pnl", "0.0"))))
+            rec_date = data.get("date")
+            if not rec_date:
+                invalid_eval_reason = f"Missing date in evaluation file {f.name}"
+            elif rec_date in daily_dates:
+                invalid_eval_reason = f"Duplicate evaluation date {rec_date} in {f.name}"
+            else:
+                daily_dates.add(rec_date)
+
+            rec_hash = data.get("protocol_hash")
+            if not rec_hash or rec_hash != protocol.sha256_hash:
+                invalid_eval_reason = f"Protocol hash mismatch in {f.name}: {rec_hash} != {protocol.sha256_hash}"
+
+    if invalid_eval_reason:
+        logger.error(f"[GATE B BLOCKED] {invalid_eval_reason}")
+        print(f"TARGET_REJECTED: {invalid_eval_reason}")
+        sys.exit(1)
 
     total_live_days = len(daily_records)
     min_days = protocol.gates.gate_b.min_live_days
@@ -75,12 +93,20 @@ def main():
     # 2. Check latest reward prediction error from reconciliation reports
     recon_dir = storage_path / "reconciliation"
     mean_prediction_error = Decimal("1.0")
+    isolated_wallet = os.getenv("LP_ISOLATED_WALLET_ADDRESS")
     if recon_dir.exists():
         reward_reports = sorted(recon_dir.glob("rewards_*.json"))
         if reward_reports:
             with open(reward_reports[-1], "r", encoding="utf-8") as rf:
                 rdata = json.load(rf)
-                mean_prediction_error = Decimal(str(rdata.get("mean_error_ratio", "1.0")))
+                rep_hash = rdata.get("protocol_hash")
+                rep_wallet = rdata.get("wallet_address")
+                if rep_hash != protocol.sha256_hash:
+                    logger.warning(f"Reconciliation report hash mismatch: {rep_hash} != {protocol.sha256_hash}. Discarding.")
+                elif isolated_wallet and rep_wallet and rep_wallet.lower() != isolated_wallet.lower():
+                    logger.warning(f"Reconciliation report wallet mismatch: {rep_wallet} != {isolated_wallet}. Discarding.")
+                else:
+                    mean_prediction_error = Decimal(str(rdata.get("mean_error_ratio", "1.0")))
 
     # 3. Calculate bootstrap CI and drawdown
     point, lower, upper = compute_block_bootstrap_ci(

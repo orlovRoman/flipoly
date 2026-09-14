@@ -123,7 +123,7 @@ def load_protocol(protocol_path: Optional[Path] = None) -> LPProtocol:
         # Default path relative to flipoly repository root
         base = Path(__file__).resolve().parents[3]
         protocol_path = base / "artifacts" / "research" / "lp_rewards" / "protocol_v0.1.yaml"
-    
+
     if not protocol_path.exists():
         raise FileNotFoundError(f"Protocol file not found at {protocol_path}")
 

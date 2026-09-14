@@ -23,7 +23,7 @@ class SystemWatchdog:
 
     def check_disk_space(self) -> Tuple[float, str]:
         """Check free disk space in GB.
-        
+
         Returns (free_gb, status) where status is 'OK', 'WARNING', or 'EMERGENCY_HALT'.
         """
         try:

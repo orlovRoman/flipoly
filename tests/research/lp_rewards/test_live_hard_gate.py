@@ -47,5 +47,7 @@ def test_live_order_succeeds_when_all_gates_pass(monkeypatch):
         price=Decimal("0.50"),
         size=Decimal("10.0"),
         protocol_hash="approved_hash_abc",
+        live_balance=Decimal("100.00"),
+        allowance=Decimal("100.00"),
     )
     assert res["status"] == "SUBMITTED"

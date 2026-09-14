@@ -55,7 +55,7 @@ class BookReconciler:
         rest_best_ask: Optional[Decimal],
     ) -> bool:
         """Compare local best bid/ask with REST best bid/ask.
-        
+
         Returns True if reconciled within tolerance, False if mismatch (BOOK_UNCERTAIN).
         """
         local_best_bid = max((b.price for b in local_bids), default=None)

@@ -7,7 +7,7 @@ getcontext().prec = 28
 
 class CapitalAllocator:
     """Manages working capital allocation under strict $100.00 capital constraints.
-    
+
     Rules:
     - Base allocated working capital: $100.00
     - Max unhedged exposure per market: $25.00
@@ -110,7 +110,7 @@ class CapitalAllocator:
 
     def calculate_r100_calendar(self, net_pnl: Decimal, completed_full_utc_days: int) -> Decimal:
         """Calculate primary hypothesis metric R_100_calendar on $100 base.
-        
+
         Strict constraint: scaling up from small capital (< $100) is strictly prohibited
         because reward share is non-linear. Downscaling when extra buffer was used is permitted.
         """
