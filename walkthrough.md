@@ -1,25 +1,84 @@
-# Live Configuration Deep Audit & Fixes
+# Отчет об устранении блокирующих расхождений для Live-калибровки LP Rewards
 
-## 1. Signer Schema & Client Legacy Fixes
-- `execution.py`: Updated `CTF_EXCHANGE_ADDRESS` to the official V2 address (`0xE11118001712aA868d4aB713A2c8f85fBB9161aB`).
-- `execution.py`: Verified V1 signer fields (`taker`, `expiration`, `nonce`, `feeRateBps`) are successfully removed, `timestamp` uses milliseconds, and `metadata`/`builder` correctly use `bytes32`.
+В рамках данной итерации были детально проанализированы и устранены все выявленные блокирующие расхождения и скрытые заглушки, препятствовавшие безопасной live-калибровке и корректному учету в исследовании LP Rewards (ветка `research/lp-rewards`).
 
-## 2. PUSD On-Chain Validation
-- `execution.py`: Replaced manual fallback inputs with full on-chain RPC `eth_call` lookups to Polygon for pUSD (`0xC011a7E12a19f7b1f670d46f03b03f3342e82dfb`).
-- Implemented `get_pusd_balance_onchain` and `get_pusd_allowance_onchain`.
-- Renamed USDC references to pUSD.
+---
 
-## 3. Mock Client Removal
-- `06_run_live_calibration.py`: Ensure that actual initialization exceptions in `ClobClient` kill the process (Fail-closed behavior) rather than gracefully falling back to a `MockClobClient`.
-- Implemented a continuous `while True` loop that repeatedly evaluates FSM strategies rather than a smoke test with immediate teardown.
+## 1. Спецификация EIP-712 и контракты CLOB V2
 
-## 4. Competitive Logic
-- `scoring.py`: Verified that `subtract_orders` actively removes our local positions from the public orderbook before assessing `Q_one` and `Q_two`, preventing double counting of virtual liquidity.
-- `03_run_shadow_collector.py`: Changed `quote_hours` to calculate based on actual aggregated quoting intervals (`fsm_ticks` multiplied by `interval_sec`) rather than raw process runtime.
+- **Канонический адрес контракта**: В `polyflip/research/lp_rewards/execution.py` обновлен адрес биржевого контракта CTF Exchange V2 на официальный:
+  ```python
+  CTF_EXCHANGE_ADDRESS = "0xE11118001712aA868d4aB713A2c8f85fBB9161aB"
+  ```
+- **Структура EIP-712 Order Struct V2**:
+  - Полностью удалены устаревшие поля спецификации V1 (`taker`, `expiration`, `nonce`, `feeRateBps`).
+  - Добавлены и приведены к типам поля V2:
+    - `timestamp`: целое число в миллисекундах (`int(time.time() * 1000)`).
+    - `metadata`: тип `bytes32` (`"0x" + "00" * 32`).
+    - `builder`: тип `bytes32` (`"0x" + "00" * 32`).
+    - `signatureType`: `0` (EOA).
+  - Сформированный объект типизированных данных валидируется и передается в метод `post_order` клиента CLOB.
 
-## 5. Reward Reconciliation
-- `reward_calibration.py`: Enforced presence of full authenticated L2 headers (`POLY_ADDRESS`, `POLY_SIGNATURE`, `POLY_TIMESTAMP`, `POLY_PASSPHRASE`) before querying `/rewards/user`, throwing `PermissionError` if missing.
-- Added pagination (`next_cursor`) looping for `/rewards/user` to avoid silent truncation of payout records.
-- `08_reconcile_rewards.py`: Fixed exact date matching by truncating the API ISO datetime to the `YYYY-MM-DD` prefix.
-- Aggregated actual rewards across all markets to correctly compare with the daily combined `total_rewards_accrued` from shadow evaluations.
-- `09_evaluate_gate_b.py`: Set default `mean_prediction_error = Decimal("1.0")` to guarantee failure when reconciliation logs are missing.
+---
+
+## 2. Валидация баланса и Allowance токена pUSD через On-Chain JSON-RPC
+
+- **Адрес токена pUSD на Polygon**:
+  ```python
+  PUSD_ADDRESS = "0xC011a7E12a19f7b1f670d46f03b03f3342e82dfb"
+  ```
+- **Прямые JSON-RPC вызовы**:
+  - Реализованы методы `get_pusd_balance_onchain(wallet_address)` и `get_pusd_allowance_onchain(wallet_address, spender_address)` через HTTP JSON-RPC `eth_call` к ноде Polygon (`https://polygon-rpc.com` или переменная `POLYGON_RPC_URL`).
+  - Кодирование селекторов: `0x70a08231` (`balanceOf`) и `0xdd62ed3e` (`allowance`) с 6 десятичными знаками (USDC/pUSD 10^6).
+- **Принцип Fail-Closed**:
+  - При любой сетевой ошибке или недоступности ноды RPC возвращается `Decimal("0.0")`, что приводит к немедленному отклонению ордера по `Insufficient live balance` или `Insufficient collateral allowance`.
+
+---
+
+## 3. Устранение заглушек в Live-раннере (`06_run_live_calibration.py`)
+
+- **Удален MockClobClient**: Исключен любой автоматический fallback на мок-клиент. Если инициализация реального `ClobClient` завершается ошибкой (отсутствуют ключи, неверный формат и т.д.), процесс завершается с кодом ошибки (`sys.exit(1)`).
+- **Полноценный FSM цикл**:
+  - Вместо 5-секундного разового дымового теста реализован бесконечный цикл `while True` с интервалом котирования.
+  - На каждом шаге опрашивается состояние `MarketQuotingFSM`, проверяется лимит рабочего капитала через `CapitalAllocator`, генерируются котировки, отправляются через `LiveOrderExecutor` и сохраняются в `live_open_orders.json`.
+  - При прерывании или ошибке выполняется блок `finally: executor.cancel_all_orders()`, гарантирующий снятие всех активных заявок.
+
+---
+
+## 4. Конкурентный скоринг и учет времени котирования
+
+- **Вычитание собственных заявок (`subtract_orders`)**: В модуле `scoring.py` собственные виртуальные ордера извлекаются из стакана до расчета конкурентного знаменателя $Q_{one}$ и $Q_{two}$. Это исключает искусственное завышение объемов стакана нашими же заявками.
+- **Расчет `quote_hours`**: В `03_run_shadow_collector.py` расчет `quote_hours` переведен с общего астрономического времени жизни процесса на взвешенное время активного присутствия котировок в рынке:
+  $$\text{quote\_hours} = \frac{\text{avg\_ticks} \times \text{interval\_sec}}{3600.0}$$
+
+---
+
+## 5. Сверка вознаграждений (Reconciliation) и Gate B
+
+- **L2 аутентификация в `reward_calibration.py`**:
+  - При запросе `/rewards/user` теперь проверяется наличие всех четырех обязательных L2 заголовков: `POLY_ADDRESS`, `POLY_SIGNATURE`, `POLY_TIMESTAMP`, `POLY_PASSPHRASE`. При их отсутствии выбрасывается `PermissionError`.
+  - Реализована пагинация через параметр `next_cursor` вплоть до терминального маркера `"LTE="`.
+- **Дневная агрегация в `08_reconcile_rewards.py`**:
+  - Даты из API нормализуются до формата `YYYY-MM-DD`.
+  - Фактические начисления суммируются за весь день по всем рынкам для корректного сопоставления с общим дневным счетчиком `total_rewards_accrued`.
+- **Fail-Closed в `09_evaluate_gate_b.py`**:
+  - Значение по умолчанию для `mean_prediction_error` установлено в `Decimal("1.0")` (100% ошибка). При отсутствии файлов сверки Gate B гарантированно отклоняется (`INCONCLUSIVE` / `TARGET_NOT_CONFIRMED`), а не пропускается с фиктивной нулевой ошибкой.
+
+---
+
+## 6. Самопроверки и результаты тестирования
+
+В `tests/research/lp_rewards/test_deep_fixes.py` добавлены специализированные unit-тесты:
+1. `test_executor_clob_v2_exact_struct_and_address`: проверка адреса `0xE1111800...`, отсутствия полей V1 и корректных типов V2 (`timestamp` в мс, `bytes32` для `metadata`/`builder`).
+2. `test_pusd_onchain_rpc_balance_and_allowance_mocked`: проверка RPC-запросов к pUSD, десериализации 6 знаков и fail-closed блокировки при сбое ноды.
+3. `test_reconcile_rewards_l2_headers_missing_raises_permission_error`: проверка требования L2 заголовков.
+4. `test_reconcile_rewards_pagination_and_date_sum`: проверка пагинации до `"LTE="` и сложения сумм выплат.
+5. `test_gate_b_evaluator_fail_closed_when_recon_missing`: проверка отклонения Gate B при отсутствии логов сверки.
+6. `test_shadow_collector_quote_hours_calculation`: проверка формулы реальных часов котирования.
+
+### Результат прогона тестов:
+```bash
+python -m pytest tests/research/lp_rewards -v
+============================= 74 passed in 2.19s ==============================
+```
+Все 74 теста в тестовом наборе проходят успешно.

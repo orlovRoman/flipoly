@@ -364,6 +364,7 @@ class LiveOrderExecutor:
         return {
             "order": order_data["message"],
             "signature": signature,
+            "order_data": order_data,
         }
 
     def cancel_all_orders(self) -> bool:

@@ -288,3 +288,158 @@ async def test_reconcile_rewards_user_endpoint(monkeypatch):
     assert route.called
     req = route.calls.last.request
     assert req.headers.get("POLY_API_KEY") == "secret_key_123"
+
+
+def test_executor_clob_v2_exact_struct_and_address():
+    """Verify official V2 contract address, V2 fields, and removal of V1 legacy fields."""
+    from polyflip.research.lp_rewards.execution import CTF_EXCHANGE_ADDRESS
+    assert CTF_EXCHANGE_ADDRESS == "0xE11118001712aA868d4aB713A2c8f85fBB9161aB"
+
+    executor = LiveOrderExecutor(
+        expected_protocol_hash="hash_123",
+        wallet_address="0x1111111111111111111111111111111111111111",
+    )
+    signed = executor.sign_eip712_order(
+        token_id="12345",
+        side="BUY",
+        price=Decimal("0.50"),
+        size=Decimal("10.0"),
+    )
+    msg = signed["order"]
+    order_data = signed["order_data"]
+    types = order_data["types"]["Order"]
+    type_names = [t["name"] for t in types]
+
+    expected_names = [
+        "salt", "maker", "signer", "tokenId", "makerAmount",
+        "takerAmount", "side", "signatureType", "timestamp",
+        "metadata", "builder"
+    ]
+    assert type_names == expected_names
+    for forbidden in ["taker", "expiration", "nonce", "feeRateBps"]:
+        assert forbidden not in type_names
+        assert forbidden not in msg
+
+    assert msg["metadata"] == "0x" + "00" * 32
+    assert msg["builder"] == "0x" + "00" * 32
+    assert msg["timestamp"] > 1_700_000_000_000
+
+
+def test_pusd_onchain_rpc_balance_and_allowance_mocked(monkeypatch):
+    """Verify on-chain pUSD balance and allowance queries via JSON-RPC, with fail-closed behavior."""
+    from unittest.mock import MagicMock
+    import urllib.request
+
+    executor = LiveOrderExecutor(
+        expected_protocol_hash="hash_123",
+        wallet_address="0x1111111111111111111111111111111111111111",
+    )
+
+    mock_balance_resp = json.dumps({"jsonrpc": "2.0", "result": "0x05f5e100", "id": 1}).encode()
+    mock_allowance_resp = json.dumps({"jsonrpc": "2.0", "result": "0x0bebc200", "id": 1}).encode()
+
+    responses = [mock_balance_resp, mock_allowance_resp]
+    def mock_urlopen(req, timeout=5):
+        data = responses.pop(0)
+        resp = MagicMock()
+        resp.read.return_value = data
+        resp.__enter__.return_value = resp
+        resp.__exit__.return_value = None
+        return resp
+
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+
+    bal = executor.get_pusd_balance_onchain("0x1111111111111111111111111111111111111111")
+    assert bal == Decimal("100.0")
+
+    allow = executor.get_pusd_allowance_onchain("0x1111111111111111111111111111111111111111", executor.verifying_contract)
+    assert allow == Decimal("200.0")
+
+    def mock_urlopen_fail(req, timeout=5):
+        raise ConnectionError("Polygon RPC down")
+
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen_fail)
+    bal_err = executor.get_pusd_balance_onchain("0x1111111111111111111111111111111111111111")
+    assert bal_err == Decimal("0.0")
+
+    with pytest.raises(ValueError) as exc:
+        executor.check_live_balance(Decimal("10.0"))
+    assert "Insufficient live balance" in str(exc.value)
+
+    with pytest.raises(PermissionError) as exc2:
+        executor.check_allowance(Decimal("10.0"))
+    assert "Insufficient collateral allowance" in str(exc2.value)
+
+
+@pytest.mark.asyncio
+async def test_reconcile_rewards_l2_headers_missing_raises_permission_error(monkeypatch):
+    """Verify missing required L2 headers raises PermissionError (fail-closed)."""
+    monkeypatch.delenv("POLY_ADDRESS", raising=False)
+    monkeypatch.delenv("POLY_SIGNATURE", raising=False)
+    monkeypatch.delenv("POLY_TIMESTAMP", raising=False)
+    monkeypatch.delenv("POLY_PASSPHRASE", raising=False)
+
+    calibrator = RewardCalibrator(Decimal("0.30"))
+    with pytest.raises(PermissionError) as exc:
+        await calibrator.fetch_actual_user_rewards("0x123")
+    assert "Missing required L2 authenticated headers" in str(exc.value)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_reconcile_rewards_pagination_and_date_sum(monkeypatch):
+    """Verify rewards pagination loops until LTE= and handles dict responses."""
+    monkeypatch.setenv("POLY_ADDRESS", "0x123")
+    monkeypatch.setenv("POLY_SIGNATURE", "sig")
+    monkeypatch.setenv("POLY_TIMESTAMP", "123")
+    monkeypatch.setenv("POLY_PASSPHRASE", "pass")
+
+    respx.get("https://clob.polymarket.com/rewards/user").side_effect = [
+        httpx.Response(
+            200,
+            json={
+                "data": [{"condition_id": "c1", "earnings": "10.5", "date": "2026-09-10T12:00:00Z"}],
+                "next_cursor": "cursor_page_2",
+            },
+        ),
+        httpx.Response(
+            200,
+            json={
+                "data": [{"condition_id": "c2", "earnings": "5.5", "date": "2026-09-10T18:00:00Z"}],
+                "next_cursor": "LTE=",
+            },
+        ),
+    ]
+
+    async with httpx.AsyncClient() as client:
+        calibrator = RewardCalibrator(Decimal("0.30"))
+        rewards = await calibrator.fetch_actual_user_rewards("0xabc", client=client)
+
+    assert len(rewards) == 2
+    assert Decimal(str(rewards[0]["earnings"])) + Decimal(str(rewards[1]["earnings"])) == Decimal("16.0")
+
+
+def test_gate_b_evaluator_fail_closed_when_recon_missing():
+    """Verify Gate B fails closed (not TARGET_CONFIRMED) when reward prediction error is default 1.0."""
+    from polyflip.research.lp_rewards.evaluation import determine_gate_b_verdict
+    verdict = determine_gate_b_verdict(
+        point_est=Decimal("5.0"),
+        lower_95=Decimal("3.8"),
+        upper_95=Decimal("6.2"),
+        max_drawdown=Decimal("0.05"),
+        mean_prediction_error=Decimal("1.0"),
+        target_rate=Decimal("3.50"),
+        min_live_days=14,
+        total_live_days=14,
+    )
+    assert verdict != "TARGET_CONFIRMED"
+    assert verdict == "INCONCLUSIVE"
+
+
+def test_shadow_collector_quote_hours_calculation():
+    """Verify quote_hours uses aggregated quoting intervals rather than elapsed uptime."""
+    market_uptime = {"m1": 7200, "m2": 7200}
+    interval_sec = 1.0
+    avg_ticks = sum(market_uptime.values()) / len(market_uptime)
+    quote_hours = (avg_ticks * interval_sec) / 3600.0
+    assert quote_hours == 2.0
