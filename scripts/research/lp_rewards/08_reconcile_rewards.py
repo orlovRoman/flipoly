@@ -31,9 +31,10 @@ async def main():
     logger.info(f"Reconciling rewards for protocol: {protocol.protocol_id} (Wallet: {wallet_address})")
     logger.info(f"Max allowed prediction error threshold: {float(protocol.gates.gate_b.max_reward_prediction_error) * 100:.0f}%")
 
+    api_key = os.getenv("LP_RELAYER_API_KEY") or os.getenv("POLY_API_KEY")
     # 1. Fetch actual user rewards from Polymarket API
     async with httpx.AsyncClient(timeout=30.0) as client:
-        actual_rewards = await calibrator.fetch_actual_user_rewards(wallet_address, client)
+        actual_rewards = await calibrator.fetch_actual_user_rewards(wallet_address, client, api_key=api_key)
 
     logger.info(f"Retrieved {len(actual_rewards)} actual reward payout records from Polymarket API.")
 

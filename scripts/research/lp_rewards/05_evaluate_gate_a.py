@@ -91,3 +91,8 @@ def main():
     with open(verdict_file, "w", encoding="utf-8") as vf:
         json.dump(verdict_artifact, vf, indent=2)
     print(f"Saved Gate A verdict artifact to {verdict_file}")
+
+
+if __name__ == "__main__":
+    main()
+

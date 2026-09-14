@@ -35,14 +35,18 @@ async def main():
     )
     print(f"Fetched {len(raw_markets)} raw reward records across all pages.")
 
-    # Filter markets that have positive rewards and sort descending by daily rate
-    active_pool = [m for m in raw_markets if float(m.get("total_daily_rate") or m.get("native_daily_rate") or 0) > 0]
+    # Filter markets that have viable rewards (above dust limit) and sort descending by daily rate
+    min_dust = float(protocol.scoring.min_payout_dust_usdc)
+    active_pool = [
+        m for m in raw_markets
+        if float(m.get("total_daily_rate") or m.get("native_daily_rate") or 0) >= min_dust
+    ]
     active_pool.sort(key=lambda m: float(m.get("total_daily_rate") or m.get("native_daily_rate") or 0), reverse=True)
-    print(f"Markets with positive reward pools: {len(active_pool)}")
+    print(f"Markets with viable reward pools (>= ${min_dust:.2f}/day): {len(active_pool)}")
 
-    # Enrich all positive reward candidates via CLOB market info
-    candidates = active_pool
-    print(f"Enriching all {len(candidates)} candidates via CLOB market info...")
+    # Enrich viable candidates (up to 200 top reward-yielding candidates for active/reserve selection)
+    candidates = active_pool[:200] if len(active_pool) > 200 else active_pool
+    print(f"Enriching {len(candidates)} top reward-yielding candidates via CLOB market info...")
 
     semaphore = asyncio.Semaphore(15)
     async with httpx.AsyncClient(timeout=30.0) as client:

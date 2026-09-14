@@ -46,6 +46,9 @@ class LiveOrderExecutor:
         tick_size: Decimal = Decimal("0.001"),
         require_gate_a: Optional[bool] = None,
         clob_client: Optional[Any] = None,
+        domain_name: str = "Polymarket CTF Exchange",
+        domain_version: str = "2",
+        verifying_contract: str = CTF_EXCHANGE_ADDRESS,
     ):
         self.expected_protocol_hash = expected_protocol_hash
         self.gate_a_verdict_path = gate_a_verdict_path
@@ -71,6 +74,9 @@ class LiveOrderExecutor:
             else (os.getenv("LP_REQUIRE_GATE_A", "false").lower() in ("1", "true", "yes") or gate_a_verdict_path is not None)
         )
         self.clob_client = clob_client
+        self.domain_name = domain_name
+        self.domain_version = domain_version
+        self.verifying_contract = verifying_contract
         self.current_committed_capital: Decimal = Decimal("0.0")
         self.submitted_orders: List[Dict[str, Any]] = []
 
@@ -167,6 +173,60 @@ class LiveOrderExecutor:
                 raise ValueError(f"Insufficient live balance: available=${available_balance}, required=${cost}")
         return True
 
+    def check_allowance(self, required_amount: Decimal, current_allowance: Optional[Decimal] = None) -> bool:
+        """Verify collateral allowance is sufficient for order execution."""
+        if current_allowance is not None:
+            if current_allowance < required_amount:
+                raise PermissionError(
+                    f"Insufficient collateral allowance: available=${current_allowance}, required=${required_amount}"
+                )
+        return True
+
+    @staticmethod
+    def _parse_token_id(token_id: Any) -> int:
+        """Parse token ID from decimal string, hex string, or integer."""
+        if isinstance(token_id, int):
+            return token_id
+        s = str(token_id).strip()
+        if s.startswith(("0x", "0X")):
+            try:
+                return int(s, 16)
+            except ValueError:
+                return 1
+        if s.isdigit():
+            return int(s)
+        try:
+            return int(s)
+        except ValueError:
+            return 1
+
+    def _execute_client_call(self, method_name: str, *args, **kwargs) -> Any:
+        """Safely execute a method on clob_client without event loop collisions."""
+        if not self.clob_client or not hasattr(self.clob_client, method_name):
+            return None
+        fn = getattr(self.clob_client, method_name)
+        res = fn(*args, **kwargs)
+        if asyncio.iscoroutine(res):
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            if loop and loop.is_running():
+                return loop.create_task(res)
+            else:
+                return asyncio.run(res)
+        return res
+
+    async def _execute_client_call_async(self, method_name: str, *args, **kwargs) -> Any:
+        """Asynchronously execute a method on clob_client."""
+        if not self.clob_client or not hasattr(self.clob_client, method_name):
+            return None
+        fn = getattr(self.clob_client, method_name)
+        res = fn(*args, **kwargs)
+        if asyncio.iscoroutine(res):
+            return await res
+        return res
+
     def sign_eip712_order(
         self,
         token_id: str,
@@ -216,17 +276,17 @@ class LiveOrderExecutor:
             },
             "primaryType": "Order",
             "domain": {
-                "name": "ClobOrder",
-                "version": "1",
+                "name": self.domain_name,
+                "version": self.domain_version,
                 "chainId": POLYGON_CHAIN_ID,
-                "verifyingContract": CTF_EXCHANGE_ADDRESS,
+                "verifyingContract": self.verifying_contract,
             },
             "message": {
                 "salt": salt,
                 "maker": maker_address,
                 "signer": maker_address,
                 "taker": "0x0000000000000000000000000000000000000000",
-                "tokenId": int(token_id) if token_id.isdigit() else 1,
+                "tokenId": self._parse_token_id(token_id),
                 "makerAmount": maker_amount,
                 "takerAmount": taker_amount,
                 "expiration": expiration,
@@ -258,9 +318,25 @@ class LiveOrderExecutor:
         if self.clob_client:
             try:
                 if hasattr(self.clob_client, "cancel_all_orders"):
-                    asyncio.run(self.clob_client.cancel_all_orders())
+                    self._execute_client_call("cancel_all_orders")
                 elif hasattr(self.clob_client, "cancel_all"):
-                    asyncio.run(self.clob_client.cancel_all())
+                    self._execute_client_call("cancel_all")
+            except Exception as e:
+                logger.error(f"Failed to cancel all orders via client: {e}")
+                return False
+        self.submitted_orders.clear()
+        self.current_committed_capital = Decimal("0.0")
+        return True
+
+    async def cancel_all_orders_async(self) -> bool:
+        """Cancel all resting orders on CLOB immediately in async context."""
+        logger.warning("Emergency CANCEL-ALL triggered on live executor (async).")
+        if self.clob_client:
+            try:
+                if hasattr(self.clob_client, "cancel_all_orders"):
+                    await self._execute_client_call_async("cancel_all_orders")
+                elif hasattr(self.clob_client, "cancel_all"):
+                    await self._execute_client_call_async("cancel_all")
             except Exception as e:
                 logger.error(f"Failed to cancel all orders via client: {e}")
                 return False
@@ -276,6 +352,7 @@ class LiveOrderExecutor:
         size: Decimal,
         protocol_hash: str,
         live_balance: Optional[Decimal] = None,
+        allowance: Optional[Decimal] = None,
     ) -> Dict[str, Any]:
         """Submit live order with all hard gates and validations enforced."""
         if not self.is_live_enabled():
@@ -300,10 +377,23 @@ class LiveOrderExecutor:
         order_cost = price * size
         self.verify_working_capital_limit(order_cost)
         self.check_live_balance(order_cost, live_balance)
+        self.check_allowance(order_cost, allowance)
 
         try:
             signed_payload = self.sign_eip712_order(token_id, side, price, size)
             logger.info(f"Submitting live order: {side} {size} @ {price} for token {token_id}")
+
+            # Post order to remote CLOB if client exists
+            client_order_id = None
+            if self.clob_client:
+                if hasattr(self.clob_client, "post_order"):
+                    post_res = self._execute_client_call("post_order", signed_payload)
+                    if isinstance(post_res, dict):
+                        client_order_id = post_res.get("orderID") or post_res.get("order_id")
+                elif hasattr(self.clob_client, "create_order"):
+                    post_res = self._execute_client_call("create_order", signed_payload)
+                    if isinstance(post_res, dict):
+                        client_order_id = post_res.get("orderID") or post_res.get("order_id")
 
             self.current_committed_capital += order_cost
             result = {
@@ -312,6 +402,7 @@ class LiveOrderExecutor:
                 "side": side,
                 "price": str(price),
                 "size": str(size),
+                "order_id": client_order_id or f"ord_{int(time.time()*1000)}",
                 "signed_order": signed_payload,
             }
             self.submitted_orders.append(result)

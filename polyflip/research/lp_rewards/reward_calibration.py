@@ -41,6 +41,7 @@ class RewardCalibrator:
         self,
         wallet_address: str,
         client: Optional[httpx.AsyncClient] = None,
+        api_key: Optional[str] = None,
         base_url: str = "https://clob.polymarket.com",
     ) -> List[Dict[str, Any]]:
         """Fetch actual user rewards history from Polymarket CLOB rewards API."""
@@ -49,9 +50,13 @@ class RewardCalibrator:
             client = httpx.AsyncClient(timeout=30.0)
             should_close = True
 
+        headers = {}
+        if api_key:
+            headers["POLY_API_KEY"] = api_key
+
         try:
             url = f"{base_url}/rewards/user"
-            resp = await client.get(url, params={"address": wallet_address})
+            resp = await client.get(url, params={"address": wallet_address}, headers=headers)
             if resp.status_code == 200:
                 data = resp.json()
                 if isinstance(data, list):

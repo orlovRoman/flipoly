@@ -92,6 +92,32 @@ def main():
     logger.info(f"Allocated working capital limit: ${protocol.capital_allocation.allocated_working_capital}")
     logger.info("Live calibration worker is armed and ready for active order placement.")
 
+    # Manage live open orders registry for 07_reconcile_orders
+    live_orders_file = storage_path / "live_open_orders.json"
+    submitted = []
+
+    # Place initial calibration quotes if wallet private key is available
+    if wallet_key and active_configs:
+        top_m = active_configs[0]
+        test_size = max(top_m.rewards_min_size, Decimal("10.0"))
+        test_price = Decimal("0.49")
+        try:
+            order_res = executor.submit_order(
+                token_id=top_m.yes_token_id,
+                side="BUY",
+                price=test_price,
+                size=test_size,
+                protocol_hash=protocol.sha256_hash,
+            )
+            submitted.append(order_res)
+            logger.info(f"[CALIBRATION ORDER PLACED] {order_res.get('side')} {order_res.get('size')} @ {order_res.get('price')} on token {order_res.get('token_id')}")
+        except Exception as e:
+            logger.warning(f"Could not place initial calibration order: {e}")
+
+    with open(live_orders_file, "w", encoding="utf-8") as lf:
+        json.dump(submitted, lf, indent=2)
+    logger.info(f"Updated live open orders registry at {live_orders_file} ({len(submitted)} active orders)")
+
 
 if __name__ == "__main__":
     main()

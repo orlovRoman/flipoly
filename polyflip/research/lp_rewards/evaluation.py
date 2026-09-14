@@ -189,10 +189,7 @@ def evaluate_gate_a_full(
     )
 
     if rejection_reasons:
-        if base_verdict == "PROCEED_LIVE":
-            final_verdict = "TARGET_REJECTED"
-        else:
-            final_verdict = base_verdict
+        final_verdict = "EDGE_REJECTED" if base_verdict == "EDGE_REJECTED" else "TARGET_REJECTED"
     else:
         final_verdict = base_verdict
 

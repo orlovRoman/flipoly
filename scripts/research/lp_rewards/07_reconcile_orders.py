@@ -32,8 +32,14 @@ async def fetch_remote_orders(
         headers["POLY_API_KEY"] = api_key
 
     try:
-        url = f"{CLOB_API_URL}/orders"
+        # Polymarket CLOB V2 active orders endpoint
+        url = f"{CLOB_API_URL}/data/orders"
         resp = await client.get(url, params={"maker_address": wallet_address}, headers=headers)
+        if resp.status_code != 200:
+            # Fallback to /orders endpoint
+            url = f"{CLOB_API_URL}/orders"
+            resp = await client.get(url, params={"maker_address": wallet_address}, headers=headers)
+
         if resp.status_code == 200:
             data = resp.json()
             if isinstance(data, list):

@@ -256,18 +256,18 @@ class MarketQuotingFSM:
         orderbook: OrderbookSnapshot,
     ) -> Tuple[bool, Optional[VirtualFill]]:
         """Check if 15-minute hedging timeout has elapsed, and if so, perform forced exit."""
-        if self.position.state not in (QuotingState.LONG_YES, QuotingState.LONG_NO):
+        if self.position.state not in (QuotingState.LONG_YES, QuotingState.LONG_NO, QuotingState.EXIT_LIQUIDITY_INSUFFICIENT):
             return False, None
 
         if self.state_timer_ns == 0:
             return False, None
 
         elapsed_sec = (current_timestamp_ns - self.state_timer_ns) / 1e9
-        if elapsed_sec < self.hedging_timeout_sec:
+        if elapsed_sec < self.hedging_timeout_sec and self.position.state != QuotingState.EXIT_LIQUIDITY_INSUFFICIENT:
             return False, None
 
         # Determine direction before state transition
-        is_yes = (self.position.state == QuotingState.LONG_YES or self.position.yes_inventory > Decimal("0.0"))
+        is_yes = (self.position.yes_inventory > Decimal("0.0") or self.position.state == QuotingState.LONG_YES)
         unhedged_size = self.position.yes_inventory if is_yes else self.position.no_inventory
         cost_basis = self.position.yes_fill_cost if is_yes else self.position.no_fill_cost
 
