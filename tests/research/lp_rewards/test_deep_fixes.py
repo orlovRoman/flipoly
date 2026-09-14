@@ -992,3 +992,85 @@ async def test_reconcile_orders_main_remote_error_fails_closed(monkeypatch):
     with pytest.raises(SystemExit) as exc:
         await reconcile_07.main()
     assert exc.value.code == 1
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_reconcile_orders_fetch_remote_dict_with_error_fails_closed():
+    """Verify fetch_remote_orders raises RuntimeError when response dict contains 'error'."""
+    respx.get("https://clob.polymarket.com/data/orders").respond(
+        status_code=200,
+        json={"error": "API key rejected"},
+    )
+
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(RuntimeError) as exc:
+            await fetch_remote_orders(
+                wallet_address="0xabc",
+                client=client,
+            )
+    assert "CLOB orders API returned error in response" in str(exc.value)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_reconcile_orders_fetch_remote_dict_missing_data_fails_closed():
+    """Verify fetch_remote_orders raises RuntimeError when response dict lacks 'data' key."""
+    respx.get("https://clob.polymarket.com/data/orders").respond(
+        status_code=200,
+        json={"status": "ok", "count": 0},
+    )
+
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(RuntimeError) as exc:
+            await fetch_remote_orders(
+                wallet_address="0xabc",
+                client=client,
+            )
+    assert "CLOB orders response dict missing 'data' field" in str(exc.value)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_reconcile_orders_fetch_remote_multipage_failure_fails_closed():
+    """Verify fetch_remote_orders fails closed without returning partial page-1 orders when page-2 query fails."""
+    route = respx.get("https://clob.polymarket.com/data/orders")
+    route.side_effect = [
+        httpx.Response(
+            200,
+            json={
+                "data": [{"order_id": "ord_1", "price": "0.50", "size": "10.0"}],
+                "next_cursor": "PAGE_2_CURSOR",
+            },
+        ),
+        httpx.Response(
+            500,
+            text="Internal Gateway Error on page 2",
+        ),
+    ]
+
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(RuntimeError) as exc:
+            await fetch_remote_orders(
+                wallet_address="0xabc",
+                client=client,
+            )
+    assert "CLOB orders query returned status 500" in str(exc.value)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_reconcile_orders_main_corrupted_local_file_fails_closed(tmp_path, monkeypatch):
+    """Verify 07_reconcile_orders.py main() logs error and exits with code 1 if local_orders_file is corrupted JSON."""
+    monkeypatch.setenv("LP_ISOLATED_WALLET_ADDRESS", "0x1111111111111111111111111111111111111111")
+    from polyflip.research.lp_rewards.protocol import load_protocol
+    protocol = load_protocol().model_copy(deep=True)
+    protocol.data_storage.root_path = str(tmp_path)
+    monkeypatch.setattr(reconcile_07, "load_protocol", lambda: protocol)
+
+    corrupt_file = tmp_path / "live_open_orders.json"
+    corrupt_file.write_text("{broken json file content", encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc:
+        await reconcile_07.main()
+    assert exc.value.code == 1

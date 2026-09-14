@@ -172,14 +172,20 @@ python -m pytest tests/research/lp_rewards -v
 1. **Строгий Fail-Closed в `07_reconcile_orders.py`**:
    - В функции `fetch_remote_orders` полностью удалены небезопасные операторы `break`, которые при сетевых ошибках, сбоях ноды/шлюза Polymarket (HTTP != 200) или ошибках парсинга JSON возвращали пустой или частичный список ордеров.
    - Теперь при получении HTTP-статуса, отличного от 200, при любых сетевых исключениях (`httpx.ConnectError`, таймаут и т.д.), при некорректном JSON или неожиданном формате ответа скрипт логирует `logger.error` и немедленно выбрасывает `RuntimeError`.
-   - В функции `main()` вызов `fetch_remote_orders` защищен обработчиком, который логирует `logger.error` и немедленно завершает процесс с кодом `sys.exit(1)`. Сверка гарантированно прерывается в режиме fail-closed и не может сформировать ошибочный отчет о «синхронизированности» (reconciled in sync) при отсутствии связи с биржей.
-   - В `tests/research/lp_rewards/test_deep_fixes.py` добавлено 5 специализированных unit-тестов:
+   - В структуру валидации словарей добавлен строгий контроль: если API возвращает словарь с полем `"error"` (например, отказ в авторизации при HTTP 200) или словарь без обязательного ключа `"data"`, скрипт немедленно выбрасывает `RuntimeError`, предотвращая ложное распознавание ответа как пустого набора ордеров.
+   - Гарантирована атомарность пагинации: при обрыве связи на N-й странице пагинации накопленные на предыдущих страницах ордера не возвращаются частично — весь запрос аварийно прерывается выбрасыванием `RuntimeError`.
+   - В функции `main()` чтение локального файла `live_open_orders.json` и вызов `fetch_remote_orders` защищены обработчиками с логированием `logger.error` и гарантированным выходом `sys.exit(1)`. Сверка гарантированно прерывается в режиме fail-closed и не может сформировать ошибочный отчет о «синхронизированности» (reconciled in sync) при отсутствии связи с биржей или повреждении локальных файлов.
+   - В `tests/research/lp_rewards/test_deep_fixes.py` добавлено 9 специализированных unit-тестов:
      - `test_reconcile_orders_fetch_remote_http_error_fails_closed`
      - `test_reconcile_orders_fetch_remote_network_error_fails_closed`
      - `test_reconcile_orders_fetch_remote_invalid_json_fails_closed`
      - `test_reconcile_orders_fetch_remote_unexpected_format_fails_closed`
      - `test_reconcile_orders_main_remote_error_fails_closed`
-     Тесты подтверждают немедленный выброс исключения и аварийное завершение скрипта при любых ошибках сети и некорректных кодах ответа.
+     - `test_reconcile_orders_fetch_remote_dict_with_error_fails_closed`
+     - `test_reconcile_orders_fetch_remote_dict_missing_data_fails_closed`
+     - `test_reconcile_orders_fetch_remote_multipage_failure_fails_closed`
+     - `test_reconcile_orders_main_corrupted_local_file_fails_closed`
+     Тесты подтверждают немедленный выброс исключения и аварийное завершение скрипта при любых ошибках сети, некорректных кодах ответа и сбоях пагинации.
 
 2. **Воспроизведение `uv lock --check` и окружение сервера**:
    - Зафиксировано и подтверждено: на хосте боевого сервера `agent-gemini-cli-poly` бинарники `uv` / `uvx` не установлены, управление зависимостями хоста осуществляется через Poetry (`~/.local/bin/poetry`).
@@ -187,7 +193,7 @@ python -m pytest tests/research/lp_rewards -v
    - Выполнена проверка на рабочей станции с `uv 0.12.5`:
      ```bash
      uv lock --check
-     Resolved 93 packages in 2ms
+     Resolved 93 packages in 1ms
      ```
      Код возврата: `0`. Все 93 пакета синхронизированы с `pyproject.toml`.
 
@@ -198,8 +204,8 @@ python -m pytest tests/research/lp_rewards -v
 4. **Итоговые результаты тестирования**:
    - Прогон тестового набора LP Rewards:
      ```bash
-     uv run pytest tests/research/lp_rewards -v
-     ============================= 105 passed in 1.28s =============================
+     uv run pytest tests/research/lp_rewards -v -W error
+     ============================= 109 passed in 1.24s =============================
      ```
-   - Все 105 тестов проходят успешно без предупреждений.
+   - Все 109 тестов проходят успешно без предупреждений.
    - Проверка `git diff --check` выполняется чисто без ошибок форматирования.

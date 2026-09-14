@@ -69,7 +69,13 @@ async def fetch_remote_orders(
             all_orders.extend(data)
             break
         elif isinstance(data, dict):
-            orders_page = data.get("data", [])
+            if "error" in data:
+                logger.error(f"CLOB orders API returned error in response: {data['error']}")
+                raise RuntimeError(f"CLOB orders API returned error in response: {data['error']}")
+            if "data" not in data:
+                logger.error(f"CLOB orders response dict missing 'data' field: {list(data.keys())}")
+                raise RuntimeError(f"CLOB orders response dict missing 'data' field: {list(data.keys())}")
+            orders_page = data.get("data")
             if not isinstance(orders_page, list):
                 logger.error(f"Invalid 'data' field type in CLOB orders response: {type(orders_page)}")
                 raise RuntimeError(f"Invalid 'data' field type in CLOB orders response: {type(orders_page)}")
@@ -148,8 +154,12 @@ async def main():
     local_orders_file = storage_path / "live_open_orders.json"
     local_orders = []
     if local_orders_file.exists():
-        with open(local_orders_file, "r", encoding="utf-8") as f:
-            local_orders = json.load(f)
+        try:
+            with open(local_orders_file, "r", encoding="utf-8") as f:
+                local_orders = json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to read local orders file {local_orders_file}: {e}")
+            sys.exit(1)
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
