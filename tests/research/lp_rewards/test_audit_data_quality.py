@@ -368,3 +368,125 @@ def test_audit_daily_evaluations_simulated_and_actual_quote_hours(tmp_path):
     valid, viols, _ = audit_daily_evaluations(eval_dir, expected_protocol_hash="correct_hash")
     assert valid is False
     assert any("Negative actual_quote_hours" in v for v in viols)
+
+
+def test_audit_l2_parquet_non_positive_timestamps(tmp_path):
+    """Verify non-positive timestamps (<= 0) are flagged and do not pollute dates with 1970-01-01."""
+    p_file = tmp_path / "zero_ts.parquet"
+    df = pd.DataFrame([
+        {
+            "timestamp_ns": 0,
+            "condition_id": "c1",
+            "asset_id": "tok1",
+            "side": "bid",
+            "price": "0.45",
+            "size": "100.0",
+            "valid_from_ns": 0,
+            "valid_to_ns": 0,
+            "order_age_sec": "0.0",
+        }
+    ])
+    df.to_parquet(p_file, compression="zstd", index=False)
+
+    valid, viols, stats = audit_l2_parquet(p_file)
+    assert valid is False
+    assert any("Non-positive timestamps detected" in v for v in viols)
+    assert "1970-01-01" not in stats["dates"]
+    assert len(stats["dates"]) == 0
+
+
+def test_audit_trade_parquet_non_positive_timestamps(tmp_path):
+    """Verify non-positive trade timestamps are detected."""
+    p_file = tmp_path / "bad_trade_ts.parquet"
+    df = pd.DataFrame([
+        {
+            "price": "0.45",
+            "size": "10.0",
+            "side": "buy",
+            "asset_id": "tok1",
+            "timestamp_ns": -100,
+        }
+    ])
+    df.to_parquet(p_file, compression="zstd", index=False)
+
+    valid, viols, _ = audit_trade_parquet(p_file)
+    assert valid is False
+    assert any("Non-positive trade timestamps" in v for v in viols)
+
+
+def test_audit_data_quality_trade_only_market_zero_coverage(tmp_path):
+    """Verify that markets with trades but 0 L2 snapshots have 0.0 coverage, setting min_cov to 0.0."""
+    protocol = load_protocol()
+    storage = tmp_path / "lp_storage"
+
+    # Market 1 has L2 snapshots
+    m1_l2 = storage / "l2_snapshots" / "market_l2"
+    m1_l2.mkdir(parents=True)
+    base_ts = 1_789_376_400_000_000_000
+    df = pd.DataFrame([
+        {
+            "timestamp_ns": base_ts,
+            "condition_id": "market_l2",
+            "asset_id": "tok1",
+            "side": "bid",
+            "price": "0.45",
+            "size": "100.0",
+            "valid_from_ns": base_ts,
+            "valid_to_ns": base_ts,
+            "order_age_sec": "0.0",
+        }
+    ])
+    df.to_parquet(m1_l2 / "2026-09-14.parquet", compression="zstd", index=False)
+
+    # Market 2 has only trades
+    m2_trades = storage / "public_trades" / "market_trade_only"
+    m2_trades.mkdir(parents=True)
+    tdf = pd.DataFrame([
+        {
+            "price": "0.45",
+            "size": "10.0",
+            "side": "buy",
+            "asset_id": "tok2",
+            "timestamp_ns": base_ts,
+        }
+    ])
+    tdf.to_parquet(m2_trades / "2026-09-14.parquet", compression="zstd", index=False)
+
+    res = audit_data_quality(storage, protocol, now_ns=base_ts + 3600 * 1_000_000_000)
+    assert res["total_unique_markets"] == 2
+    assert res["min_coverage_ratio"] == 0.0
+
+
+def test_audit_daily_evaluations_handles_none_values_and_missing_pnl(tmp_path):
+    """Verify audit_daily_evaluations safely parses null/None fields without crashing."""
+    eval_dir = tmp_path / "daily_evaluations"
+    eval_dir.mkdir()
+
+    f1 = eval_dir / "2026-09-14.json"
+    with open(f1, "w", encoding="utf-8") as f:
+        json.dump({
+            "date": "2026-09-14",
+            "protocol_hash": "correct_hash",
+            "simulated_quote_hours": None,
+            "actual_quote_hours": None,
+            "quote_hours": "12.0",
+            "net_pnl": "3.5",
+        }, f)
+
+    valid, viols, stats = audit_daily_evaluations(eval_dir, expected_protocol_hash="correct_hash")
+    assert valid is True
+    assert stats["total_simulated_quote_hours"] == Decimal("12.0")
+    assert stats["total_actual_quote_hours"] == Decimal("0.0")
+
+    # Missing net_pnl
+    f2 = eval_dir / "2026-09-15.json"
+    with open(f2, "w", encoding="utf-8") as f:
+        json.dump({
+            "date": "2026-09-15",
+            "protocol_hash": "correct_hash",
+            "quote_hours": "10.0",
+        }, f)
+
+    valid2, viols2, _ = audit_daily_evaluations(eval_dir, expected_protocol_hash="correct_hash")
+    assert valid2 is False
+    assert any("Missing net_pnl" in v for v in viols2)

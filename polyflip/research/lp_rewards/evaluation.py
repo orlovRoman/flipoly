@@ -120,11 +120,32 @@ def evaluate_gate_a_full(
     hashes_seen = set()
 
     for r in daily_records:
-        pnl = Decimal(str(r.get("net_pnl", "0.0")))
+        pnl_val = r.get("net_pnl")
+        pnl = Decimal(str(pnl_val if pnl_val is not None else "0.0"))
         daily_pnls.append(pnl)
 
-        sim_qh = Decimal(str(r.get("simulated_quote_hours", r.get("quote_hours", "0.0"))))
-        act_qh = Decimal(str(r.get("actual_quote_hours", "0.0")))
+        sim_raw = r.get("simulated_quote_hours")
+        if sim_raw is None:
+            sim_raw = r.get("quote_hours")
+        if sim_raw is None:
+            sim_raw = "0.0"
+        sim_qh = Decimal(str(sim_raw))
+
+        act_raw = r.get("actual_quote_hours")
+        if act_raw is None:
+            act_raw = "0.0"
+        act_qh = Decimal(str(act_raw))
+
+        if sim_qh < Decimal("0.0"):
+            rejection_reasons.append(f"Negative simulated quote-hours {sim_qh} in record {r.get('date')}")
+        elif sim_qh > Decimal("24.01"):
+            rejection_reasons.append(f"Simulated quote-hours {sim_qh} exceeds 24h in record {r.get('date')}")
+
+        if act_qh < Decimal("0.0"):
+            rejection_reasons.append(f"Negative actual quote-hours {act_qh} in record {r.get('date')}")
+        elif act_qh > Decimal("24.01"):
+            rejection_reasons.append(f"Actual quote-hours {act_qh} exceeds 24h in record {r.get('date')}")
+
         total_simulated_quote_hours += sim_qh
         total_actual_quote_hours += act_qh
         total_quote_hours += sim_qh

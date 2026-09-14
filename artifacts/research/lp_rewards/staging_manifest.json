@@ -22,7 +22,7 @@
   "self_checks": {
     "t00_initial_state_verified": true,
     "t01_code_and_dependencies_verified": {
-      "lp_rewards_tests_passed": 120,
+      "lp_rewards_tests_passed": 132,
       "lp_rewards_warnings": 0,
       "full_research_tests_passed": 363,
       "poetry_lock_consistent": true,

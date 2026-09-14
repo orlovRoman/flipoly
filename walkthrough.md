@@ -285,34 +285,35 @@ python -m pytest tests/research/lp_rewards -v
 По результатам верификации коммита `42ec0e24` устранены выявленные методологические замечания и обеспечены строгие гарантии перед длительным shadow-запуском:
 
 ### 1. Исправление расчета календарного покрытия по `timestamp_ns` в `04_audit_data_quality.py`
-- **Проблема**: Ранее покрытие рынков по дням накапливалось по `p_file.stem`. Если за одни сутки создавалось несколько parquet-файлов с разными именами, счетчик уникальных дней искусственно завышался.
+- **Проблема**:
+  1. Ранее покрытие рынков по дням накапливалось по `p_file.stem`. Если за одни сутки создавалось несколько parquet-файлов с разными именами, счетчик уникальных дней искусственно завышался.
+  2. Не проверялись неположительные таймстемпы (`timestamp_ns <= 0`): строка с `timestamp_ns = 0` ошибочно конвертировалась в дату `"1970-01-01"` и засчитывалась в покрытие. При экстремально отрицательных значениях на Windows вызывался `OSError: [Errno 22]`.
+  3. В расчете минимального покрытия `coverage_ratios` цикл обходил только рынки, присутствующие в `date_coverage` (где есть L2-файлы). Если для рынка существовали трейды, но не было L2-файлов, он ошибочно исключался из расчета, завышая `min_coverage_ratio`.
 - **Решение**:
-  - В функции `audit_l2_parquet` даты определяются строго по фактическим целочисленным значениям `timestamp_ns` из содержимого строк DataFrame:
-    ```python
-    unique_ts = ts.dropna().unique()
-    stats["dates"] = {
-        time.strftime("%Y-%m-%d", time.gmtime(int(t) / 1e9))
-        for t in unique_ts
-    }
-    ```
-  - В `audit_data_quality` уникальные дни рынка агрегируются объединением множеств дат:
-    ```python
-    file_dates = stats.get("dates", set())
-    date_coverage.setdefault(m_dir.name, set()).update(file_dates)
-    ```
-  - Теперь произвольное число файлов за одни сутки (например, 5 батчей за 2026-09-14) дает ровно 1 календарный день в расчете покрытия. Поведение подтверждено новым юнит-тестом `test_audit_l2_parquet_calendar_coverage_by_timestamp_ns`.
+  - В `audit_l2_parquet` и `audit_trade_parquet` добавлена строгая проверка `(ts <= 0).any()`, `(vf <= 0).any()`, `(vt <= 0).any()`. Неположительные таймстемпы немедленно фиксируются как нарушение целостности данных и исключаются из дат.
+  - Календарные дни определяются векторизованно через суточные интервалы `(valid_ts // 86_400_000_000_000).unique()` с преобразованием `time.strftime("%Y-%m-%d", time.gmtime(int(d) * 86400))`, что гарантирует O(1) вызовов форматирования даже на миллионных датасетах.
+  - В `audit_data_quality` расчет покрытия переведен на полный список всех активных рынков `all_market_ids`. Рынки без L2-файлов получают строго 0.0 покрытия.
 
 ### 2. Явное разделение `simulated_quote_hours` и `actual_quote_hours`
 - **Методологическое основание**: В shadow-режиме FSM оперирует виртуальными намерениями выставить ордера (`fsm.open_orders`), но реальные ордера в CLOB отсутствуют. Это виртуальные часы котирования, а не фактическое присутствие заявок в биржевом стакане.
 - **Реализация**:
   - В `polyflip/research/lp_rewards/models.py` добавлена модель `DailyEvaluationRecord`:
-    - `simulated_quote_hours: Decimal`: учитывает время нахождения виртуальных котировок в рынке.
-    - `actual_quote_hours: Decimal`: в shadow-режиме строго зафиксировано как `"0.0"`. Фактические часы измеряются исключительно во время canary/live по подтвержденным биржей ордерам.
-    - `quote_hours: Optional[Decimal]`: двунаправленно синхронизируется с `simulated_quote_hours` для 100% обратной совместимости.
+    - `simulated_quote_hours: Decimal = Decimal("0.0")`: учитывает время нахождения виртуальных котировок в рынке.
+    - `actual_quote_hours: Decimal = Decimal("0.0")`: в shadow-режиме строго зафиксировано как `"0.0"`. Фактические часы измеряются исключительно во время canary/live по подтвержденным биржей ордерам.
+    - `quote_hours: Decimal = Decimal("0.0")`: гарантированно никогда не принимает значение `None`, синхронизируется через `model_validator(mode="before")` и `model_validator(mode="after")`.
+  - В `polyflip/research/lp_rewards/evaluation.py` (`evaluate_gate_a_full`):
+    - Добавлена безопасная обработка полей с `None`/null без риска `decimal.InvalidOperation`.
+    - Добавлен контроль допустимого диапазона часов котирования: отрицательные значения (`< 0.0`) и значения свыше 24 часов в сутки (`> 24.01`) отклоняются.
   - В `scripts/research/lp_rewards/03_run_shadow_collector.py` ежедневные записи `daily_evaluations/<date>.json` теперь сохраняют поля `simulated_quote_hours`, `actual_quote_hours: "0.0"` и `quote_hours`.
   - В `04_audit_data_quality.py` и `05_evaluate_gate_a.py` обе метрики выводятся явно в чек-листе и валидируются в Gate A.
 
-### 3. Обновление манифестов
+### 3. Расчет суточного Net PnL при многодневном непрерывном сборе
+- **Проблема**: В непрерывном цикле `03_run_shadow_collector.py` метод `ledger.calculate_net_pnl` возвращает кумулятивный PnL за все время работы процесса. При смене суток на 2-й и последующие дни в файл оценки записывался кумулятивный PnL вместо суточного дельты.
+- **Решение**:
+  - В `periodic_fsm_and_scoring` при переходе границы суток UTC (`current_eval_date != date_str`) фиксируются базовые уровни `daily_start_net_pnl = cumulative_net_pnl` и `daily_market_start_pnl`.
+  - В суточный артефакт записывается чистая дельта дня: `daily_net_pnl = cumulative_net_pnl - daily_start_net_pnl` (и кумулятивное значение в поле `cumulative_net_pnl`). Поведение верифицировано новым юнит-тестом `test_shadow_collector_midnight_daily_pnl_reset`.
+
+### 4. Обновление манифестов
 - В `artifacts/research/lp_rewards/staging_manifest.json` и `artifacts/staging_manifest_220ebe23.json` добавлено поле:
   ```json
   "final_commit_sha": "42ec0e244d81a1d490af81d18fb64ec6994d19f2",
@@ -320,11 +321,12 @@ python -m pytest tests/research/lp_rewards -v
   ```
   с сохранением `base_commit_sha: "220ebe23..."`.
 - Создан отдельный манифест `artifacts/staging_manifest_42ec0e24.json`.
+- Число пройденных тестов обновлено до 132.
 
-### 4. Регламент и скрипты для непрерывного фонового shadow-сбора
+### 5. Регламент и скрипты для непрерывного фонового shadow-сбора
 - **Ротация логов**: В `03_run_shadow_collector.py` добавлен аргумент `--log-file` с поддержкой `RotatingFileHandler` (20 МБ на файл, 5 бэкапов, суммарно не более 100 МБ).
 - **Скрипты запуска**:
-  - `scripts/research/lp_rewards/run_continuous_shadow.sh` — Bash-скрипт запуска для боевого сервера.
+  - `scripts/research/lp_rewards/run_continuous_shadow.sh` — Bash-скрипт запуска для боевого сервера. Установлен флаг исполнения `chmod +x` (режим `100755` в git-индексе), добавлен экспорт `PYTHONPATH`.
   - `scripts/research/lp_rewards/run_continuous_shadow.py` — кросс-платформенный раннер.
 - **Аппаратные ограничения**:
   - `LP_LIVE_ENABLED=false` зафиксировано жестко; попытка передать `true` до прохождения Gate A немедленно прерывает процесс (`exit code 1`).
@@ -334,11 +336,11 @@ python -m pytest tests/research/lp_rewards -v
   nohup ./scripts/research/lp_rewards/run_continuous_shadow.sh > /dev/null 2>&1 &
   ```
 
-### 5. Итоговая валидация
+### 6. Итоговая валидация
 - Тестовый набор LP Rewards:
   ```bash
   uv run pytest tests/research/lp_rewards -v -W error
-  ============================= 124 passed in 1.67s =============================
+  ============================= 132 passed in 1.93s =============================
   ```
-- 124 теста проходят со 100% успехом под `-W error`, 0 предупреждений.
+- 132 теста проходят со 100% успехом под `-W error`, 0 предупреждений.
 - `git diff --check` выполняется чисто.

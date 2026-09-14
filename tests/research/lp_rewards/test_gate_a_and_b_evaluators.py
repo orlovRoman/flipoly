@@ -273,3 +273,64 @@ def test_evaluate_gate_a_full_simulated_and_actual_quote_hours():
     assert report.total_actual_quote_hours == Decimal("0.0")
     assert report.total_quote_hours == Decimal("126.0")
     assert report.verdict == "PROCEED_LIVE"
+
+
+def test_daily_evaluation_record_default_quote_hours_is_decimal_zero():
+    """Verify DailyEvaluationRecord with no quote_hours specified defaults to Decimal('0.0'), never None."""
+    rec = DailyEvaluationRecord(
+        date="2026-09-14",
+        protocol_id="proto1",
+        protocol_hash="hash1",
+    )
+    assert rec.quote_hours == Decimal("0.0")
+    assert rec.simulated_quote_hours == Decimal("0.0")
+    assert rec.actual_quote_hours == Decimal("0.0")
+    dumped = rec.model_dump()
+    assert dumped["quote_hours"] == Decimal("0.0")
+
+
+def test_evaluate_gate_a_full_safe_against_none_quote_hours():
+    """Verify evaluate_gate_a_full does not crash with InvalidOperation when quote-hours fields are None."""
+    daily_records = [{
+        "date": "2026-09-01",
+        "protocol_hash": "hash_v0.1_verified",
+        "simulated_quote_hours": None,
+        "actual_quote_hours": None,
+        "quote_hours": "14.0",
+        "net_pnl": "4.0",
+    }]
+    report = evaluate_gate_a_full(
+        daily_records=daily_records,
+        expected_protocol_hash="hash_v0.1_verified",
+        min_calendar_days=1,
+        min_quote_hours=10,
+    )
+    assert report.total_simulated_quote_hours == Decimal("14.0")
+    assert report.total_actual_quote_hours == Decimal("0.0")
+    assert report.total_quote_hours == Decimal("14.0")
+
+
+def test_evaluate_gate_a_full_rejects_negative_or_exceeding_quote_hours():
+    """Verify evaluate_gate_a_full rejects records with negative quote-hours or > 24h per day."""
+    daily_records = [
+        {
+            "date": "2026-09-01",
+            "protocol_hash": "hash1",
+            "simulated_quote_hours": "-5.0",
+            "net_pnl": "1.0",
+        },
+        {
+            "date": "2026-09-02",
+            "protocol_hash": "hash1",
+            "simulated_quote_hours": "25.0",
+            "actual_quote_hours": "-1.0",
+            "net_pnl": "1.0",
+        },
+    ]
+    report = evaluate_gate_a_full(
+        daily_records=daily_records,
+        expected_protocol_hash="hash1",
+    )
+    assert any("Negative simulated quote-hours" in r for r in report.rejection_reasons)
+    assert any("Simulated quote-hours 25.0 exceeds 24h" in r for r in report.rejection_reasons)
+    assert any("Negative actual quote-hours" in r for r in report.rejection_reasons)

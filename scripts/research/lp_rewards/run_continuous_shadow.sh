@@ -24,6 +24,7 @@ if [ "${LP_LIVE_ENABLED:-false}" = "true" ]; then
     exit 1
 fi
 export LP_LIVE_ENABLED="false"
+export PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}"
 
 # 2. Setup log paths
 LOG_DIR="${REPO_ROOT}/artifacts/research/lp_rewards/logs"

@@ -88,6 +88,9 @@ async def periodic_fsm_and_scoring(
     current_eval_date: Optional[str] = None
     daily_fsm_ticks = 0
     daily_market_uptime = {m.condition_id: 0 for m in active_markets}
+    daily_start_net_pnl = Decimal("0.0")
+    daily_market_start_pnl = {m.condition_id: Decimal("0.0") for m in active_markets}
+    cumulative_net_pnl = Decimal("0.0")
 
     while collector.running:
         try:
@@ -97,6 +100,13 @@ async def periodic_fsm_and_scoring(
 
             # Reset daily metrics at UTC midnight boundary
             if current_eval_date != date_str:
+                if current_eval_date is not None:
+                    # Rolling over to a new day: snapshot previous cumulative Net PnL as baseline
+                    daily_start_net_pnl = cumulative_net_pnl
+                    daily_market_start_pnl = {
+                        m.condition_id: fsms[m.condition_id].position.realized_trading_pnl
+                        for m in active_markets
+                    }
                 current_eval_date = date_str
                 daily_fsm_ticks = 0
                 daily_market_uptime = {m.condition_id: 0 for m in active_markets}
@@ -214,7 +224,8 @@ async def periodic_fsm_and_scoring(
                 taker_fees[m.condition_id] = m.taker_fee_rate
 
             exec_mtm = ledger.calculate_executable_mtm(positions, current_bids, taker_fees)
-            net_pnl = ledger.calculate_net_pnl(positions, exec_mtm)
+            cumulative_net_pnl = ledger.calculate_net_pnl(positions, exec_mtm)
+            daily_net_pnl = cumulative_net_pnl - daily_start_net_pnl
 
             daily_eval_dir = storage_path / "daily_evaluations"
             daily_eval_dir.mkdir(parents=True, exist_ok=True)
@@ -224,8 +235,9 @@ async def periodic_fsm_and_scoring(
             for m in active_markets:
                 m_pos = fsms[m.condition_id].position
                 cov_ratio = daily_market_uptime[m.condition_id] / daily_fsm_ticks if daily_fsm_ticks > 0 else 0.0
+                m_daily_pnl = m_pos.realized_trading_pnl - daily_market_start_pnl.get(m.condition_id, Decimal("0.0"))
                 market_breakdown[m.condition_id] = {
-                    "net_pnl": str(m_pos.realized_trading_pnl),
+                    "net_pnl": str(m_daily_pnl),
                     "coverage_ratio": f"{cov_ratio:.4f}",
                 }
 
@@ -237,7 +249,8 @@ async def periodic_fsm_and_scoring(
                 "date": date_str,
                 "protocol_id": protocol.protocol_id,
                 "protocol_hash": protocol.sha256_hash,
-                "net_pnl": str(net_pnl),
+                "net_pnl": str(daily_net_pnl),
+                "cumulative_net_pnl": str(cumulative_net_pnl),
                 "simulated_quote_hours": f"{quote_hours:.6f}",
                 "actual_quote_hours": "0.0",  # Strictly 0.0 in shadow mode; real orders measured only in canary/live
                 "quote_hours": f"{quote_hours:.6f}",  # Backwards compatibility

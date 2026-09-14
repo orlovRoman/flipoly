@@ -119,7 +119,7 @@ class DailyEvaluationRecord(BaseModel):
     net_pnl: Decimal = Decimal("0.0")
     simulated_quote_hours: Decimal = Decimal("0.0")
     actual_quote_hours: Decimal = Decimal("0.0")
-    quote_hours: Optional[Decimal] = None
+    quote_hours: Decimal = Decimal("0.0")
     book_uncertain_count: int = 0
     market_breakdown: Dict[str, Any] = Field(default_factory=dict)
     total_trades: int = 0
@@ -132,8 +132,20 @@ class DailyEvaluationRecord(BaseModel):
         if isinstance(values, dict):
             sim = values.get("simulated_quote_hours")
             qh = values.get("quote_hours")
-            if sim is not None and qh is None:
+            if sim is not None and (qh is None or qh == Decimal("0.0") or qh == "0.0" or qh == 0):
+                values["quote_hours"] = sim
+            elif qh is not None and (sim is None or sim == Decimal("0.0") or sim == "0.0" or sim == 0):
+                values["simulated_quote_hours"] = qh
+            elif sim is not None and qh is None:
                 values["quote_hours"] = sim
             elif qh is not None and sim is None:
                 values["simulated_quote_hours"] = qh
         return values
+
+    @model_validator(mode="after")
+    def sync_quote_hours_after(self) -> "DailyEvaluationRecord":
+        if self.quote_hours == Decimal("0.0") and self.simulated_quote_hours != Decimal("0.0"):
+            self.quote_hours = self.simulated_quote_hours
+        elif self.simulated_quote_hours == Decimal("0.0") and self.quote_hours != Decimal("0.0"):
+            self.simulated_quote_hours = self.quote_hours
+        return self

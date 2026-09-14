@@ -90,14 +90,21 @@ def audit_l2_parquet(
         ts = df["timestamp_ns"].astype("int64")
         vf = df["valid_from_ns"].astype("int64")
         vt = df["valid_to_ns"].astype("int64")
-        unique_ts = ts.dropna().unique()
-        stats["dates"] = {
-            time.strftime("%Y-%m-%d", time.gmtime(int(t) / 1e9))
-            for t in unique_ts
-        }
     except Exception as e:
         violations.append(f"Failed to parse integer timestamps in {file_path.name}: {e}")
         return False, violations, stats
+
+    if (ts <= 0).any():
+        bad_ts = ts[ts <= 0].tolist()[:5]
+        violations.append(f"Non-positive timestamps detected in {file_path.name}: {bad_ts}")
+
+    if (vf <= 0).any():
+        bad_vf = vf[vf <= 0].tolist()[:5]
+        violations.append(f"Non-positive valid_from_ns detected in {file_path.name}: {bad_vf}")
+
+    if (vt <= 0).any():
+        bad_vt = vt[vt <= 0].tolist()[:5]
+        violations.append(f"Non-positive valid_to_ns detected in {file_path.name}: {bad_vt}")
 
     if (vf > vt).any():
         violations.append(f"valid_from_ns > valid_to_ns detected in {file_path.name}")
@@ -105,6 +112,15 @@ def audit_l2_parquet(
     if (ts > (now_ns + clock_skew_tolerance_ns)).any():
         future_ts = ts[ts > (now_ns + clock_skew_tolerance_ns)].tolist()[:3]
         violations.append(f"Future timestamps detected in {file_path.name}: {future_ts} > {now_ns}")
+
+    # Calendar coverage strictly by timestamp_ns for valid positive timestamps
+    valid_ts = ts[ts > 0]
+    if len(valid_ts) > 0:
+        unique_days = (valid_ts // 86_400_000_000_000).unique()
+        stats["dates"] = {
+            time.strftime("%Y-%m-%d", time.gmtime(int(d) * 86400))
+            for d in unique_days
+        }
 
     # Check monotonicity per asset stream
     for asset_id, group in df.groupby("asset_id"):
@@ -166,6 +182,8 @@ def audit_trade_parquet(
     ts_col = "timestamp_ns" if "timestamp_ns" in df.columns else "observed_at_ns"
     if ts_col in df.columns:
         ts = df[ts_col].astype("int64")
+        if (ts <= 0).any():
+            violations.append(f"Non-positive trade timestamps in {file_path.name}")
         if (ts > (now_ns + clock_skew_tolerance_ns)).any():
             violations.append(f"Future trade timestamps in {file_path.name}")
 
@@ -213,7 +231,9 @@ def audit_daily_evaluations(
         # Check simulated and actual quote-hours
         sim_val = data.get("simulated_quote_hours")
         if sim_val is None:
-            sim_val = data.get("quote_hours", "0.0")
+            sim_val = data.get("quote_hours")
+        if sim_val is None:
+            sim_val = "0.0"
         try:
             sim_qh = Decimal(str(sim_val))
             if sim_qh < Decimal("0.0"):
@@ -225,7 +245,9 @@ def audit_daily_evaluations(
         except Exception as e:
             violations.append(f"Invalid quote_hours in {f.name}: {e}")
 
-        act_val = data.get("actual_quote_hours", "0.0")
+        act_val = data.get("actual_quote_hours")
+        if act_val is None:
+            act_val = "0.0"
         try:
             act_qh = Decimal(str(act_val))
             if act_qh < Decimal("0.0"):
@@ -236,10 +258,14 @@ def audit_daily_evaluations(
         except Exception as e:
             violations.append(f"Invalid actual_quote_hours in {f.name}: {e}")
 
-        try:
-            _ = Decimal(str(data.get("net_pnl", "0.0")))
-        except Exception as e:
-            violations.append(f"Invalid net_pnl in {f.name}: {e}")
+        pnl_val = data.get("net_pnl")
+        if pnl_val is None:
+            violations.append(f"Missing net_pnl in {f.name}")
+        else:
+            try:
+                _ = Decimal(str(pnl_val))
+            except Exception as e:
+                violations.append(f"Invalid net_pnl in {f.name}: {e}")
 
     is_valid = len(violations) == 0
     return is_valid, violations, stats
@@ -298,7 +324,8 @@ def audit_data_quality(
 
     # 4. Coverage calculation against frozen protocol
     coverage_ratios: Dict[str, float] = {}
-    for cid, dates in date_coverage.items():
+    for cid in all_market_ids:
+        dates = date_coverage.get(cid, set())
         ratio = min(1.0, len(dates) / float(protocol.gates.gate_a.min_calendar_days))
         coverage_ratios[cid] = ratio
 
