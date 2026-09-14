@@ -1,0 +1,79 @@
+version: "0.1.0"
+protocol_id: "polymarket_lp_rewards_v0.1"
+created_at: "2026-09-14T00:00:00Z"
+hypothesis:
+  claim: "$3.50 net profit per day on $100 allocated working capital"
+  target_r100_calendar: 3.50
+  confidence_level: 0.95
+  currency: "USDC"
+
+capital_allocation:
+  allocated_working_capital: 100.00
+  max_unhedged_per_market: 25.00
+  max_unhedged_total: 50.00
+  reserve_ratio_exit_buffer: 0.10
+  live_wallet_buffer: 100.00
+
+universe:
+  rewards_endpoint: "https://clob.polymarket.com/rewards/markets/current"
+  page_size: 500
+  pagination_terminal_marker: "LTE="
+  exclude_neg_risk: true
+  min_order_age_source: "market.oas"
+  ranking_refresh_interval_sec: 300
+  max_rotation_rate_per_15m: 1
+  active_markets_count: 20
+  reserve_markets_count: 10
+
+scoring:
+  formula_type: "polymarket_official_v3"
+  payout_period: "UNVERIFIED"
+  epoch_samples_documented: 10080
+  daily_projection_samples: 1440
+  min_payout_dust_usdc: 1.00
+  midpoint_range: [0.10, 0.90]
+  midpoint_fallback_allowed: false
+  uncertain_status_on_missing_side: "MID_UNCERTAIN"
+
+ws_collector:
+  ws_endpoint: "wss://ws-subscriptions-clob.polymarket.com/ws/market"
+  ping_interval_sec: 10.0
+  pong_timeout_sec: 20.0
+  initial_dump: true
+  rest_reconciliation_interval_sec: 45.0
+  mismatch_status: "BOOK_UNCERTAIN"
+
+quoting_fsm:
+  order_type: "POST_ONLY"
+  time_in_force: "GTD"
+  quote_pair: ["BUY_YES", "BUY_NO"]
+  max_combined_fill_cost: 0.98
+  hedging_timeout_sec: 900.0
+  expiry_guard_buffer_sec: 1200.0
+  forced_exit_order_type: "FAK"
+
+data_storage:
+  root_path: "D:\\flipoly-research\\lp-rewards"
+  disk_warning_threshold_gb: 30.0
+  disk_emergency_halt_gb: 20.0
+  parquet_compression: "zstd"
+
+gates:
+  gate_a:
+    min_calendar_days: 7
+    min_quote_hours: 100
+    min_active_markets: 10
+    min_market_coverage_ratio: 0.99
+    max_single_market_pnl_share: 0.50
+    bootstrap_samples: 10000
+    verdicts:
+      - "PROCEED_LIVE"
+      - "PROFITABLE_BELOW_TARGET"
+      - "TARGET_PLAUSIBLE"
+      - "TARGET_REJECTED"
+      - "EDGE_REJECTED"
+  gate_b:
+    min_live_days: 14
+    target_confirmed_threshold: 3.50
+    max_drawdown_limit: 0.10
+    max_reward_prediction_error: 0.30
