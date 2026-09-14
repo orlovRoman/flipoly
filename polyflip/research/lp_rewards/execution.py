@@ -125,8 +125,8 @@ class LiveOrderExecutor:
         main_wallet_address: Optional[str] = None,
     ) -> bool:
         """Verify dedicated isolated wallet is configured and not shared with main production trading."""
-        addr = wallet_address or self.wallet_address
-        main_addr = main_wallet_address or self.main_wallet_address
+        addr = (wallet_address or self.wallet_address or "").strip()
+        main_addr = (main_wallet_address or self.main_wallet_address or "").strip()
 
         if not addr or addr.lower() == ZERO_ADDRESS.lower():
             raise ValueError("Dedicated LP isolated wallet address is not configured.")
@@ -315,7 +315,9 @@ class LiveOrderExecutor:
             maker_amount = int(size * Decimal("1e6"))
             taker_amount = int(price * size * Decimal("1e6"))
 
-        maker_address = self.wallet_address or ZERO_ADDRESS
+        maker_address = (self.wallet_address or "").strip()
+        if not maker_address or maker_address.lower() == ZERO_ADDRESS.lower():
+            raise PermissionError("Order signing requires configured non-zero wallet_address")
         empty_bytes32 = "0x" + "00" * 32
 
         order_data = {

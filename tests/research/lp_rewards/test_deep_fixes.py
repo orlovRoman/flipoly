@@ -835,3 +835,73 @@ def test_gate_b_evaluator_script_happy_path(tmp_path, monkeypatch):
         data = json.load(f)
     assert data["protocol_id"] == protocol.protocol_id
     assert data["mean_prediction_error"] == "0.15"
+
+
+def test_gate_b_evaluator_script_zero_address_wallet_fails_closed(monkeypatch):
+    """Verify 09_evaluate_gate_b.py main() immediately exits with code 1 if LP_ISOLATED_WALLET_ADDRESS is zero address."""
+    mod_09 = importlib.import_module("scripts.research.lp_rewards.09_evaluate_gate_b")
+    monkeypatch.setenv("LP_ISOLATED_WALLET_ADDRESS", "0x0000000000000000000000000000000000000000")
+    with pytest.raises(SystemExit) as exc:
+        mod_09.main()
+    assert exc.value.code == 1
+
+
+@pytest.mark.asyncio
+async def test_reconcile_rewards_script_missing_or_zero_wallet_fails_closed(monkeypatch):
+    """Verify 08_reconcile_rewards.py main() fails closed with code 1 if wallet is missing, empty, or zero address."""
+    mod_08 = importlib.import_module("scripts.research.lp_rewards.08_reconcile_rewards")
+    for bad_wallet in [None, "   ", "0x0000000000000000000000000000000000000000"]:
+        if bad_wallet is None:
+            monkeypatch.delenv("LP_ISOLATED_WALLET_ADDRESS", raising=False)
+        else:
+            monkeypatch.setenv("LP_ISOLATED_WALLET_ADDRESS", bad_wallet)
+        with pytest.raises(SystemExit) as exc:
+            await mod_08.main()
+        assert exc.value.code == 1
+
+
+@pytest.mark.asyncio
+async def test_reconcile_orders_script_missing_or_zero_wallet_fails_closed(monkeypatch):
+    """Verify 07_reconcile_orders.py main() fails closed with code 1 if wallet is missing, empty, or zero address."""
+    mod_07 = importlib.import_module("scripts.research.lp_rewards.07_reconcile_orders")
+    for bad_wallet in [None, "   ", "0x0000000000000000000000000000000000000000"]:
+        if bad_wallet is None:
+            monkeypatch.delenv("LP_ISOLATED_WALLET_ADDRESS", raising=False)
+        else:
+            monkeypatch.setenv("LP_ISOLATED_WALLET_ADDRESS", bad_wallet)
+        with pytest.raises(SystemExit) as exc:
+            await mod_07.main()
+        assert exc.value.code == 1
+
+
+def test_executor_isolated_wallet_whitespace_and_zero_rejection():
+    """Verify verify_isolated_wallet rejects whitespace strings and zero address."""
+    executor = LiveOrderExecutor(expected_protocol_hash="hash_123")
+    with pytest.raises(ValueError) as exc:
+        executor.verify_isolated_wallet(wallet_address="   ")
+    assert "wallet address is not configured" in str(exc.value)
+
+    with pytest.raises(ValueError) as exc_z:
+        executor.verify_isolated_wallet(wallet_address="0x0000000000000000000000000000000000000000")
+    assert "wallet address is not configured" in str(exc_z.value)
+
+
+def test_executor_sign_eip712_order_blocks_missing_or_zero_wallet():
+    """Verify sign_eip712_order raises PermissionError if wallet is missing, whitespace, or zero address."""
+    executor = LiveOrderExecutor(expected_protocol_hash="hash_123", wallet_address=None)
+    with pytest.raises(PermissionError) as exc1:
+        executor.sign_eip712_order("12345", "BUY", Decimal("0.50"), Decimal("10.0"))
+    assert "Order signing requires configured non-zero wallet_address" in str(exc1.value)
+
+    executor_ws = LiveOrderExecutor(expected_protocol_hash="hash_123", wallet_address="   ")
+    with pytest.raises(PermissionError) as exc2:
+        executor_ws.sign_eip712_order("12345", "BUY", Decimal("0.50"), Decimal("10.0"))
+    assert "Order signing requires configured non-zero wallet_address" in str(exc2.value)
+
+    executor_zero = LiveOrderExecutor(
+        expected_protocol_hash="hash_123",
+        wallet_address="0x0000000000000000000000000000000000000000",
+    )
+    with pytest.raises(PermissionError) as exc3:
+        executor_zero.sign_eip712_order("12345", "BUY", Decimal("0.50"), Decimal("10.0"))
+    assert "Order signing requires configured non-zero wallet_address" in str(exc3.value)

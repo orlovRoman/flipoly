@@ -45,10 +45,16 @@ def calculate_max_drawdown(daily_pnls: List[Decimal], initial_capital: Decimal =
 
 def main():
     isolated_wallet = os.getenv("LP_ISOLATED_WALLET_ADDRESS")
-    if not isolated_wallet or not isolated_wallet.strip():
-        logger.error("LP_ISOLATED_WALLET_ADDRESS is missing. Rejecting Gate B.")
-        print("TARGET_REJECTED: LP_ISOLATED_WALLET_ADDRESS is missing. Rejecting Gate B.")
+    zero_address = "0x0000000000000000000000000000000000000000"
+    if (
+        not isolated_wallet
+        or not isolated_wallet.strip()
+        or isolated_wallet.strip().lower() == zero_address
+    ):
+        logger.error("LP_ISOLATED_WALLET_ADDRESS is missing or invalid. Rejecting Gate B.")
+        print("TARGET_REJECTED: LP_ISOLATED_WALLET_ADDRESS is missing or invalid. Rejecting Gate B.")
         sys.exit(1)
+    isolated_wallet = isolated_wallet.strip()
 
     protocol = load_protocol()
     storage_path = Path(protocol.data_storage.root_path)
@@ -112,10 +118,10 @@ def main():
         if rep_hash != protocol.sha256_hash:
             logger.error(f"Reconciliation report hash mismatch: {rep_hash} != {protocol.sha256_hash}. Rejecting Gate B.")
             sys.exit(1)
-        elif not rep_wallet:
-            logger.error("Reconciliation report wallet_address is missing. Rejecting Gate B.")
+        elif not rep_wallet or not rep_wallet.strip() or rep_wallet.strip().lower() == zero_address:
+            logger.error("Reconciliation report wallet_address is missing or zero address. Rejecting Gate B.")
             sys.exit(1)
-        elif rep_wallet.lower() != isolated_wallet.lower():
+        elif rep_wallet.strip().lower() != isolated_wallet.lower():
             logger.error(f"Reconciliation report wallet mismatch: {rep_wallet} != {isolated_wallet}. Rejecting Gate B.")
             sys.exit(1)
         else:

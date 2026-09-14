@@ -24,9 +24,15 @@ async def main():
     protocol = load_protocol()
     storage_path = Path(protocol.data_storage.root_path)
     wallet_address = os.getenv("LP_ISOLATED_WALLET_ADDRESS")
-    if not wallet_address:
-        logger.error("DATA_INSUFFICIENT: LP_ISOLATED_WALLET_ADDRESS is missing.")
+    zero_address = "0x0000000000000000000000000000000000000000"
+    if (
+        not wallet_address
+        or not wallet_address.strip()
+        or wallet_address.strip().lower() == zero_address
+    ):
+        logger.error("DATA_INSUFFICIENT: LP_ISOLATED_WALLET_ADDRESS is missing or invalid.")
         sys.exit(1)
+    wallet_address = wallet_address.strip()
 
     calibrator = RewardCalibrator(
         max_allowed_error_ratio=protocol.gates.gate_b.max_reward_prediction_error

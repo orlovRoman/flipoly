@@ -108,42 +108,57 @@ python -m pytest tests/research/lp_rewards -v
 В третьей итерации устранены последние критические замечания аудита:
 
 1. **Безусловный Fail-Closed в Gate B (`09_evaluate_gate_b.py`)**:
-   - Переменная окружения `LP_ISOLATED_WALLET_ADDRESS` теперь проверяется **в самом начале** функции `main()`, до загрузки файлов и расчетов. При отсутствии или пустой строке скрипт немедленно логирует ошибку `LP_ISOLATED_WALLET_ADDRESS is missing. Rejecting Gate B.` и завершается с `sys.exit(1)`.
+   - Переменная окружения `LP_ISOLATED_WALLET_ADDRESS` теперь проверяется **в самом начале** функции `main()`, до загрузки файлов и расчетов. При отсутствии, пустой строке или нулевом адресе (`0x0000000000000000000000000000000000000000`) скрипт немедленно логирует ошибку `LP_ISOLATED_WALLET_ADDRESS is missing or invalid. Rejecting Gate B.` и завершается с `sys.exit(1)`.
    - Проверка каталога сверки `storage_path / "reconciliation"` и файлов `rewards_*.json` переведена в строгий режим fail-closed: если файлов сверки нет, выполнение не продолжается с дефолтной ошибкой, а немедленно прерывается с `sys.exit(1)`.
-   - Добавлены проверки несовпадения кошелька в отчете сверки с изолированным кошельком и несовпадения хэша протокола.
+   - Добавлены строгие проверки на отсутствие, пустую строку, нулевой адрес или несовпадение кошелька в отчете сверки с изолированным кошельком, а также несовпадение хэша протокола.
 
-2. **Безусловный Fail-Closed кошелька в `LiveOrderExecutor.submit_order()` (`execution.py`)**:
-   - В метод `submit_order()` добавлена безусловная проверка: `self.wallet_address` обязан быть задан, не быть пустым и не быть нулевым адресом (`0x0000000000000000000000000000000000000000`). В противном случае выбрасывается `PermissionError("Live execution requires configured non-zero wallet_address")`.
-   - Метод `self.verify_isolated_wallet()` вызывается **безусловно**, даже если параметры `live_balance` и `allowance` были переданы вручную. Это исключает генерацию ордеров с нулевым `maker` при любых условиях.
+2. **Безусловный Fail-Closed кошелька в `LiveOrderExecutor` (`execution.py`)**:
+   - В метод `submit_order()` добавлена безусловная проверка: `self.wallet_address` обязан быть задан, не быть пустым (с trim пробелов) и не быть нулевым адресом (`0x0000000000000000000000000000000000000000`). В противном случае выбрасывается `PermissionError("Live execution requires configured non-zero wallet_address")`.
+   - Метод `self.verify_isolated_wallet()` вызывается **безусловно**, даже если параметры `live_balance` и `allowance` были переданы вручную. При передаче пробельных строк или нулевого адреса выбрасывается `ValueError("Dedicated LP isolated wallet address is not configured.")`.
+   - В `sign_eip712_order()` удален fallback на нулевой адрес `ZERO_ADDRESS`. Метод строго проверяет наличие сконфигурированного ненулевого адреса кошелька, иначе выбрасывает `PermissionError("Order signing requires configured non-zero wallet_address")`, полностью исключая подписание ордеров с нулевым `maker`.
 
-3. **Синхронизация зависимостей и `poetry.lock`**:
+3. **Fail-Closed контроль в скриптах сверки и запуска**:
+   - В `08_reconcile_rewards.py` и `07_reconcile_orders.py` устранены значения по умолчанию (`ZERO_ADDRESS`), добавлена строгая проверка на пустоту, пробелы и нулевой адрес (`sys.exit(1)`).
+   - В `06_run_live_calibration.py` ужесточена проверка хард-гейта: оба параметра `LP_ISOLATED_WALLET_ADDRESS` (ненулевой) и `LP_WALLET_PRIVATE_KEY` обязаны быть заданы одновременно.
+
+4. **Синхронизация зависимостей и `poetry.lock`**:
    - В `pyproject.toml` в секцию `[tool.poetry.dependencies]` явно добавлена зависимость `websockets = ">=12.0,<16.0"`, а также подтверждены `py-clob-client-v2 = "^1.1.0"`, `eth-account = "^0.13.0"`, `pyarrow = "^17.0.0"`. В секции dev-зависимостей подтвержден `respx = "^0.21.1"`.
    - Запущен `poetry lock` (через Poetry 2.4.3), перегенерировавший `poetry.lock`. Лок-файл теперь полностью содержит `py-clob-client-v2`, `websockets`, `eth-account`, `pyarrow`, `fastapi`, `asyncpg`.
    - Синхронизирован `uv.lock`.
    - Проверена сборка зависимостей для `Dockerfile` через `poetry export -f requirements.txt --without-hashes`.
 
-4. **Инструкция по запуску тестов на сервере**:
-   > ⚠️ **Важное пояснение по серверному окружению**:
-   > На боевом сервере системный бинарник `/usr/bin/python3` не содержит библиотек проекта. Запуск `python3 -m pytest ...` приводит к ошибкам `ModuleNotFoundError` (`websockets`, `pyarrow`, `respx`, `eth_account`, `py_clob_client_v2`).
+5. **Точная инструкция по воспроизведению тестов на сервере**:
+   > ⚠️ **Пояснение по серверному окружению (`agent-gemini-cli-poly`)**:
+   > 1. На боевом сервере системный бинарник `/usr/bin/python3` не содержит библиотек проекта (попытка запуска `python3 -m pytest` падает с `ModuleNotFoundError` для `websockets`, `respx`, `pyarrow`, `eth_account`). Системная команда `python` (без 3) отсутствует.
+   > 2. Бинарник Poetry установлен у пользователя в `~/.local/bin/poetry`, но каталог `~/.local/bin` **не входит в стандартный неинтерактивный PATH** сервера (`/usr/local/bin:/usr/bin:/bin:/usr/games`).
+   > 3. На хосте каталог `.venv` отсутствует по умолчанию, так как продакшн работает внутри Docker-контейнеров.
    >
-   > Для корректного запуска тестов на сервере **необходимо использовать виртуальное окружение Poetry**:
+   > Для корректного запуска тестов на сервере в рабочей копии ветки `research/lp-rewards`:
    > ```bash
-   > # Вариант 1 (рекомендуемый): через Poetry CLI
+   > # Шаг 1: Добавить ~/.local/bin в PATH для текущей сессии
+   > export PATH="$HOME/.local/bin:$PATH"
+   >
+   > # Шаг 2: Установить зависимости проекта (включая dev-группу pytest/respx)
+   > poetry install
+   >
+   > # Шаг 3: Запустить тесты модуля research
    > poetry run pytest tests/research/lp_rewards -v
    >
-   > # Вариант 2: через активированное виртуальное окружение
-   > source .venv/bin/activate
-   > pytest tests/research/lp_rewards -v
-   >
-   > # Вариант 3: прямой вызов python из virtualenv
-   > ./.venv/bin/python -m pytest tests/research/lp_rewards -v
+   > # Либо прямой вызов без изменения PATH:
+   > ~/.local/bin/poetry install
+   > ~/.local/bin/poetry run pytest tests/research/lp_rewards -v
    > ```
 
-5. **Результаты локального тестирования и валидации**:
-   - Добавлены unit-тесты на немедленное падение Gate B при отсутствии кошелька или отчетов сверки, а также тесты на отклонение нулевого и отсутствующего адреса кошелька в `LiveOrderExecutor`.
-   - Результат прогона всего тестового набора:
+6. **Результаты тестирования и валидации**:
+   - Добавлены unit-тесты на немедленное падение Gate B при нулевом адресе кошелька, тесты скриптов сверки 07 и 08 на отклонение нулевого/пустого адреса, тесты `verify_isolated_wallet` на пробельные строки, тесты `sign_eip712_order` на отклонение неконфигурированного/нулевого адреса.
+   - Результат локального прогона тестового набора LP Rewards:
      ```bash
      pytest tests/research/lp_rewards -v
-     ============================= 95 passed in 4.14s ==============================
+     ======================= 100 passed, 3 warnings in 1.18s =======================
+     ```
+   - Результат прогона всего тестового набора репозитория:
+     ```bash
+     pytest -v
+     ========= 1944 passed, 11 skipped, 2210 warnings in 172.55s (0:02:52) =========
      ```
    - Команда `git diff --check` проходит с нулевым кодом возврата (нет trailing whitespace и некорректных переводов строк).

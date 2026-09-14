@@ -75,11 +75,21 @@ async def run_live_calibration():
     main_wallet = os.getenv("PROD_MAIN_WALLET_ADDRESS") or os.getenv("POLYGON_WALLET_ADDRESS")
     wallet_key = os.getenv("LP_WALLET_PRIVATE_KEY")
 
-    if not isolated_wallet and not wallet_key:
-        logger.error("[BLOCKED BY HARD GATE] LP_ISOLATED_WALLET_ADDRESS or LP_WALLET_PRIVATE_KEY must be configured.")
+    zero_address = "0x0000000000000000000000000000000000000000"
+    if (
+        not isolated_wallet
+        or not isolated_wallet.strip()
+        or isolated_wallet.strip().lower() == zero_address
+    ):
+        logger.error("[BLOCKED BY HARD GATE] LP_ISOLATED_WALLET_ADDRESS must be configured and non-zero.")
+        sys.exit(1)
+    isolated_wallet = isolated_wallet.strip()
+
+    if not wallet_key or not wallet_key.strip():
+        logger.error("[BLOCKED BY HARD GATE] LP_WALLET_PRIVATE_KEY must be configured.")
         sys.exit(1)
 
-    if isolated_wallet and main_wallet and isolated_wallet.lower() == main_wallet.lower():
+    if main_wallet and isolated_wallet.lower() == main_wallet.strip().lower():
         logger.error(f"[BLOCKED BY HARD GATE] Isolated wallet {isolated_wallet} matches main production wallet {main_wallet}!")
         sys.exit(1)
 
