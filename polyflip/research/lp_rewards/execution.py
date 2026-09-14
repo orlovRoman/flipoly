@@ -240,8 +240,7 @@ class LiveOrderExecutor:
         """Construct and sign Polymarket CTF Exchange EIP-712 order structure."""
         side_int = 0 if side.upper() in ("BUY", "BID") else 1
         salt = int(time.time() * 1000)
-        now_ts = int(time.time())
-        expiration = now_ts + expiration_sec
+        now_ts_ms = int(time.time() * 1000)
 
         if side_int == 0:
             maker_amount = int(price * size * Decimal("1e6"))
@@ -251,6 +250,7 @@ class LiveOrderExecutor:
             taker_amount = int(price * size * Decimal("1e6"))
 
         maker_address = self.wallet_address or "0x0000000000000000000000000000000000000000"
+        empty_bytes32 = "0x" + "00" * 32
 
         order_data = {
             "types": {
@@ -264,18 +264,14 @@ class LiveOrderExecutor:
                     {"name": "salt", "type": "uint256"},
                     {"name": "maker", "type": "address"},
                     {"name": "signer", "type": "address"},
-                    {"name": "taker", "type": "address"},
                     {"name": "tokenId", "type": "uint256"},
                     {"name": "makerAmount", "type": "uint256"},
                     {"name": "takerAmount", "type": "uint256"},
-                    {"name": "expiration", "type": "uint256"},
-                    {"name": "nonce", "type": "uint256"},
-                    {"name": "feeRateBps", "type": "uint256"},
                     {"name": "side", "type": "uint8"},
                     {"name": "signatureType", "type": "uint8"},
                     {"name": "timestamp", "type": "uint256"},
-                    {"name": "metadata", "type": "string"},
-                    {"name": "builder", "type": "address"},
+                    {"name": "metadata", "type": "bytes32"},
+                    {"name": "builder", "type": "bytes32"},
                 ],
             },
             "primaryType": "Order",
@@ -289,18 +285,14 @@ class LiveOrderExecutor:
                 "salt": salt,
                 "maker": maker_address,
                 "signer": maker_address,
-                "taker": "0x0000000000000000000000000000000000000000",
                 "tokenId": self._parse_token_id(token_id),
                 "makerAmount": maker_amount,
                 "takerAmount": taker_amount,
-                "expiration": expiration,
-                "nonce": 0,
-                "feeRateBps": fee_rate_bps,
                 "side": side_int,
                 "signatureType": 0,
-                "timestamp": now_ts,
-                "metadata": "",
-                "builder": "0x0000000000000000000000000000000000000000",
+                "timestamp": now_ts_ms,
+                "metadata": empty_bytes32,
+                "builder": empty_bytes32,
             },
         }
 

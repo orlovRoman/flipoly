@@ -96,19 +96,8 @@ def main():
         )
         clob_client.set_api_creds(creds)
     except Exception as e:
-        logger.warning(f"Failed to initialize real ClobClient, using mock. Error: {e}")
-        class MockClobClient:
-            def __init__(self):
-                self.orders = {}
-            def post_order(self, order):
-                return {"orderID": "mock_123"}
-            def create_order(self, order):
-                return {"orderID": "mock_123"}
-            def cancel_all_orders(self):
-                return {"status": "OK"}
-            def cancel_all(self):
-                return {"status": "OK"}
-        clob_client = MockClobClient()
+        logger.error(f"[BLOCKED BY HARD GATE] Failed to initialize real ClobClient. Error: {e}")
+        sys.exit(1)
 
     # Initialize Live Executor
     executor = LiveOrderExecutor(
@@ -141,37 +130,46 @@ def main():
     )
 
     if wallet_key and active_configs:
-        fsms = {m.condition_id: MarketQuotingFSM(m) for m in active_configs[:1]}
+        fsms = {m.condition_id: MarketQuotingFSM(m) for m in active_configs}
         try:
-            for top_m in active_configs[:1]:
-                fsm = fsms[top_m.condition_id]
-                now_ns = time.time_ns()
-                quotes = fsm.generate_quote_orders(midpoint=Decimal("0.5"), timestamp_ns=now_ns)
+            while True:
+                for top_m in active_configs:
+                    fsm = fsms[top_m.condition_id]
+                    now_ns = time.time_ns()
+                    # Midpoint should ideally come from live orderbook, 
+                    # but using 0.5 as placeholder since full WS integration is complex for this script.
+                    quotes = fsm.generate_quote_orders(midpoint=Decimal("0.5"), timestamp_ns=now_ns)
+                    
+                    positions = {top_m.condition_id: fsm.position}
+                    open_orders = {top_m.condition_id: list(fsm.open_orders.values())}
+                    allowed, _ = allocator.can_allocate_orders(top_m.condition_id, positions, open_orders, quotes)
+                    
+                    if allowed:
+                        for q in quotes:
+                            res = executor.submit_order(
+                                token_id=q.asset_id,
+                                side="BUY" if q.side.value == "BUY" else "SELL",
+                                price=q.price,
+                                size=q.size,
+                                protocol_hash=protocol.sha256_hash,
+                            )
+                            submitted.append(res)
                 
-                positions = {top_m.condition_id: fsm.position}
-                open_orders = {top_m.condition_id: list(fsm.open_orders.values())}
-                allowed, _ = allocator.can_allocate_orders(top_m.condition_id, positions, open_orders, quotes)
+                with open(live_orders_file, "w", encoding="utf-8") as lf:
+                    json.dump(submitted, lf, indent=2)
                 
-                if allowed:
-                    for q in quotes:
-                        res = executor.submit_order(
-                            token_id=q.asset_id,
-                            side="BUY" if q.side.value == "BUY" else "SELL",
-                            price=q.price,
-                            size=q.size,
-                            protocol_hash=protocol.sha256_hash,
-                        )
-                        submitted.append(res)
-            
-            logger.info("FSM loop calibration: waiting 5 seconds before cleanup...")
-            time.sleep(5)
+                logger.info("FSM loop calibration: tick complete, waiting 5 seconds...")
+                time.sleep(5)
         except Exception as e:
             logger.warning(f"Could not place initial calibration orders: {e}")
+        except KeyboardInterrupt:
+            logger.info("Live calibration interrupted by user.")
         finally:
             executor.cancel_all_orders()
+            submitted.clear()
+            with open(live_orders_file, "w", encoding="utf-8") as lf:
+                json.dump(submitted, lf, indent=2)
 
-    with open(live_orders_file, "w", encoding="utf-8") as lf:
-        json.dump(submitted, lf, indent=2)
     logger.info(f"Updated live open orders registry at {live_orders_file} ({len(submitted)} active orders)")
 
 
