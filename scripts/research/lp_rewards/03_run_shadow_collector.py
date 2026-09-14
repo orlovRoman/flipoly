@@ -269,7 +269,41 @@ async def periodic_fsm_and_scoring(
             logger.error(f"Error in FSM and scoring loop: {e}")
 
 
-async def main(smoke_seconds: Optional[float] = None, storage_root: Optional[str] = None):
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run LP Rewards shadow collector.")
+    parser.add_argument(
+        "--smoke-seconds",
+        type=float,
+        default=None,
+        help="Run collector for a limited number of seconds (for smoke tests / verification).",
+    )
+    parser.add_argument(
+        "--log-file",
+        type=str,
+        default=None,
+        help="Path to rotating log file for continuous background execution.",
+    )
+    parser.add_argument(
+        "--storage-root",
+        type=str,
+        default=None,
+        help="Path to root storage directory (overrides protocol default and LP_STORAGE_ROOT).",
+    )
+    return parser
+
+
+async def main(
+    smoke_seconds: Optional[float] = None,
+    storage_root: Optional[str] = None,
+    argv: Optional[List[str]] = None,
+):
+    if argv is not None:
+        cli_args = build_parser().parse_args(argv)
+        if smoke_seconds is None:
+            smoke_seconds = cli_args.smoke_seconds
+        if storage_root is None:
+            storage_root = cli_args.storage_root
+
     protocol = load_protocol(storage_root=storage_root)
     storage_path = Path(protocol.data_storage.root_path)
     storage_path.mkdir(parents=True, exist_ok=True)
@@ -353,25 +387,7 @@ async def main(smoke_seconds: Optional[float] = None, storage_root: Optional[str
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run LP Rewards shadow collector.")
-    parser.add_argument(
-        "--smoke-seconds",
-        type=float,
-        default=None,
-        help="Run collector for a limited number of seconds (for smoke tests / verification).",
-    )
-    parser.add_argument(
-        "--log-file",
-        type=str,
-        default=None,
-        help="Path to rotating log file for continuous background execution.",
-    )
-    parser.add_argument(
-        "--storage-root",
-        type=str,
-        default=None,
-        help="Path to root storage directory (overrides protocol default and LP_STORAGE_ROOT).",
-    )
+    parser = build_parser()
     cli_args = parser.parse_args()
 
     if cli_args.log_file:

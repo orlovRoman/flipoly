@@ -80,6 +80,30 @@ def test_resolve_storage_root_explicit_override_precedence(monkeypatch):
     assert resolved == "/explicit/override/path"
 
 
+def test_resolve_storage_root_whitespace_env_fallback(monkeypatch):
+    win_path = r"D:\flipoly-research\lp-rewards"
+    monkeypatch.setenv("LP_STORAGE_ROOT", "   ")
+    monkeypatch.setenv("LP_STORAGE_PATH", "/fallback/storage/path")
+    resolved = resolve_storage_root(win_path, platform="linux")
+    assert resolved == "/fallback/storage/path"
+
+
+def test_resolve_storage_root_tilde_expansion(monkeypatch):
+    win_path = r"D:\flipoly-research\lp-rewards"
+
+    # 1. Override with tilde
+    resolved = resolve_storage_root(win_path, override="~/my_research/lp_rewards")
+    assert resolved == os.path.expanduser("~/my_research/lp_rewards")
+    assert not resolved.startswith("~")
+
+    # 2. Env var with tilde
+    monkeypatch.setenv("LP_STORAGE_ROOT", "~/env_research/lp_rewards")
+    monkeypatch.delenv("LP_STORAGE_PATH", raising=False)
+    resolved_env = resolve_storage_root(win_path)
+    assert resolved_env == os.path.expanduser("~/env_research/lp_rewards")
+    assert not resolved_env.startswith("~")
+
+
 def test_load_protocol_with_env_storage_root(monkeypatch):
     custom_root = "/mnt/fast_disk/flipoly/lp-rewards"
     monkeypatch.setenv("LP_STORAGE_ROOT", custom_root)
@@ -99,16 +123,20 @@ def test_load_protocol_with_explicit_storage_root(tmp_path):
 
 
 def test_script_03_parser_supports_storage_root():
-    import argparse
-    # Re-create parser as defined in 03_run_shadow_collector
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--smoke-seconds", type=float, default=None)
-    parser.add_argument("--log-file", type=str, default=None)
-    parser.add_argument("--storage-root", type=str, default=None)
-
-    args = parser.parse_args(["--storage-root", "/custom/shadow/path", "--smoke-seconds", "5"])
+    # Directly test the real build_parser defined in 03_run_shadow_collector
+    parser = collector_03.build_parser()
+    args = parser.parse_args(["--storage-root", "/custom/shadow/path", "--smoke-seconds", "5", "--log-file", "/tmp/shadow.log"])
     assert args.storage_root == "/custom/shadow/path"
     assert args.smoke_seconds == 5.0
+    assert args.log_file == "/tmp/shadow.log"
+
+
+@pytest.mark.asyncio
+async def test_script_03_main_with_storage_root_argv(tmp_path):
+    # Test that 03_run_shadow_collector main accepts argv and parses --storage-root and --smoke-seconds
+    await collector_03.main(argv=["--storage-root", str(tmp_path), "--smoke-seconds", "0.01"])
+    # Storage directory must have been created
+    assert tmp_path.exists()
 
 
 def test_script_04_cli_storage_root(tmp_path, capsys):
@@ -128,6 +156,11 @@ def test_script_05_cli_storage_root(tmp_path, capsys):
 
 
 def test_script_01_and_02_cli_storage_root(tmp_path, capsys):
+    # 01_fetch_universe build_parser test
+    parser_01 = fetch_01.build_parser()
+    args_01 = parser_01.parse_args(["--storage-root", str(tmp_path)])
+    assert args_01.storage_root == str(tmp_path)
+
     # 02_rank_and_allocate should exit 1 when universe_active.json not found in tmp_path
     with pytest.raises(SystemExit) as exc_info:
         allocate_02.main(argv=["--storage-root", str(tmp_path)])
@@ -149,17 +182,21 @@ def test_run_continuous_shadow_script_integrity():
 
     # 2. Key interpreter detection targets present
     assert "poetry run python" in content
-    assert "${HOME}/.local/bin/poetry" in content
+    assert "${HOME:-}/.local/bin/poetry" in content
+    assert "~/.local/bin/poetry" in content
     assert "uv run python" in content
-    assert "${HOME}/.local/bin/uv" in content
+    assert "${HOME:-}/.local/bin/uv" in content
+    assert "~/.local/bin/uv" in content
+    assert "${HOME:-}/.cargo/bin/uv" in content
+    assert "~/.cargo/bin/uv" in content
     assert "${VIRTUAL_ENV}/bin/python" in content
     assert "${REPO_ROOT}/.venv/bin/python" in content
     assert "/usr/bin/python3" in content
     assert "python3" in content
 
     # 3. PATH and storage root resolution
-    assert 'export PATH="${HOME}/.local/bin' in content
-    assert 'DEFAULT_STORAGE_ROOT="${HOME}/flipoly-research/lp-rewards"' in content
+    assert 'export PATH="${HOME:-~}/.local/bin' in content
+    assert 'DEFAULT_STORAGE_ROOT="${HOME:-~}/flipoly-research/lp-rewards"' in content
     assert 'export LP_STORAGE_ROOT="${LP_STORAGE_ROOT:-${DEFAULT_STORAGE_ROOT}}"' in content
     assert "--storage-root" in content
 
@@ -175,3 +212,40 @@ def test_run_continuous_shadow_git_executable_mode():
     )
     # Git stage mode must be 100755 (executable file)
     assert result.stdout.startswith("100755")
+
+
+def test_run_continuous_shadow_bash_live_enabled_blocked():
+    import shutil
+    if not shutil.which("bash"):
+        pytest.skip("bash not available on this platform")
+
+    repo_root = Path(__file__).resolve().parents[3]
+    # Pass LP_LIVE_ENABLED=true inside bash -c command to guarantee environment delivery
+    cmd = ["bash", "-c", "LP_LIVE_ENABLED=true scripts/research/lp_rewards/run_continuous_shadow.sh"]
+    result = subprocess.run(cmd, cwd=str(repo_root), capture_output=True, text=True)
+    assert result.returncode == 1
+    assert "[FATAL] LP_LIVE_ENABLED is set to 'true'" in result.stderr
+
+
+def test_run_continuous_shadow_bash_execution_echo_runner():
+    import shutil
+    if not shutil.which("bash"):
+        pytest.skip("bash not available on this platform")
+
+    repo_root = Path(__file__).resolve().parents[3]
+    # Test execution with PYTHON_RUNNER=echo and CLI argument overrides
+    cmd = [
+        "bash",
+        "-c",
+        'PYTHON_RUNNER="echo" scripts/research/lp_rewards/run_continuous_shadow.sh '
+        '--storage-root /custom/storage/path --log-file /custom/log/path.log --smoke-seconds 5',
+    ]
+    result = subprocess.run(cmd, cwd=str(repo_root), capture_output=True, text=True)
+    assert result.returncode == 0
+    assert "Storage Root: /custom/storage/path" in result.stdout
+    assert "Log file: /custom/log/path.log" in result.stdout
+    # The echoed command line must contain the arguments without duplicates
+    assert "--storage-root /custom/storage/path" in result.stdout
+    assert "--log-file /custom/log/path.log" in result.stdout
+    assert result.stdout.count("--storage-root") == 1  # exactly 1 in echoed command, no duplicate
+    assert result.stdout.count("--log-file") == 1  # exactly 1 in echoed command, no duplicate

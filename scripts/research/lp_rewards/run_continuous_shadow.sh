@@ -19,7 +19,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 cd "${REPO_ROOT}"
 
 # 1. Guarantee environment PATH & PYTHONPATH
-export PATH="${HOME}/.local/bin:${HOME}/.cargo/bin:${PATH}"
+export PATH="${HOME:-~}/.local/bin:${HOME:-~}/.cargo/bin:${PATH:-}"
 export PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}"
 
 # 2. Enforce strict shadow mode
@@ -29,9 +29,40 @@ if [ "${LP_LIVE_ENABLED:-false}" = "true" ]; then
 fi
 export LP_LIVE_ENABLED="false"
 
-# 3. Resolve storage root for Linux / cross-platform execution
-DEFAULT_STORAGE_ROOT="${HOME}/flipoly-research/lp-rewards"
+# 3. Parse CLI arguments (check for --storage-root and --log-file overrides)
+DEFAULT_STORAGE_ROOT="${HOME:-~}/flipoly-research/lp-rewards"
 export LP_STORAGE_ROOT="${LP_STORAGE_ROOT:-${DEFAULT_STORAGE_ROOT}}"
+DEFAULT_LOG_FILE="${REPO_ROOT}/artifacts/research/lp_rewards/logs/shadow_collector_continuous.log"
+LOG_FILE="${DEFAULT_LOG_FILE}"
+
+HAS_STORAGE_ARG=0
+HAS_LOG_ARG=0
+
+for ((i=1; i<=$#; i++)); do
+    arg="${!i}"
+    if [[ "${arg}" == "--storage-root="* ]]; then
+        LP_STORAGE_ROOT="${arg#*=}"
+        HAS_STORAGE_ARG=1
+    elif [[ "${arg}" == "--storage-root" ]]; then
+        next_i=$((i + 1))
+        if [ ${next_i} -le $# ]; then
+            LP_STORAGE_ROOT="${!next_i}"
+        fi
+        HAS_STORAGE_ARG=1
+    elif [[ "${arg}" == "--log-file="* ]]; then
+        LOG_FILE="${arg#*=}"
+        HAS_LOG_ARG=1
+    elif [[ "${arg}" == "--log-file" ]]; then
+        next_i=$((i + 1))
+        if [ ${next_i} -le $# ]; then
+            LOG_FILE="${!next_i}"
+        fi
+        HAS_LOG_ARG=1
+    fi
+done
+
+# Ensure log directory exists
+mkdir -p "$(dirname "${LOG_FILE}")"
 
 # 4. Resolve Python runner / interpreter
 PYTHON_CMD=()
@@ -42,14 +73,20 @@ if [ -n "${PYTHON_RUNNER:-}" ]; then
     PYTHON_CMD=(${PYTHON_RUNNER})
 elif command -v poetry >/dev/null 2>&1; then
     PYTHON_CMD=(poetry run python)
-elif [ -x "${HOME}/.local/bin/poetry" ]; then
-    PYTHON_CMD=("${HOME}/.local/bin/poetry" run python)
+elif [ -x "${HOME:-}/.local/bin/poetry" ]; then
+    PYTHON_CMD=("${HOME:-}/.local/bin/poetry" run python)
+elif [ -x ~/.local/bin/poetry ]; then
+    PYTHON_CMD=(~/.local/bin/poetry run python)
 elif command -v uv >/dev/null 2>&1; then
     PYTHON_CMD=(uv run python)
-elif [ -x "${HOME}/.local/bin/uv" ]; then
-    PYTHON_CMD=("${HOME}/.local/bin/uv" run python)
-elif [ -x "${HOME}/.cargo/bin/uv" ]; then
-    PYTHON_CMD=("${HOME}/.cargo/bin/uv" run python)
+elif [ -x "${HOME:-}/.local/bin/uv" ]; then
+    PYTHON_CMD=("${HOME:-}/.local/bin/uv" run python)
+elif [ -x ~/.local/bin/uv ]; then
+    PYTHON_CMD=(~/.local/bin/uv run python)
+elif [ -x "${HOME:-}/.cargo/bin/uv" ]; then
+    PYTHON_CMD=("${HOME:-}/.cargo/bin/uv" run python)
+elif [ -x ~/.cargo/bin/uv ]; then
+    PYTHON_CMD=(~/.cargo/bin/uv run python)
 elif [ -n "${VIRTUAL_ENV:-}" ] && [ -x "${VIRTUAL_ENV}/bin/python" ]; then
     PYTHON_CMD=("${VIRTUAL_ENV}/bin/python")
 elif [ -x "${REPO_ROOT}/.venv/bin/python" ]; then
@@ -65,11 +102,7 @@ else
     exit 1
 fi
 
-# 5. Setup log paths
-LOG_DIR="${REPO_ROOT}/artifacts/research/lp_rewards/logs"
-mkdir -p "${LOG_DIR}"
-LOG_FILE="${LOG_DIR}/shadow_collector_continuous.log"
-
+# 5. Startup banner
 echo "=================================================================="
 echo "Starting Continuous Shadow Data Collector (Protocol v0.1)"
 echo "Mode: STRICT SHADOW (LP_LIVE_ENABLED=${LP_LIVE_ENABLED})"
@@ -80,25 +113,16 @@ echo "Log file: ${LOG_FILE} (20MB rotating, 5 backups)"
 echo "Started at: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
 echo "=================================================================="
 
-# 6. Storage arguments handling
-STORAGE_ARGS=()
-HAS_STORAGE_ARG=0
-for arg in "$@"; do
-    if [[ "${arg}" == "--storage-root"* ]]; then
-        HAS_STORAGE_ARG=1
-        break
-    fi
-done
-
+# 6. Assemble invocation arguments (inject defaults if not provided in $@)
+INJECT_ARGS=()
+if [ "${HAS_LOG_ARG}" -eq 0 ]; then
+    INJECT_ARGS+=(--log-file "${LOG_FILE}")
+fi
 if [ "${HAS_STORAGE_ARG}" -eq 0 ] && [ -n "${LP_STORAGE_ROOT:-}" ]; then
-    STORAGE_ARGS=(--storage-root "${LP_STORAGE_ROOT}")
+    INJECT_ARGS+=(--storage-root "${LP_STORAGE_ROOT}")
 fi
 
 # 7. Launch shadow collector
 # In background via nohup:
 #   nohup ./scripts/research/lp_rewards/run_continuous_shadow.sh > /dev/null 2>&1 &
-if [ "${#STORAGE_ARGS[@]}" -gt 0 ]; then
-    exec "${PYTHON_CMD[@]}" -u "${SCRIPT_DIR}/03_run_shadow_collector.py" --log-file "${LOG_FILE}" "${STORAGE_ARGS[@]}" "$@"
-else
-    exec "${PYTHON_CMD[@]}" -u "${SCRIPT_DIR}/03_run_shadow_collector.py" --log-file "${LOG_FILE}" "$@"
-fi
+exec "${PYTHON_CMD[@]}" -u "${SCRIPT_DIR}/03_run_shadow_collector.py" "${INJECT_ARGS[@]}" "$@"

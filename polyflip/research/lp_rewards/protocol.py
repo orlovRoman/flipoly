@@ -135,11 +135,13 @@ def resolve_storage_root(
        (defaulting to '~/flipoly-research/lp-rewards') to avoid creating malformed directories.
     """
     if override is not None and str(override).strip():
-        return str(override).strip()
+        return os.path.expanduser(str(override).strip())
 
-    env_root = os.environ.get("LP_STORAGE_ROOT") or os.environ.get("LP_STORAGE_PATH")
+    env_root = os.environ.get("LP_STORAGE_ROOT")
+    if env_root is None or not env_root.strip():
+        env_root = os.environ.get("LP_STORAGE_PATH")
     if env_root is not None and env_root.strip():
-        return env_root.strip()
+        return os.path.expanduser(env_root.strip())
 
     target_platform = platform if platform is not None else sys.platform
     is_windows = (target_platform == "win32" or (platform is None and os.name == "nt"))

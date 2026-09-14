@@ -10,7 +10,7 @@ from decimal import Decimal
 import json
 from pathlib import Path
 import sys
-from typing import Optional
+from typing import List, Optional
 import httpx
 
 repo_root = Path(__file__).resolve().parents[3]
@@ -26,7 +26,23 @@ from polyflip.research.lp_rewards.universe import (
 )
 
 
-async def main(storage_root: Optional[str] = None):
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Fetch active rewards markets universe.")
+    parser.add_argument(
+        "--storage-root",
+        type=str,
+        default=None,
+        help="Path to root storage directory (overrides protocol default and LP_STORAGE_ROOT).",
+    )
+    return parser
+
+
+async def main(storage_root: Optional[str] = None, argv: Optional[List[str]] = None):
+    if argv is not None:
+        args = build_parser().parse_args(argv)
+        if storage_root is None:
+            storage_root = args.storage_root
+
     protocol = load_protocol(storage_root=storage_root)
     print(f"Loaded protocol: {protocol.protocol_id} (SHA-256: {protocol.sha256_hash[:12]}...)")
     print(f"Querying rewards endpoint: {protocol.universe.rewards_endpoint}")
@@ -105,12 +121,6 @@ async def main(storage_root: Optional[str] = None):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Fetch active rewards markets universe.")
-    parser.add_argument(
-        "--storage-root",
-        type=str,
-        default=None,
-        help="Path to root storage directory (overrides protocol default and LP_STORAGE_ROOT).",
-    )
+    parser = build_parser()
     cli_args = parser.parse_args()
     asyncio.run(main(storage_root=cli_args.storage_root))
