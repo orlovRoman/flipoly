@@ -259,3 +259,26 @@ async def test_reconcile_orders_v2_orders_endpoint():
     assert route.called
     req = route.calls.last.request
     assert req.headers.get("POLY_API_KEY") == "secret_key_123"
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_reconcile_rewards_user_endpoint():
+    """Verify fetch_actual_user_rewards uses /rewards/user with api key."""
+    route = respx.get("https://clob.polymarket.com/rewards/user").respond(
+        status_code=200,
+        json=[{"market": "c_1", "earnings": "100.0", "date": "2023-01-01"}],
+    )
+
+    async with httpx.AsyncClient() as client:
+        calibrator = RewardCalibrator(Decimal("0.5"))
+        rewards = await calibrator.fetch_actual_user_rewards(
+            wallet_address="0xabc",
+            client=client,
+            api_key="secret_key_123",
+        )
+
+    assert len(rewards) == 1
+    assert rewards[0]["earnings"] == "100.0"
+    assert route.called
+    req = route.calls.last.request
+    assert req.headers.get("POLY_API_KEY") == "secret_key_123"

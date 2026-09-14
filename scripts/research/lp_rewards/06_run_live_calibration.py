@@ -77,17 +77,38 @@ def main():
 
     logger.info(f"[ALLOWLIST LOADED] {len(active_configs)} markets ({len(allowlist_tokens)} tokens allowed).")
 
-    class MockClobClient:
-        def __init__(self):
-            self.orders = {}
-        def post_order(self, order):
-            return {"orderID": "mock_123"}
-        def create_order(self, order):
-            return {"orderID": "mock_123"}
-        def cancel_all_orders(self):
-            return {"status": "OK"}
-        def cancel_all(self):
-            return {"status": "OK"}
+    try:
+        from py_clob_client.client import ClobClient
+        from py_clob_client.clob_types import ApiCreds
+        
+        creds = ApiCreds(
+            api_key=os.getenv("POLY_API_KEY", ""),
+            api_secret=os.getenv("POLY_API_SECRET", ""),
+            api_passphrase=os.getenv("POLY_PASSPHRASE", ""),
+        )
+        clob_client = ClobClient(
+            "https://clob.polymarket.com",
+            chain_id=137,
+            key=wallet_key,
+            creds=creds,
+            signature_type=0,
+            funder=isolated_wallet,
+        )
+        clob_client.set_api_creds(creds)
+    except Exception as e:
+        logger.warning(f"Failed to initialize real ClobClient, using mock. Error: {e}")
+        class MockClobClient:
+            def __init__(self):
+                self.orders = {}
+            def post_order(self, order):
+                return {"orderID": "mock_123"}
+            def create_order(self, order):
+                return {"orderID": "mock_123"}
+            def cancel_all_orders(self):
+                return {"status": "OK"}
+            def cancel_all(self):
+                return {"status": "OK"}
+        clob_client = MockClobClient()
 
     # Initialize Live Executor
     executor = LiveOrderExecutor(
@@ -99,7 +120,7 @@ def main():
         allocated_capital_limit=protocol.capital_allocation.allocated_working_capital,
         allowlist_tokens=allowlist_tokens,
         require_gate_a=True,
-        clob_client=MockClobClient(),
+        clob_client=clob_client,
     )
 
     logger.info("[ALL GATES PASSED] LiveOrderExecutor initialized with all safety constraints active.")
@@ -109,27 +130,41 @@ def main():
     live_orders_file = storage_path / "live_open_orders.json"
     submitted = []
 
+    from polyflip.research.lp_rewards.quoting_fsm import MarketQuotingFSM
+    from polyflip.research.lp_rewards.capital_allocator import CapitalAllocator
+    import time
+
+    allocator = CapitalAllocator(
+        allocated_working_capital=Decimal("50.0"),
+        max_unhedged_per_market=Decimal("25.0"),
+        max_unhedged_total=Decimal("50.0"),
+    )
+
     if wallet_key and active_configs:
+        fsms = {m.condition_id: MarketQuotingFSM(m) for m in active_configs[:1]}
         try:
             for top_m in active_configs[:1]:
-                test_size = max(top_m.rewards_min_size, Decimal("10.0"))
-                test_price = Decimal("0.49")
-                order_res_yes = executor.submit_order(
-                    token_id=top_m.yes_token_id,
-                    side="BUY",
-                    price=test_price,
-                    size=test_size,
-                    protocol_hash=protocol.sha256_hash,
-                )
-                submitted.append(order_res_yes)
-                order_res_no = executor.submit_order(
-                    token_id=top_m.no_token_id,
-                    side="BUY",
-                    price=test_price,
-                    size=test_size,
-                    protocol_hash=protocol.sha256_hash,
-                )
-                submitted.append(order_res_no)
+                fsm = fsms[top_m.condition_id]
+                now_ns = time.time_ns()
+                quotes = fsm.generate_quote_orders(midpoint=Decimal("0.5"), timestamp_ns=now_ns)
+                
+                positions = {top_m.condition_id: fsm.position}
+                open_orders = {top_m.condition_id: list(fsm.open_orders.values())}
+                allowed, _ = allocator.can_allocate_orders(top_m.condition_id, positions, open_orders, quotes)
+                
+                if allowed:
+                    for q in quotes:
+                        res = executor.submit_order(
+                            token_id=q.asset_id,
+                            side="BUY" if q.side.value == "BUY" else "SELL",
+                            price=q.price,
+                            size=q.size,
+                            protocol_hash=protocol.sha256_hash,
+                        )
+                        submitted.append(res)
+            
+            logger.info("FSM loop calibration: waiting 5 seconds before cleanup...")
+            time.sleep(5)
         except Exception as e:
             logger.warning(f"Could not place initial calibration orders: {e}")
         finally:
