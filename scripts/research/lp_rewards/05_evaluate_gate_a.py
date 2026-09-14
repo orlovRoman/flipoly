@@ -1,9 +1,4 @@
-"""05_evaluate_gate_a.py
-
-Evaluates Gate A criteria using block bootstrap strictly by full UTC-day.
-Determines verdicts: PROCEED_LIVE, PROFITABLE_BELOW_TARGET, TARGET_PLAUSIBLE, TARGET_REJECTED, EDGE_REJECTED.
-"""
-
+import datetime
 from decimal import Decimal
 import json
 from pathlib import Path
@@ -16,6 +11,7 @@ if str(repo_root) not in sys.path:
 from polyflip.research.lp_rewards.evaluation import (
     compute_block_bootstrap_ci,
     determine_gate_a_verdict,
+    evaluate_gate_a_full,
 )
 from polyflip.research.lp_rewards.protocol import load_protocol
 
@@ -30,31 +26,68 @@ def main():
         print("Gate A cannot be evaluated without completed daily evaluations.")
         return
 
-    daily_pnls = []
+    daily_records = []
     for f in sorted(daily_eval_dir.glob("*.json")):
         with open(f, "r", encoding="utf-8") as jf:
-            data = json.load(jf)
-            daily_pnls.append(Decimal(str(data.get("net_pnl", "0.0"))))
+            daily_records.append(json.load(jf))
 
-    point, lower, upper = compute_block_bootstrap_ci(
-        daily_pnls,
+    report = evaluate_gate_a_full(
+        daily_records=daily_records,
+        expected_protocol_hash=protocol.sha256_hash,
+        target_rate=protocol.hypothesis.target_r100_calendar,
+        min_calendar_days=protocol.gates.gate_a.min_calendar_days,
+        min_quote_hours=protocol.gates.gate_a.min_quote_hours,
+        min_active_markets=protocol.gates.gate_a.min_active_markets,
+        min_market_coverage_ratio=protocol.gates.gate_a.min_market_coverage_ratio,
+        max_single_market_pnl_share=protocol.gates.gate_a.max_single_market_pnl_share,
         n_bootstrap=protocol.gates.gate_a.bootstrap_samples,
     )
-    verdict = determine_gate_a_verdict(
-        point,
-        lower,
-        upper,
-        target_rate=protocol.hypothesis.target_r100_calendar,
-        total_days=len(daily_pnls),
-        min_days=protocol.gates.gate_a.min_calendar_days,
-    )
 
-    print(f"Gate A Evaluation Results ({len(daily_pnls)} full UTC days):")
-    print(f"  Point Estimate R_100_calendar: ${point:.2f}/day")
-    print(f"  95% CI: [${lower:.2f}, ${upper:.2f}] / day")
+    print("=" * 60)
+    print(f"Gate A Formal Evaluation Report — Protocol {protocol.protocol_id}")
+    print(f"Protocol SHA-256: {protocol.sha256_hash}")
+    print("=" * 60)
+    print(f"Criteria Verification Checklist:")
+    print(f"  [{'PASS' if report.total_days >= protocol.gates.gate_a.min_calendar_days else 'FAIL'}] Calendar Days: {report.total_days} (min {protocol.gates.gate_a.min_calendar_days})")
+    print(f"  [{'PASS' if report.total_quote_hours >= Decimal(str(protocol.gates.gate_a.min_quote_hours)) else 'FAIL'}] Quote-Hours: {report.total_quote_hours:.1f} (min {protocol.gates.gate_a.min_quote_hours})")
+    print(f"  [{'PASS' if report.active_markets_count >= protocol.gates.gate_a.min_active_markets else 'FAIL'}] Active Markets: {report.active_markets_count} (min {protocol.gates.gate_a.min_active_markets})")
+    print(f"  [{'PASS' if report.min_market_coverage >= protocol.gates.gate_a.min_market_coverage_ratio else 'FAIL'}] Min Coverage Ratio: {float(report.min_market_coverage)*100:.2f}% (min {float(protocol.gates.gate_a.min_market_coverage_ratio)*100:.1f}%)")
+    print(f"  [{'PASS' if report.max_market_pnl_share <= protocol.gates.gate_a.max_single_market_pnl_share else 'FAIL'}] Max Single Market PnL Share: {float(report.max_market_pnl_share)*100:.2f}% (max {float(protocol.gates.gate_a.max_single_market_pnl_share)*100:.1f}%)")
+    print(f"  [{'PASS' if report.protocol_hash_valid else 'FAIL'}] Protocol SHA-256 Integrity: {'VALID' if report.protocol_hash_valid else 'MISMATCH'}")
+    print(f"  [{'PASS' if report.book_uncertain_count == 0 else 'FAIL'}] BOOK_UNCERTAIN Count: {report.book_uncertain_count} (required 0)")
+    print(f"  [{'PASS' if report.stress_test_passed else 'FAIL'}] Stress Test (20% Adverse Shock): {'PASSED' if report.stress_test_passed else 'FAILED'}")
+
+    print("\nStatistical Return Distribution ($100 Base Capital):")
+    print(f"  Point Estimate R_100_calendar: ${report.point_estimate:.2f}/day")
+    print(f"  95% CI: [${report.lower_95:.2f}, ${report.upper_95:.2f}] / day")
     print(f"  Target Threshold: ${protocol.hypothesis.target_r100_calendar:.2f}/day")
-    print(f"  VERDICT: {verdict}")
+    print(f"\nFINAL VERDICT: {report.verdict}")
+    if report.rejection_reasons:
+        print("Rejection Reasons:")
+        for reason in report.rejection_reasons:
+            print(f"  - {reason}")
+    print("=" * 60)
 
-
-if __name__ == "__main__":
-    main()
+    # Save Gate A verdict artifact
+    verdict_artifact = {
+        "protocol_id": protocol.protocol_id,
+        "protocol_hash": protocol.sha256_hash,
+        "evaluated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "verdict": report.verdict,
+        "point_estimate": str(report.point_estimate),
+        "lower_95": str(report.lower_95),
+        "upper_95": str(report.upper_95),
+        "total_days": report.total_days,
+        "total_quote_hours": str(report.total_quote_hours),
+        "active_markets_count": report.active_markets_count,
+        "min_market_coverage": str(report.min_market_coverage),
+        "max_market_pnl_share": str(report.max_market_pnl_share),
+        "protocol_hash_valid": report.protocol_hash_valid,
+        "book_uncertain_count": report.book_uncertain_count,
+        "stress_test_passed": report.stress_test_passed,
+        "rejection_reasons": report.rejection_reasons,
+    }
+    verdict_file = storage_path / "gate_a_verdict.json"
+    with open(verdict_file, "w", encoding="utf-8") as vf:
+        json.dump(verdict_artifact, vf, indent=2)
+    print(f"Saved Gate A verdict artifact to {verdict_file}")

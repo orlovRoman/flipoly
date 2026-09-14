@@ -266,14 +266,14 @@ class MarketQuotingFSM:
         if elapsed_sec < self.hedging_timeout_sec:
             return False, None
 
+        # Determine direction before state transition
+        is_yes = (self.position.state == QuotingState.LONG_YES or self.position.yes_inventory > Decimal("0.0"))
+        unhedged_size = self.position.yes_inventory if is_yes else self.position.no_inventory
+        cost_basis = self.position.yes_fill_cost if is_yes else self.position.no_fill_cost
+
         # Timeout reached! Transition to EXITING
         self.position.state = QuotingState.EXITING
         self.reset_orders()
-
-        # Execute VWAP dump against orderbook bids
-        is_yes = (self.position.state == QuotingState.LONG_YES or self.position.yes_inventory > 0)
-        unhedged_size = self.position.yes_inventory if is_yes else self.position.no_inventory
-        cost_basis = self.position.yes_fill_cost if is_yes else self.position.no_fill_cost
 
         if unhedged_size <= Decimal("0.0"):
             self.position.state = QuotingState.FLAT
@@ -284,14 +284,49 @@ class MarketQuotingFSM:
         vwap, filled_qty, taker_fee = self._calculate_vwap_exit(orderbook.bids, unhedged_size)
 
         if filled_qty < unhedged_size:
-            # Insufficient depth to absorb inventory
+            # Insufficient depth to absorb entire inventory
             self.exit_insufficient_liquidity_count += 1
-            # Liquidate remainder at penalty 0.01
-            penalty_size = unhedged_size - filled_qty
-            vwap = ((vwap * filled_qty) + (Decimal("0.01") * penalty_size)) / unhedged_size
-            filled_qty = unhedged_size
+            remainder = unhedged_size - filled_qty
+            self.position.state = QuotingState.EXIT_LIQUIDITY_INSUFFICIENT
 
-        exit_revenue = (vwap * unhedged_size) - taker_fee
+            if filled_qty > Decimal("0.0"):
+                sold_cost_basis = cost_basis * (filled_qty / unhedged_size)
+                # Gross exit revenue without double-deducting taker fee (fee subtracted in ledger)
+                exit_revenue = vwap * filled_qty
+                pnl = exit_revenue - sold_cost_basis
+
+                self.position.realized_trading_pnl += pnl
+                self.position.taker_fees_paid += taker_fee
+                self.position.cash_invested -= sold_cost_basis
+
+                remainder_cost = cost_basis - sold_cost_basis
+                if is_yes:
+                    self.position.yes_inventory = remainder
+                    self.position.yes_fill_cost = remainder_cost
+                else:
+                    self.position.no_inventory = remainder
+                    self.position.no_fill_cost = remainder_cost
+
+                fill = VirtualFill(
+                    fill_id=f"forced_exit_{uuid.uuid4().hex[:8]}",
+                    order_id="forced_exit_partial",
+                    condition_id=self.config.condition_id,
+                    asset_id=self.config.yes_token_id if is_yes else self.config.no_token_id,
+                    side=OrderSide.SELL,
+                    price=vwap,
+                    size=filled_qty,
+                    timestamp_ns=current_timestamp_ns,
+                    queue_depletion_ratio=Decimal("1.0"),
+                    taker_fee_paid=taker_fee,
+                )
+                return True, fill
+            else:
+                # Zero bids available to absorb inventory
+                # Retain unhedged position for conservative executable MTM
+                return True, None
+
+        # Full absorption by bids
+        exit_revenue = vwap * unhedged_size
         pnl = exit_revenue - cost_basis
 
         self.position.realized_trading_pnl += pnl

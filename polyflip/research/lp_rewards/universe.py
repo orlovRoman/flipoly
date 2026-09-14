@@ -25,12 +25,13 @@ async def fetch_all_rewards_markets(
         should_close = True
 
     all_raw_markets: List[Dict[str, Any]] = []
+    seen_condition_ids = set()
     next_cursor: Optional[str] = None
     page = 0
 
     try:
         while page < max_pages:
-            params = {}
+            params: Dict[str, Any] = {"limit": page_size}
             if next_cursor:
                 params["next_cursor"] = next_cursor
 
@@ -39,13 +40,25 @@ async def fetch_all_rewards_markets(
             data = resp.json()
 
             items = data.get("data", [])
-            all_raw_markets.extend(items)
+            for item in items:
+                cid = item.get("condition_id")
+                if cid and cid in seen_condition_ids:
+                    continue
+                if cid:
+                    seen_condition_ids.add(cid)
+                all_raw_markets.append(item)
 
             next_cursor = data.get("next_cursor")
             page += 1
 
             if not next_cursor or next_cursor == terminal_marker:
                 break
+        else:
+            if next_cursor and next_cursor != terminal_marker:
+                raise RuntimeError(
+                    f"Pagination truncated: reached max_pages ({max_pages}) "
+                    f"without reaching terminal marker '{terminal_marker}'."
+                )
     finally:
         if should_close:
             await client.aclose()
@@ -125,12 +138,19 @@ def parse_market_reward_config(
     oas_val = None
     if clob_market_info:
         oas_val = (
-            clob_market_info.get("order_age_seconds")
+            clob_market_info.get("minimum_order_age")
+            or clob_market_info.get("order_age_seconds")
             or clob_market_info.get("seconds_delay")
             or clob_market_info.get("oas")
+            or (clob_market_info.get("rewards", {}).get("order_age_seconds") if isinstance(clob_market_info.get("rewards"), dict) else None)
+            or (clob_market_info.get("rewards", {}).get("min_order_age") if isinstance(clob_market_info.get("rewards"), dict) else None)
         )
     if oas_val is None:
-        oas_val = raw_item.get("order_age_seconds", raw_item.get("oas"))
+        oas_val = (
+            raw_item.get("minimum_order_age")
+            or raw_item.get("order_age_seconds")
+            or raw_item.get("oas")
+        )
 
     if oas_val is not None:
         oas = Decimal(str(oas_val))
@@ -149,12 +169,37 @@ def parse_market_reward_config(
         or raw_item.get("end_date_iso")
     )
 
-    fee_schedule = (
-        (clob_market_info.get("feeSchedule") if clob_market_info else None)
-        or raw_item.get("feeSchedule")
-        or {}
-    )
-    taker_fee_rate = Decimal(str(fee_schedule.get("takerFee", "0.0")))
+    # Taker fee extraction from CLOB market info
+    taker_fee_val = None
+    if clob_market_info:
+        if "taker_fee_bps" in clob_market_info:
+            taker_fee_val = Decimal(str(clob_market_info["taker_fee_bps"])) / Decimal("10000.0")
+        elif "fee_schedule" in clob_market_info and isinstance(clob_market_info["fee_schedule"], dict):
+            fs = clob_market_info["fee_schedule"]
+            taker_fee_val = fs.get("takerFee") or fs.get("taker_fee")
+            if taker_fee_val is not None and "bps" in str(fs.get("type", "")).lower():
+                taker_fee_val = Decimal(str(taker_fee_val)) / Decimal("10000.0")
+        elif "feeSchedule" in clob_market_info and isinstance(clob_market_info["feeSchedule"], dict):
+            fs = clob_market_info["feeSchedule"]
+            taker_fee_val = fs.get("takerFee") or fs.get("taker_fee")
+        elif "taker_fee" in clob_market_info:
+            taker_fee_val = clob_market_info["taker_fee"]
+        elif "taker_fee_rate" in clob_market_info:
+            taker_fee_val = clob_market_info["taker_fee_rate"]
+
+    if taker_fee_val is None:
+        if "taker_fee_bps" in raw_item:
+            taker_fee_val = Decimal(str(raw_item["taker_fee_bps"])) / Decimal("10000.0")
+        else:
+            fee_schedule = (
+                raw_item.get("fee_schedule")
+                or raw_item.get("feeSchedule")
+                or {}
+            )
+            if isinstance(fee_schedule, dict):
+                taker_fee_val = fee_schedule.get("takerFee") or fee_schedule.get("taker_fee")
+
+    taker_fee_rate = Decimal(str(taker_fee_val)) if taker_fee_val is not None else Decimal("0.00")
 
     return MarketRewardConfig(
         condition_id=condition_id,
@@ -178,15 +223,22 @@ def rank_markets_by_reward_density(
     top_n_active: int = 20,
     top_n_reserve: int = 10,
 ) -> Tuple[List[MarketRewardConfig], List[MarketRewardConfig]]:
-    """Rank markets by reward density (daily reward pool relative to market depth / capital)."""
+    """Rank markets by multi-factor reward density incorporating depth, spread buffer, OAS, and fees."""
     if market_depths is None:
         market_depths = {}
 
     def score_market(m: MarketRewardConfig) -> Decimal:
-        depth = market_depths.get(m.condition_id, Decimal("500.0"))
-        if depth <= Decimal("0.0"):
-            depth = Decimal("1.0")
-        return m.rewards_daily_rate / depth
+        if m.condition_id in market_depths and market_depths[m.condition_id] > Decimal("0.0"):
+            depth = market_depths[m.condition_id]
+        else:
+            depth = max(Decimal("1.0"), m.rewards_min_size * Decimal("4.0"))
+
+        daily_rate = m.rewards_daily_rate
+        fee_factor = max(Decimal("0.0"), Decimal("1.0") - m.taker_fee_rate)
+        spread_factor = Decimal("1.0") + m.rewards_max_spread
+        oas_penalty = Decimal("1.0") / (Decimal("1.0") + Decimal("0.1") * m.oas)
+
+        return (daily_rate * fee_factor * spread_factor * oas_penalty) / depth
 
     sorted_markets = sorted(configs, key=score_market, reverse=True)
     active = sorted_markets[:top_n_active]

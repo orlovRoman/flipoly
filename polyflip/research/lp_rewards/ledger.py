@@ -109,11 +109,14 @@ class PortfolioLedger:
                 "condition_id": t.condition_id,
                 "asset_id": t.asset_id,
                 "side": t.side.value,
-                "price": float(t.price),
-                "size": float(t.size),
+                "price": str(t.price),
+                "size": str(t.size),
                 "timestamp_ns": t.timestamp_ns,
-                "queue_depletion_ratio": float(t.queue_depletion_ratio),
-                "taker_fee_paid": float(t.taker_fee_paid),
+                "queue_depletion_ratio": str(t.queue_depletion_ratio),
+                "taker_fee_paid": str(t.taker_fee_paid),
+                "markout_5s": str(t.markout_5s) if t.markout_5s is not None else None,
+                "markout_60s": str(t.markout_60s) if t.markout_60s is not None else None,
+                "markout_15m": str(t.markout_15m) if t.markout_15m is not None else None,
             }
             for t in self.trades
         ]

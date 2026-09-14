@@ -1,9 +1,3 @@
-"""03_run_shadow_collector.py
-
-Main entrypoint for 7-day shadow collection and paper LP simulation.
-Collects L2 snapshots to D:\\flipoly-research\\lp-rewards and runs Quoting FSM.
-"""
-
 import asyncio
 from decimal import Decimal
 import json
@@ -11,21 +5,136 @@ import logging
 from pathlib import Path
 import sys
 import time
+from typing import Dict, List
+import httpx
 
 repo_root = Path(__file__).resolve().parents[3]
 if str(repo_root) not in sys.path:
     sys.path.insert(0, str(repo_root))
 
+from polyflip.research.lp_rewards.capital_allocator import CapitalAllocator
 from polyflip.research.lp_rewards.collector import MarketDataCollector
-from polyflip.research.lp_rewards.models import MarketRewardConfig, QuotingState
+from polyflip.research.lp_rewards.ledger import PortfolioLedger
+from polyflip.research.lp_rewards.models import MarketPosition, MarketRewardConfig, QuotingState, VirtualOrder
 from polyflip.research.lp_rewards.protocol import load_protocol
 from polyflip.research.lp_rewards.quoting_fsm import MarketQuotingFSM
 from polyflip.research.lp_rewards.reconciler import BookReconciler
-from polyflip.research.lp_rewards.scoring import calculate_sample_scores
+from polyflip.research.lp_rewards.scoring import calculate_cutoff_midpoint, calculate_sample_scores, calculate_competitor_and_own_scores
 from polyflip.research.lp_rewards.watchdog import SystemWatchdog
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("shadow_collector")
+
+
+async def periodic_l2_and_trade_flush(collector: MarketDataCollector, interval_sec: float = 10.0):
+    """Periodically flush RAM orderbook snapshots and trades to Parquet on disk."""
+    logger.info("Started periodic L2 snapshots and trades persistence loop.")
+    while collector.running:
+        try:
+            await asyncio.sleep(interval_sec)
+            collector.flush_l2_snapshots_to_disk()
+            collector.flush_trades_to_disk()
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"Error in periodic L2/trade flush: {e}")
+
+
+async def periodic_book_reconciler(
+    collector: MarketDataCollector,
+    reconciler: BookReconciler,
+    active_markets: List[MarketRewardConfig],
+    interval_sec: float = 45.0,
+):
+    """Periodically query REST /book to verify WS orderbook integrity."""
+    logger.info(f"Started periodic BookReconciler loop (every {interval_sec}s).")
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        while collector.running:
+            try:
+                await asyncio.sleep(interval_sec)
+                for market in active_markets:
+                    for token_id in (market.yes_token_id, market.no_token_id):
+                        snap = collector.ram_store.get_snapshot(market.condition_id, token_id)
+                        rest_res = await reconciler.fetch_rest_book(token_id, client)
+                        if rest_res:
+                            rest_bid, rest_ask = rest_res
+                            reconciler.reconcile_book(token_id, snap.bids, snap.asks, rest_bid, rest_ask)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"Error in periodic book reconciler: {e}")
+
+
+async def periodic_fsm_and_scoring(
+    collector: MarketDataCollector,
+    active_markets: List[MarketRewardConfig],
+    fsms: Dict[str, MarketQuotingFSM],
+    ledger: PortfolioLedger,
+    allocator: CapitalAllocator,
+    protocol: Any,
+    interval_sec: float = 60.0,
+):
+    """Periodically evaluate minute scoring samples and advance quoting FSM."""
+    logger.info(f"Started periodic FSM and Scoring loop (every {interval_sec}s).")
+    storage_path = Path(protocol.data_storage.root_path)
+
+    while collector.running:
+        try:
+            await asyncio.sleep(interval_sec)
+            now_ns = time.time_ns()
+            date_str = time.strftime("%Y-%m-%d", time.gmtime())
+
+            for market in active_markets:
+                cid = market.condition_id
+                fsm = fsms[cid]
+
+                yes_snap = collector.ram_store.get_snapshot(cid, market.yes_token_id)
+                no_snap = collector.ram_store.get_snapshot(cid, market.no_token_id)
+
+                is_uncertain = (
+                    collector.reconciler.uncertain_markets.get(market.yes_token_id, False)
+                    or collector.reconciler.uncertain_markets.get(market.no_token_id, False)
+                )
+
+                # 1. Scoring calculation
+                sample_score = calculate_sample_scores(
+                    condition_id=cid,
+                    timestamp_ns=now_ns,
+                    yes_bids=yes_snap.bids,
+                    yes_asks=yes_snap.asks,
+                    no_bids=no_snap.bids,
+                    no_asks=no_snap.asks,
+                    max_spread=market.rewards_max_spread,
+                    min_size=market.rewards_min_size,
+                    is_uncertain=is_uncertain,
+                )
+
+                # 2. Quoting FSM management
+                midpoint = sample_score.p_mid_star or calculate_cutoff_midpoint(yes_snap.bids, yes_snap.asks, market.rewards_min_size)
+                if midpoint is not None and not is_uncertain:
+                    if fsm.state == QuotingState.FLAT:
+                        new_quotes = fsm.generate_quote_orders(midpoint=midpoint, timestamp_ns=now_ns)
+                        # Check capital allocation
+                        positions = {m.condition_id: fsms[m.condition_id].position for m in active_markets}
+                        open_orders = {m.condition_id: list(fsms[m.condition_id].open_orders.values()) for m in active_markets}
+                        allowed, _ = allocator.can_allocate_orders(cid, positions, open_orders, new_quotes)
+                        if not allowed:
+                            fsm.reset_orders()
+
+                # Check FSM timeouts and forced exit
+                exited, fill = fsm.check_timeout_and_exit(now_ns, yes_snap if fsm.position.yes_inventory > 0 else no_snap)
+                if fill:
+                    ledger.record_fill(fill)
+
+            # Periodically export ledger parquet
+            sim_ledger_dir = storage_path / "simulated_ledger"
+            sim_ledger_dir.mkdir(parents=True, exist_ok=True)
+            ledger.export_trades_parquet(sim_ledger_dir / f"{date_str}.parquet")
+
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"Error in FSM and scoring loop: {e}")
 
 
 async def main():
@@ -62,8 +171,26 @@ async def main():
     collector.set_active_markets(active_markets)
     logger.info(f"Initialized shadow collector for {len(active_markets)} markets. Storage on {storage_path}.")
 
-    # Run collector in background task
+    # Initialize FSMs, Ledger, Allocator
+    fsms = {
+        m.condition_id: MarketQuotingFSM(
+            config=m,
+            hedging_timeout_sec=protocol.quoting_fsm.hedging_timeout_sec,
+            max_combined_fill_cost=protocol.quoting_fsm.max_combined_fill_cost,
+        )
+        for m in active_markets
+    }
+    ledger = PortfolioLedger(allocated_capital=protocol.capital_allocation.allocated_working_capital)
+    allocator = CapitalAllocator(
+        allocated_working_capital=protocol.capital_allocation.allocated_working_capital,
+        max_unhedged_per_market=protocol.capital_allocation.max_unhedged_per_market,
+        max_unhedged_total=protocol.capital_allocation.max_unhedged_total,
+    )
+
     collector_task = asyncio.create_task(collector.run())
+    l2_flush_task = asyncio.create_task(periodic_l2_and_trade_flush(collector, interval_sec=10.0))
+    reconciler_task = asyncio.create_task(periodic_book_reconciler(collector, reconciler, active_markets, interval_sec=protocol.ws_collector.rest_reconciliation_interval_sec))
+    fsm_task = asyncio.create_task(periodic_fsm_and_scoring(collector, active_markets, fsms, ledger, allocator, protocol, interval_sec=60.0))
 
     try:
         while True:
@@ -77,7 +204,14 @@ async def main():
         logger.info("Interrupted by user. Shutting down cleanly...")
         collector.running = False
     finally:
+        collector.running = False
         collector_task.cancel()
+        l2_flush_task.cancel()
+        reconciler_task.cancel()
+        fsm_task.cancel()
+        # Final flush on exit
+        collector.flush_l2_snapshots_to_disk()
+        collector.flush_trades_to_disk()
 
 
 if __name__ == "__main__":

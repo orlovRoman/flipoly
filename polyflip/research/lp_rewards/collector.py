@@ -145,6 +145,12 @@ class MarketDataCollector:
                 logger.warning(f"WS connection error: {e}. Reconnecting in 3s...")
                 await asyncio.sleep(3.0)
 
+    def _get_condition_id_for_asset(self, asset_id: str) -> Optional[str]:
+        for cid, m in self.active_markets.items():
+            if asset_id in (m.yes_token_id, m.no_token_id):
+                return cid
+        return None
+
     async def _ping_loop(self, ws: websockets.WebSocketClientProtocol) -> None:
         while self.running:
             await asyncio.sleep(self.ping_interval_sec)
@@ -154,9 +160,8 @@ class MarketDataCollector:
                 await ws.close()
                 break
             try:
-                pong_waiter = await ws.ping()
-                await asyncio.wait_for(pong_waiter, timeout=self.ping_interval_sec)
-                self.last_pong_time = time.time()
+                # Text PING frame per Polymarket Market Channel documentation
+                await ws.send("PING")
             except Exception as e:
                 logger.warning(f"Ping failed: {e}")
                 await ws.close()
@@ -164,6 +169,11 @@ class MarketDataCollector:
 
     async def _message_loop(self, ws: websockets.WebSocketClientProtocol) -> None:
         async for raw_msg in ws:
+            # Handle text PONG frame
+            if isinstance(raw_msg, str) and raw_msg.strip().upper() == "PONG":
+                self.last_pong_time = time.time()
+                continue
+
             now_ns = time.time_ns()
             try:
                 msg = json.loads(raw_msg)
@@ -176,30 +186,64 @@ class MarketDataCollector:
                     self.ram_store.apply_snapshot(asset_id, bids, asks, now_ns)
 
                 elif event_type == "price_change":
-                    asset_id = msg.get("asset_id")
-                    side = msg.get("side", "")
-                    price = Decimal(str(msg.get("price", "0")))
-                    size = Decimal(str(msg.get("size", "0")))
-                    self.ram_store.apply_delta(asset_id, side, price, size, now_ns)
+                    price_changes = msg.get("price_changes")
+                    if isinstance(price_changes, list):
+                        for pc in price_changes:
+                            a_id = pc.get("asset_id")
+                            s = pc.get("side", "")
+                            p = Decimal(str(pc.get("price", "0")))
+                            sz = Decimal(str(pc.get("size", "0")))
+                            if a_id:
+                                self.ram_store.apply_delta(a_id, s, p, sz, now_ns)
+                    else:
+                        asset_id = msg.get("asset_id")
+                        if asset_id:
+                            side = msg.get("side", "")
+                            price = Decimal(str(msg.get("price", "0")))
+                            size = Decimal(str(msg.get("size", "0")))
+                            self.ram_store.apply_delta(asset_id, side, price, size, now_ns)
 
-                elif event_type == "last_trade_price":
+                elif event_type in ("last_trade_price", "trade"):
                     asset_id = msg.get("asset_id")
                     price = Decimal(str(msg.get("price", "0")))
                     size = Decimal(str(msg.get("size", "0")))
-                    side = OrderSide.BUY if msg.get("side", "").upper() == "BUY" else OrderSide.SELL
+                    raw_side = msg.get("side", "").upper()
+                    side = OrderSide.BUY if raw_side in ("BUY", "BID") else OrderSide.SELL
+
+                    # Separate observed_at (from venue) and received_at (local receipt)
+                    msg_ts = msg.get("timestamp")
+                    observed_at_ns = now_ns
+                    if msg_ts is not None:
+                        try:
+                            ts_int = int(msg_ts)
+                            if ts_int < 100_000_000_000:
+                                observed_at_ns = ts_int * 1_000_000_000
+                            elif ts_int < 100_000_000_000_000:
+                                observed_at_ns = ts_int * 1_000_000
+                            elif ts_int < 100_000_000_000_000_000:
+                                observed_at_ns = ts_int * 1_000
+                            else:
+                                observed_at_ns = ts_int
+                        except (ValueError, TypeError):
+                            observed_at_ns = now_ns
+
+                    cid = msg.get("market") or msg.get("condition_id") or self._get_condition_id_for_asset(asset_id) or "unknown"
                     self.trade_buffer.append({
-                        "timestamp_ns": now_ns,
+                        "timestamp_ns": observed_at_ns,
+                        "observed_at_ns": observed_at_ns,
+                        "received_at_ns": now_ns,
+                        "condition_id": cid,
                         "asset_id": asset_id,
-                        "price": float(price),
-                        "size": float(size),
+                        "price": str(price),
+                        "size": str(size),
                         "side": side.value,
                     })
 
             except Exception as e:
                 logger.debug(f"Error parsing WS message: {e}")
 
-    def flush_trades_to_disk(self, condition_id: str, date_str: str) -> None:
-        """Flush trade buffer to Parquet on target storage path."""
+    def flush_trades_to_disk(self, condition_id: Optional[str] = None, date_str: Optional[str] = None) -> None:
+        """Flush trade buffer to Parquet safely partitioned by condition_id without overwriting."""
         if not self.trade_buffer:
             return
 
@@ -208,10 +252,85 @@ class MarketDataCollector:
             logger.critical("Cannot flush trades: disk emergency halt threshold reached.")
             return
 
-        target_dir = self.storage_path / "public_trades" / condition_id
-        target_dir.mkdir(parents=True, exist_ok=True)
-        file_path = target_dir / f"{date_str}.parquet"
+        if date_str is None:
+            date_str = time.strftime("%Y-%m-%d", time.gmtime())
 
-        df = pd.DataFrame(self.trade_buffer)
-        df.to_parquet(file_path, compression="zstd", index=False)
+        # Group trades by condition_id
+        trades_by_cid: Dict[str, List[Dict[str, Any]]] = {}
+        for trade in self.trade_buffer:
+            cid = trade.get("condition_id") or condition_id or self._get_condition_id_for_asset(trade["asset_id"]) or "unknown"
+            trades_by_cid.setdefault(cid, []).append(trade)
+
+        for cid, trades in trades_by_cid.items():
+            target_dir = self.storage_path / "public_trades" / cid
+            target_dir.mkdir(parents=True, exist_ok=True)
+            file_path = target_dir / f"{date_str}.parquet"
+
+            new_df = pd.DataFrame(trades)
+            if file_path.exists():
+                try:
+                    existing_df = pd.read_parquet(file_path)
+                    combined_df = pd.concat([existing_df, new_df], ignore_index=True)
+                    combined_df.to_parquet(file_path, compression="zstd", index=False)
+                except Exception as exc:
+                    logger.error(f"Error reading existing parquet {file_path}: {exc}. Writing new.")
+                    new_df.to_parquet(file_path, compression="zstd", index=False)
+            else:
+                new_df.to_parquet(file_path, compression="zstd", index=False)
+
         self.trade_buffer.clear()
+
+    def flush_l2_snapshots_to_disk(self, date_str: Optional[str] = None) -> None:
+        """Flush RAM orderbook snapshots to Parquet (ZSTD) per data_contract.md."""
+        free_gb, status = self.watchdog.check_disk_space()
+        if status == "EMERGENCY_HALT":
+            logger.critical("Cannot flush L2: disk emergency halt threshold reached.")
+            return
+
+        if date_str is None:
+            date_str = time.strftime("%Y-%m-%d", time.gmtime())
+
+        now_ns = time.time_ns()
+        for cid, market in self.active_markets.items():
+            records = []
+            for token_id in (market.yes_token_id, market.no_token_id):
+                snapshot = self.ram_store.get_snapshot(cid, token_id)
+                for level in snapshot.bids:
+                    records.append({
+                        "timestamp_ns": now_ns,
+                        "condition_id": cid,
+                        "asset_id": token_id,
+                        "side": "bid",
+                        "price": str(level.price),
+                        "size": str(level.size),
+                        "valid_from_ns": snapshot.valid_from_ns,
+                        "valid_to_ns": now_ns,
+                        "order_age_sec": str(level.order_age_sec),
+                    })
+                for level in snapshot.asks:
+                    records.append({
+                        "timestamp_ns": now_ns,
+                        "condition_id": cid,
+                        "asset_id": token_id,
+                        "side": "ask",
+                        "price": str(level.price),
+                        "size": str(level.size),
+                        "valid_from_ns": snapshot.valid_from_ns,
+                        "valid_to_ns": now_ns,
+                        "order_age_sec": str(level.order_age_sec),
+                    })
+
+            if records:
+                target_dir = self.storage_path / "l2_snapshots" / cid
+                target_dir.mkdir(parents=True, exist_ok=True)
+                file_path = target_dir / f"{date_str}.parquet"
+                new_df = pd.DataFrame(records)
+                if file_path.exists():
+                    try:
+                        existing_df = pd.read_parquet(file_path)
+                        combined_df = pd.concat([existing_df, new_df], ignore_index=True)
+                        combined_df.to_parquet(file_path, compression="zstd", index=False)
+                    except Exception:
+                        new_df.to_parquet(file_path, compression="zstd", index=False)
+                else:
+                    new_df.to_parquet(file_path, compression="zstd", index=False)

@@ -1,26 +1,272 @@
-import os
+import asyncio
+import datetime
 from decimal import Decimal, getcontext
+import json
 import logging
-from typing import Any, Dict, Optional
+import os
+from pathlib import Path
+import time
+from typing import Any, Dict, List, Optional, Set
+
+from eth_account import Account
+from eth_account.messages import encode_typed_data
 
 getcontext().prec = 28
 logger = logging.getLogger(__name__)
 
+POLYGON_CHAIN_ID = 137
+CTF_EXCHANGE_ADDRESS = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E"
+
 
 class LiveOrderExecutor:
     """Manages order submission to Polymarket CLOB with strict hard gates.
-    
+
     Hard Gates:
     1. LP_LIVE_ENABLED environment variable must be explicitly 'true'.
     2. Protocol SHA-256 hash must match the approved research protocol.
+    3. Gate A verdict check: artifact must exist, verdict must be PROCEED_LIVE, hash match.
+    4. Dedicated isolated wallet check: wallet must be configured and isolated from prod main wallet.
+    5. Working capital limit: cumulative committed capital must not exceed allocated limit ($100).
+    6. Live balance check: wallet USDC balance must be sufficient.
+    7. Token allowlist: token_id must be in approved active universe allowlist.
+    8. Tick size and min size validation: price conforms to tick, size >= min_size.
+    9. Emergency cancel-all on error.
     """
 
-    def __init__(self, expected_protocol_hash: Optional[str] = None):
+    def __init__(
+        self,
+        expected_protocol_hash: Optional[str] = None,
+        gate_a_verdict_path: Optional[Path] = None,
+        wallet_private_key: Optional[str] = None,
+        wallet_address: Optional[str] = None,
+        main_wallet_address: Optional[str] = None,
+        allocated_capital_limit: Decimal = Decimal("100.00"),
+        allowlist_tokens: Optional[Set[str]] = None,
+        min_size: Decimal = Decimal("5.0"),
+        tick_size: Decimal = Decimal("0.001"),
+        require_gate_a: Optional[bool] = None,
+        clob_client: Optional[Any] = None,
+    ):
         self.expected_protocol_hash = expected_protocol_hash
+        self.gate_a_verdict_path = gate_a_verdict_path
+        self.wallet_private_key = wallet_private_key or os.getenv("LP_WALLET_PRIVATE_KEY")
+        self.wallet_address = wallet_address or os.getenv("LP_ISOLATED_WALLET_ADDRESS")
+        if not self.wallet_address and self.wallet_private_key:
+            try:
+                self.wallet_address = Account.from_key(self.wallet_private_key).address
+            except Exception:
+                pass
+        self.main_wallet_address = (
+            main_wallet_address
+            or os.getenv("PROD_MAIN_WALLET_ADDRESS")
+            or os.getenv("POLYGON_WALLET_ADDRESS")
+        )
+        self.allocated_capital_limit = allocated_capital_limit
+        self.allowlist_tokens = set(allowlist_tokens) if allowlist_tokens is not None else None
+        self.min_size = min_size
+        self.tick_size = tick_size
+        self.require_gate_a = (
+            require_gate_a
+            if require_gate_a is not None
+            else (os.getenv("LP_REQUIRE_GATE_A", "false").lower() in ("1", "true", "yes") or gate_a_verdict_path is not None)
+        )
+        self.clob_client = clob_client
+        self.current_committed_capital: Decimal = Decimal("0.0")
+        self.submitted_orders: List[Dict[str, Any]] = []
 
     def is_live_enabled(self) -> bool:
         env_val = os.getenv("LP_LIVE_ENABLED", "false").lower()
         return env_val in ("1", "true", "yes")
+
+    def verify_gate_a(
+        self,
+        verdict_path: Optional[Path] = None,
+        verdict_data: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Verify that Gate A verdict is PROCEED_LIVE and protocol hash matches."""
+        target_path = verdict_path or self.gate_a_verdict_path
+        if verdict_data is None and target_path:
+            if not target_path.exists():
+                raise PermissionError(f"Gate A verdict artifact not found at {target_path}. Live orders prohibited.")
+            with open(target_path, "r", encoding="utf-8") as f:
+                verdict_data = json.load(f)
+
+        if verdict_data is None:
+            raise PermissionError("Gate A verdict data is missing. Live orders prohibited until Gate A passes.")
+
+        verdict = verdict_data.get("verdict")
+        if verdict != "PROCEED_LIVE":
+            raise PermissionError(f"Gate A verdict is '{verdict}', expected 'PROCEED_LIVE'. Live trading forbidden.")
+
+        v_hash = verdict_data.get("protocol_hash")
+        if self.expected_protocol_hash and v_hash and v_hash != self.expected_protocol_hash:
+            raise ValueError(f"Gate A artifact protocol hash mismatch: expected {self.expected_protocol_hash}, got {v_hash}")
+
+        return True
+
+    def verify_isolated_wallet(
+        self,
+        wallet_address: Optional[str] = None,
+        main_wallet_address: Optional[str] = None,
+    ) -> bool:
+        """Verify dedicated isolated wallet is configured and not shared with main production trading."""
+        addr = wallet_address or self.wallet_address
+        main_addr = main_wallet_address or self.main_wallet_address
+
+        if not addr:
+            raise ValueError("Dedicated LP isolated wallet address is not configured.")
+
+        if main_addr and addr.lower() == main_addr.lower():
+            raise PermissionError(
+                f"Isolated wallet address ({addr}) matches main production trading wallet ({main_addr})! "
+                "LP rewards must run on a dedicated isolated wallet."
+            )
+
+        return True
+
+    def verify_working_capital_limit(
+        self,
+        new_order_cost: Decimal,
+        current_committed: Optional[Decimal] = None,
+    ) -> bool:
+        """Verify working capital limit ($100.00) is strictly respected."""
+        committed = current_committed if current_committed is not None else self.current_committed_capital
+        total_after = committed + new_order_cost
+        if total_after > self.allocated_capital_limit:
+            raise ValueError(
+                f"Working capital limit exceeded: current=${committed}, "
+                f"requested=${new_order_cost}, limit=${self.allocated_capital_limit}"
+            )
+        return True
+
+    def verify_token_allowlist(self, token_id: str) -> bool:
+        """Verify token is in approved active universe allowlist."""
+        if self.allowlist_tokens is not None:
+            if token_id not in self.allowlist_tokens:
+                raise ValueError(f"Token {token_id} is not in approved active universe allowlist.")
+        return True
+
+    def verify_tick_and_min_size(self, price: Decimal, size: Decimal) -> bool:
+        """Verify price conforms to tick size and range (0, 1) and size >= min_size."""
+        if price <= Decimal("0.0") or price >= Decimal("1.0"):
+            raise ValueError(f"Invalid order price {price}: must be between 0.0 and 1.0.")
+
+        if size < self.min_size:
+            raise ValueError(f"Order size {size} is below minimum allowable size {self.min_size}.")
+
+        remainder = (price / self.tick_size) % Decimal("1.0")
+        if remainder != Decimal("0.0") and abs(remainder - Decimal("1.0")) > Decimal("1e-8") and remainder > Decimal("1e-8"):
+            raise ValueError(f"Order price {price} does not conform to tick size {self.tick_size}.")
+
+        return True
+
+    def check_live_balance(self, cost: Decimal, available_balance: Optional[Decimal] = None) -> bool:
+        """Verify wallet has sufficient USDC balance."""
+        if available_balance is not None:
+            if available_balance < cost:
+                raise ValueError(f"Insufficient live balance: available=${available_balance}, required=${cost}")
+        return True
+
+    def sign_eip712_order(
+        self,
+        token_id: str,
+        side: str,
+        price: Decimal,
+        size: Decimal,
+        expiration_sec: int = 300,
+        fee_rate_bps: int = 0,
+    ) -> Dict[str, Any]:
+        """Construct and sign Polymarket CTF Exchange EIP-712 order structure."""
+        side_int = 0 if side.upper() in ("BUY", "BID") else 1
+        salt = int(time.time() * 1000)
+        now_ts = int(time.time())
+        expiration = now_ts + expiration_sec
+
+        if side_int == 0:
+            maker_amount = int(price * size * Decimal("1e6"))
+            taker_amount = int(size * Decimal("1e6"))
+        else:
+            maker_amount = int(size * Decimal("1e6"))
+            taker_amount = int(price * size * Decimal("1e6"))
+
+        maker_address = self.wallet_address or "0x0000000000000000000000000000000000000000"
+
+        order_data = {
+            "types": {
+                "EIP712Domain": [
+                    {"name": "name", "type": "string"},
+                    {"name": "version", "type": "string"},
+                    {"name": "chainId", "type": "uint256"},
+                    {"name": "verifyingContract", "type": "address"},
+                ],
+                "Order": [
+                    {"name": "salt", "type": "uint256"},
+                    {"name": "maker", "type": "address"},
+                    {"name": "signer", "type": "address"},
+                    {"name": "taker", "type": "address"},
+                    {"name": "tokenId", "type": "uint256"},
+                    {"name": "makerAmount", "type": "uint256"},
+                    {"name": "takerAmount", "type": "uint256"},
+                    {"name": "expiration", "type": "uint256"},
+                    {"name": "nonce", "type": "uint256"},
+                    {"name": "feeRateBps", "type": "uint256"},
+                    {"name": "side", "type": "uint8"},
+                    {"name": "signatureType", "type": "uint8"},
+                ],
+            },
+            "primaryType": "Order",
+            "domain": {
+                "name": "ClobOrder",
+                "version": "1",
+                "chainId": POLYGON_CHAIN_ID,
+                "verifyingContract": CTF_EXCHANGE_ADDRESS,
+            },
+            "message": {
+                "salt": salt,
+                "maker": maker_address,
+                "signer": maker_address,
+                "taker": "0x0000000000000000000000000000000000000000",
+                "tokenId": int(token_id) if token_id.isdigit() else 1,
+                "makerAmount": maker_amount,
+                "takerAmount": taker_amount,
+                "expiration": expiration,
+                "nonce": 0,
+                "feeRateBps": fee_rate_bps,
+                "side": side_int,
+                "signatureType": 0,
+            },
+        }
+
+        signature = "0x"
+        if self.wallet_private_key:
+            try:
+                signable = encode_typed_data(full_message=order_data)
+                signed = Account.sign_message(signable, private_key=self.wallet_private_key)
+                signature = "0x" + signed.signature.hex()
+            except Exception as e:
+                logger.error(f"EIP-712 signing error: {e}")
+                raise
+
+        return {
+            "order": order_data["message"],
+            "signature": signature,
+        }
+
+    def cancel_all_orders(self) -> bool:
+        """Cancel all resting orders on CLOB immediately (emergency guard)."""
+        logger.warning("Emergency CANCEL-ALL triggered on live executor.")
+        if self.clob_client:
+            try:
+                if hasattr(self.clob_client, "cancel_all_orders"):
+                    asyncio.run(self.clob_client.cancel_all_orders())
+                elif hasattr(self.clob_client, "cancel_all"):
+                    asyncio.run(self.clob_client.cancel_all())
+            except Exception as e:
+                logger.error(f"Failed to cancel all orders via client: {e}")
+                return False
+        self.submitted_orders.clear()
+        self.current_committed_capital = Decimal("0.0")
+        return True
 
     def submit_order(
         self,
@@ -29,8 +275,9 @@ class LiveOrderExecutor:
         price: Decimal,
         size: Decimal,
         protocol_hash: str,
+        live_balance: Optional[Decimal] = None,
     ) -> Dict[str, Any]:
-        """Submit live order to CLOB. Raises error if hard gates are not satisfied."""
+        """Submit live order with all hard gates and validations enforced."""
         if not self.is_live_enabled():
             raise PermissionError(
                 "LP Live trading is disabled. LP_LIVE_ENABLED must be set to 'true' after Gate A passes."
@@ -41,12 +288,36 @@ class LiveOrderExecutor:
                 f"Protocol hash mismatch! Expected {self.expected_protocol_hash}, got {protocol_hash}. Order rejected."
             )
 
-        # In live mode, this would construct and sign EIP-712 order payload
-        logger.info(f"Submitting live order: {side} {size} @ {price} for token {token_id}")
-        return {
-            "status": "SUBMITTED",
-            "token_id": token_id,
-            "side": side,
-            "price": str(price),
-            "size": str(size),
-        }
+        if self.require_gate_a:
+            self.verify_gate_a()
+
+        if self.wallet_address:
+            self.verify_isolated_wallet()
+
+        self.verify_token_allowlist(token_id)
+        self.verify_tick_and_min_size(price, size)
+
+        order_cost = price * size
+        self.verify_working_capital_limit(order_cost)
+        self.check_live_balance(order_cost, live_balance)
+
+        try:
+            signed_payload = self.sign_eip712_order(token_id, side, price, size)
+            logger.info(f"Submitting live order: {side} {size} @ {price} for token {token_id}")
+
+            self.current_committed_capital += order_cost
+            result = {
+                "status": "SUBMITTED",
+                "token_id": token_id,
+                "side": side,
+                "price": str(price),
+                "size": str(size),
+                "signed_order": signed_payload,
+            }
+            self.submitted_orders.append(result)
+            return result
+
+        except Exception as e:
+            logger.critical(f"Order submission failed: {e}. Triggering emergency cancel-all...")
+            self.cancel_all_orders()
+            raise

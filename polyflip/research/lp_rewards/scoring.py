@@ -1,6 +1,8 @@
 from decimal import Decimal, getcontext
-from typing import Dict, List, Optional, Tuple
-from .models import OrderbookLevel, OrderbookSnapshot, SampleScore
+from typing import Any, Dict, List, Optional, Tuple
+import numpy as np
+from pydantic import BaseModel
+from .models import OrderbookLevel, OrderbookSnapshot, OrderSide, SampleScore, VirtualOrder
 
 getcontext().prec = 28
 
@@ -198,3 +200,192 @@ def calculate_daily_reward(
         return Decimal("0.0")
 
     return raw_reward
+
+
+class LPRewardShareEstimate(BaseModel):
+    condition_id: str
+    timestamp_ns: int
+    p_mid_star: Optional[Decimal] = None
+    q_own: Decimal = Decimal("0.0")
+    q_competitor_min: Decimal = Decimal("0.0")
+    q_competitor_max: Decimal = Decimal("0.0")
+    q_competitor_expected: Decimal = Decimal("0.0")
+    share_min: Decimal = Decimal("0.0")
+    share_max: Decimal = Decimal("0.0")
+    share_expected: Decimal = Decimal("0.0")
+    status: str = "VALID"  # VALID, MID_UNCERTAIN, BOOK_UNCERTAIN
+
+
+def calculate_competitor_and_own_scores(
+    condition_id: str,
+    timestamp_ns: int,
+    public_yes_bids: List[OrderbookLevel],
+    public_yes_asks: List[OrderbookLevel],
+    public_no_bids: List[OrderbookLevel],
+    public_no_asks: List[OrderbookLevel],
+    our_orders: List[VirtualOrder],
+    max_spread: Decimal,
+    min_size: Decimal,
+    multiplier: Decimal = Decimal("1.0"),
+    yes_token_id: Optional[str] = None,
+    no_token_id: Optional[str] = None,
+    is_uncertain: bool = False,
+) -> LPRewardShareEstimate:
+    """Calculate our own qualifying score vs competitor denominator range and resulting reward shares.
+
+    Competitor range:
+    - q_competitor_min: strict two-sided qualifying competitor liquidity (lower bound)
+    - q_competitor_max: upper bound of competitor liquidity
+    - q_competitor_expected: standard Q_min from public book
+    """
+    if is_uncertain:
+        return LPRewardShareEstimate(
+            condition_id=condition_id,
+            timestamp_ns=timestamp_ns,
+            p_mid_star=None,
+            status="BOOK_UNCERTAIN",
+        )
+
+    p_mid_star = calculate_cutoff_midpoint(public_yes_bids, public_yes_asks, min_size)
+    if p_mid_star is None:
+        return LPRewardShareEstimate(
+            condition_id=condition_id,
+            timestamp_ns=timestamp_ns,
+            p_mid_star=None,
+            status="MID_UNCERTAIN",
+        )
+
+    # 1. Competitor Q components from public book
+    comp_q1, comp_q2, comp_q_expected = calculate_q_components(
+        public_yes_bids, public_yes_asks, public_no_bids, public_no_asks,
+        p_mid_star, max_spread, min_size, multiplier
+    )
+    # Competitor bounds: strict 2-sided (min) vs max (sum or one-sided max)
+    comp_q_min = min(comp_q1, comp_q2)
+    comp_q_max = max(comp_q_expected, max(comp_q1, comp_q2))
+
+    # 2. Our own orders: separate by token and side
+    def is_yes(asset_id: str) -> bool:
+        if yes_token_id:
+            return asset_id == yes_token_id
+        return "yes" in asset_id.lower() or asset_id.endswith("_YES")
+
+    def is_no(asset_id: str) -> bool:
+        if no_token_id:
+            return asset_id == no_token_id
+        return "no" in asset_id.lower() or asset_id.endswith("_NO")
+
+    our_yes_bids = [
+        OrderbookLevel(price=o.price, size=o.size - o.filled_size)
+        for o in our_orders if o.side == OrderSide.BUY and is_yes(o.asset_id)
+    ]
+    our_yes_asks = [
+        OrderbookLevel(price=o.price, size=o.size - o.filled_size)
+        for o in our_orders if o.side == OrderSide.SELL and is_yes(o.asset_id)
+    ]
+    our_no_bids = [
+        OrderbookLevel(price=o.price, size=o.size - o.filled_size)
+        for o in our_orders if o.side == OrderSide.BUY and is_no(o.asset_id)
+    ]
+    our_no_asks = [
+        OrderbookLevel(price=o.price, size=o.size - o.filled_size)
+        for o in our_orders if o.side == OrderSide.SELL and is_no(o.asset_id)
+    ]
+
+    our_q1, our_q2, q_own = calculate_q_components(
+        our_yes_bids, our_yes_asks, our_no_bids, our_no_asks,
+        p_mid_star, max_spread, min_size, multiplier
+    )
+
+    # 3. Denominators (our liquidity + competitor liquidity)
+    d_max = comp_q_max + q_own
+    d_min = comp_q_min + q_own
+    d_expected = comp_q_expected + q_own
+
+    share_min = (q_own / d_max) if d_max > Decimal("0.0") else Decimal("0.0")
+    share_max = (q_own / d_min) if d_min > Decimal("0.0") else Decimal("0.0")
+    share_expected = (q_own / d_expected) if d_expected > Decimal("0.0") else Decimal("0.0")
+
+    return LPRewardShareEstimate(
+        condition_id=condition_id,
+        timestamp_ns=timestamp_ns,
+        p_mid_star=p_mid_star,
+        q_own=q_own,
+        q_competitor_min=comp_q_min,
+        q_competitor_max=comp_q_max,
+        q_competitor_expected=comp_q_expected,
+        share_min=min(Decimal("1.0"), share_min),
+        share_max=min(Decimal("1.0"), share_max),
+        share_expected=min(Decimal("1.0"), share_expected),
+        status="VALID",
+    )
+
+
+def simulate_minute_monte_carlo(
+    snapshots: List[Dict[str, Any]],
+    our_orders: List[VirtualOrder],
+    daily_reward_pool: Decimal,
+    n_samples: int = 1440,
+    seeds: Tuple[int, ...] = (42, 123, 999),
+    max_spread: Decimal = Decimal("0.05"),
+    min_size: Decimal = Decimal("10.0"),
+    dust_threshold_usdc: Decimal = Decimal("1.00"),
+) -> Dict[str, Any]:
+    """Simulate daily LP rewards using minute Monte Carlo sampling across seeds."""
+    if not snapshots:
+        return {
+            "mean_daily_reward": Decimal("0.0"),
+            "ci_lower_95": Decimal("0.0"),
+            "ci_upper_95": Decimal("0.0"),
+            "min_reward": Decimal("0.0"),
+            "max_reward": Decimal("0.0"),
+            "simulations": [],
+        }
+
+    sim_rewards: List[Decimal] = []
+
+    for seed in seeds:
+        rng = np.random.default_rng(seed)
+        sample_indices = rng.integers(0, len(snapshots), size=n_samples)
+
+        sample_shares = []
+        for idx in sample_indices:
+            s = snapshots[idx]
+            est = calculate_competitor_and_own_scores(
+                condition_id=s.get("condition_id", "c_sim"),
+                timestamp_ns=s.get("timestamp_ns", 0),
+                public_yes_bids=s.get("yes_bids", []),
+                public_yes_asks=s.get("yes_asks", []),
+                public_no_bids=s.get("no_bids", []),
+                public_no_asks=s.get("no_asks", []),
+                our_orders=our_orders,
+                max_spread=max_spread,
+                min_size=min_size,
+                multiplier=s.get("multiplier", Decimal("1.0")),
+                yes_token_id=s.get("yes_token_id"),
+                no_token_id=s.get("no_token_id"),
+                is_uncertain=s.get("is_uncertain", False),
+            )
+            sample_shares.append(est.share_expected)
+
+        mean_share = sum(sample_shares, Decimal("0.0")) / Decimal(str(n_samples))
+        sim_reward = daily_reward_pool * mean_share
+        if sim_reward < dust_threshold_usdc:
+            sim_reward = Decimal("0.0")
+        sim_rewards.append(sim_reward)
+
+    arr = np.array([float(r) for r in sim_rewards])
+    mean_val = Decimal(str(round(float(np.mean(arr)), 4)))
+    ci_lower = Decimal(str(round(float(np.percentile(arr, 2.5)), 4)))
+    ci_upper = Decimal(str(round(float(np.percentile(arr, 97.5)), 4)))
+    min_val = Decimal(str(round(float(np.min(arr)), 4)))
+    max_val = Decimal(str(round(float(np.max(arr)), 4)))
+
+    return {
+        "mean_daily_reward": mean_val,
+        "ci_lower_95": ci_lower,
+        "ci_upper_95": ci_upper,
+        "min_reward": min_val,
+        "max_reward": max_val,
+        "simulations": [{"seed": s, "reward": r} for s, r in zip(seeds, sim_rewards)],
+    }

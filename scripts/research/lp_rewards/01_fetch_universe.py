@@ -40,15 +40,15 @@ async def main():
     active_pool.sort(key=lambda m: float(m.get("total_daily_rate") or m.get("native_daily_rate") or 0), reverse=True)
     print(f"Markets with positive reward pools: {len(active_pool)}")
 
-    # Take top 100 candidates to enrich with token IDs and neg_risk info
-    top_candidates = active_pool[:100]
-    print(f"Enriching top {len(top_candidates)} candidates via CLOB market info...")
+    # Enrich all positive reward candidates via CLOB market info
+    candidates = active_pool
+    print(f"Enriching all {len(candidates)} candidates via CLOB market info...")
 
-    semaphore = asyncio.Semaphore(10)
-    async with httpx.AsyncClient() as client:
+    semaphore = asyncio.Semaphore(15)
+    async with httpx.AsyncClient(timeout=30.0) as client:
         tasks = [
             enrich_market_info(m["condition_id"], client, semaphore)
-            for m in top_candidates
+            for m in candidates
         ]
         enriched_results = await asyncio.gather(*tasks)
 
@@ -59,7 +59,7 @@ async def main():
     excluded_neg_risk = 0
     missing_tokens = 0
 
-    for item in top_candidates:
+    for item in candidates:
         cid = item["condition_id"]
         info = info_by_cid.get(cid)
         if not info:

@@ -1,8 +1,26 @@
 from decimal import Decimal, getcontext
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
+from pydantic import BaseModel
 
 getcontext().prec = 28
+
+
+class GateAEvaluationReport(BaseModel):
+    verdict: str
+    point_estimate: Decimal
+    lower_95: Decimal
+    upper_95: Decimal
+    total_days: int
+    total_quote_hours: Decimal
+    active_markets_count: int
+    min_market_coverage: Decimal
+    max_market_pnl_share: Decimal
+    protocol_hash_valid: bool
+    book_uncertain_count: int
+    stress_test_passed: bool
+    rejection_reasons: List[str]
+    details: Dict[str, Any]
 
 
 def compute_block_bootstrap_ci(
@@ -70,6 +88,138 @@ def determine_gate_a_verdict(
     return "TARGET_REJECTED"
 
 
+def evaluate_gate_a_full(
+    daily_records: List[Dict[str, Any]],
+    expected_protocol_hash: Optional[str] = None,
+    target_rate: Decimal = Decimal("3.50"),
+    min_calendar_days: int = 7,
+    min_quote_hours: int = 100,
+    min_active_markets: int = 10,
+    min_market_coverage_ratio: Decimal = Decimal("0.99"),
+    max_single_market_pnl_share: Decimal = Decimal("0.50"),
+    n_bootstrap: int = 10000,
+    seed: int = 42,
+) -> GateAEvaluationReport:
+    """Strictly evaluate all Gate A criteria per protocol."""
+    rejection_reasons = []
+
+    total_days = len(daily_records)
+    if total_days < min_calendar_days:
+        rejection_reasons.append(f"Insufficient days: {total_days} < {min_calendar_days}")
+
+    daily_pnls: List[Decimal] = []
+    total_quote_hours = Decimal("0.0")
+    markets_seen = set()
+    market_pnls: Dict[str, Decimal] = {}
+    coverage_by_market: Dict[str, List[Decimal]] = {}
+    total_book_uncertain = 0
+    hashes_seen = set()
+
+    for r in daily_records:
+        pnl = Decimal(str(r.get("net_pnl", "0.0")))
+        daily_pnls.append(pnl)
+
+        qh = Decimal(str(r.get("quote_hours", "0.0")))
+        total_quote_hours += qh
+
+        ph = r.get("protocol_hash")
+        if ph:
+            hashes_seen.add(ph)
+
+        total_book_uncertain += int(r.get("book_uncertain_count", 0))
+
+        per_m = r.get("market_breakdown", {})
+        for cid, mdata in per_m.items():
+            markets_seen.add(cid)
+            m_pnl = Decimal(str(mdata.get("net_pnl", "0.0")))
+            market_pnls[cid] = market_pnls.get(cid, Decimal("0.0")) + m_pnl
+            cov = Decimal(str(mdata.get("coverage_ratio", "1.0")))
+            coverage_by_market.setdefault(cid, []).append(cov)
+
+    if total_quote_hours < Decimal(str(min_quote_hours)):
+        rejection_reasons.append(f"Insufficient quote-hours: {total_quote_hours:.1f} < {min_quote_hours}")
+
+    active_markets_count = len(markets_seen)
+    if active_markets_count < min_active_markets:
+        rejection_reasons.append(f"Insufficient active markets: {active_markets_count} < {min_active_markets}")
+
+    min_market_coverage = Decimal("1.0")
+    if coverage_by_market:
+        for cid, cov_list in coverage_by_market.items():
+            avg_cov = sum(cov_list, Decimal("0.0")) / Decimal(str(len(cov_list)))
+            if avg_cov < min_market_coverage:
+                min_market_coverage = avg_cov
+            if avg_cov < min_market_coverage_ratio:
+                rejection_reasons.append(f"Market {cid} coverage {avg_cov*100:.1f}% < {min_market_coverage_ratio*100:.1f}%")
+
+    total_net_pnl = sum(daily_pnls, Decimal("0.0"))
+    max_market_pnl_share = Decimal("0.0")
+    if total_net_pnl > Decimal("0.0") and market_pnls:
+        for cid, mpnl in market_pnls.items():
+            share = mpnl / total_net_pnl
+            if share > max_market_pnl_share:
+                max_market_pnl_share = share
+            if share > max_single_market_pnl_share:
+                rejection_reasons.append(f"Market {cid} PnL share {share*100:.1f}% > {max_single_market_pnl_share*100:.1f}%")
+
+    protocol_hash_valid = True
+    if expected_protocol_hash:
+        if hashes_seen and expected_protocol_hash not in hashes_seen:
+            protocol_hash_valid = False
+            rejection_reasons.append(f"Protocol hash mismatch. Seen: {hashes_seen}, Expected: {expected_protocol_hash}")
+
+    if total_book_uncertain > 0:
+        rejection_reasons.append(f"BOOK_UNCERTAIN detected: {total_book_uncertain} occurrences")
+
+    # Stress test: apply 20% adverse haircut to daily pnls
+    stress_pnls = [p * Decimal("0.80") for p in daily_pnls] if daily_pnls else [Decimal("0.0")]
+    point_stress, lower_stress, upper_stress = compute_block_bootstrap_ci(
+        stress_pnls, n_bootstrap=min(1000, n_bootstrap), seed=seed
+    )
+    stress_test_passed = (lower_stress > Decimal("0.0")) if daily_pnls else False
+    if not stress_test_passed and daily_pnls:
+        rejection_reasons.append(f"Stress test failed: 95% lower bound under shock is {lower_stress} <= 0")
+
+    point, lower, upper = compute_block_bootstrap_ci(
+        daily_pnls, n_bootstrap=n_bootstrap, seed=seed
+    )
+
+    base_verdict = determine_gate_a_verdict(
+        point, lower, upper, target_rate=target_rate, total_days=total_days, min_days=min_calendar_days
+    )
+
+    if rejection_reasons:
+        if base_verdict == "PROCEED_LIVE":
+            final_verdict = "TARGET_REJECTED"
+        else:
+            final_verdict = base_verdict
+    else:
+        final_verdict = base_verdict
+
+    return GateAEvaluationReport(
+        verdict=final_verdict,
+        point_estimate=point,
+        lower_95=lower,
+        upper_95=upper,
+        total_days=total_days,
+        total_quote_hours=total_quote_hours,
+        active_markets_count=active_markets_count,
+        min_market_coverage=min_market_coverage,
+        max_market_pnl_share=max_market_pnl_share,
+        protocol_hash_valid=protocol_hash_valid,
+        book_uncertain_count=total_book_uncertain,
+        stress_test_passed=stress_test_passed,
+        rejection_reasons=rejection_reasons,
+        details={
+            "base_verdict": base_verdict,
+            "daily_pnls": [str(p) for p in daily_pnls],
+            "stress_point": str(point_stress),
+            "stress_lower": str(lower_stress),
+            "stress_upper": str(upper_stress),
+        },
+    )
+
+
 def determine_gate_b_verdict(
     point_est: Decimal,
     lower_95: Decimal,
@@ -79,12 +229,18 @@ def determine_gate_b_verdict(
     target_rate: Decimal = Decimal("3.50"),
     max_drawdown_limit: Decimal = Decimal("0.10"),
     max_error_limit: Decimal = Decimal("0.30"),
+    total_live_days: int = 14,
+    min_live_days: int = 14,
 ) -> str:
     """Classify live results for Gate B:
-    - TARGET_CONFIRMED: lower_95 >= 3.50, max_drawdown <= 0.10, prediction_error <= 0.30
+    - INSUFFICIENT_DATA: total_live_days < min_live_days
+    - TARGET_CONFIRMED: lower_95 >= 3.50, max_drawdown <= 0.10, prediction_error <= 0.30, days >= 14
     - TARGET_NOT_CONFIRMED: upper_95 < 3.50 or max_drawdown > 0.10
     - INCONCLUSIVE: CI spans across 3.50 threshold
     """
+    if total_live_days < min_live_days:
+        return "INSUFFICIENT_DATA"
+
     if max_drawdown > max_drawdown_limit:
         return "TARGET_NOT_CONFIRMED"
 

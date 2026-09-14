@@ -109,13 +109,25 @@ class CapitalAllocator:
         return self.allocated_working_capital + avg_extra
 
     def calculate_r100_calendar(self, net_pnl: Decimal, completed_full_utc_days: int) -> Decimal:
-        """Calculate primary hypothesis metric R_100_calendar:
-        R_100_calendar = (Net PnL / completed_days) * (100 / effective_capital)
+        """Calculate primary hypothesis metric R_100_calendar on $100 base.
+        
+        Strict constraint: scaling up from small capital (< $100) is strictly prohibited
+        because reward share is non-linear. Downscaling when extra buffer was used is permitted.
         """
         if completed_full_utc_days <= 0:
             return Decimal("0.0")
 
         daily_rate = net_pnl / Decimal(str(completed_full_utc_days))
         effective_cap = self.compute_effective_capital()
-        normalization_factor = Decimal("100.00") / effective_cap
+        if effective_cap < self.allocated_working_capital:
+            # Strictly do not scale up undersized capital
+            normalization_factor = Decimal("1.0")
+        else:
+            normalization_factor = self.allocated_working_capital / effective_cap
         return daily_rate * normalization_factor
+
+    def calculate_strict_r100_calendar(self, net_pnl: Decimal, completed_full_utc_days: int) -> Decimal:
+        """Calculate primary hypothesis metric strictly on $100 allocated capital without any rescaling."""
+        if completed_full_utc_days <= 0:
+            return Decimal("0.0")
+        return net_pnl / Decimal(str(completed_full_utc_days))
