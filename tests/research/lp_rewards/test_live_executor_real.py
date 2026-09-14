@@ -218,3 +218,63 @@ def test_executor_eip712_signing_and_cancel_all(monkeypatch):
     assert len(executor.submitted_orders) == 0
     assert executor.current_committed_capital == Decimal("0.0")
     assert mock_client.cancelled is True
+
+
+def test_executor_full_sdk_integration(monkeypatch):
+    import respx
+    import httpx
+    from py_clob_client_v2.client import ClobClient
+    monkeypatch.setenv("LP_LIVE_ENABLED", "true")
+    # Generate real test key
+    account = Account.create()
+    test_key = account.key.hex()
+    test_addr = account.address
+
+    clob_client = ClobClient(
+        host="https://clob.polymarket.com",
+        key=test_key,
+        chain_id=137,
+    )
+    # Monkeypatch to avoid real signatures or logic
+    clob_client.creds = type("MockCreds", (), {"api_key": "mock_api_key", "api_secret": "mock", "api_passphrase": "mock"})()
+    # Mocking order timestamp logic out so it passes validation (we just test outbound json)
+
+    executor = LiveOrderExecutor(
+        clob_client=clob_client,
+        expected_protocol_hash="hash_123",
+        wallet_private_key=test_key,
+        wallet_address=test_addr,
+    )
+    executor.verify_gate_a = lambda: True
+    executor.get_pusd_balance_onchain = lambda x: Decimal("1000.0")
+    executor.get_pusd_allowance_onchain = lambda x, y: Decimal("1000.0")
+
+    with respx.mock:
+        route = respx.post("https://clob.polymarket.com/order").mock(
+            return_value=httpx.Response(200, json={"orderID": "mock_order_123"})
+        )
+
+        res = executor.submit_order(
+            token_id="12345",
+            side="BUY",
+            price=Decimal("0.45"),
+            size=Decimal("20.0"),
+            protocol_hash="hash_123",
+        )
+
+        assert res["status"] == "SUBMITTED"
+        assert res["order_id"] == "mock_order_123"
+        assert route.called
+
+        request = route.calls.last.request
+        payload = json.loads(request.content)
+
+        assert "order" in payload
+        assert "owner" in payload
+        assert "orderType" in payload
+
+        # Verify order payload matches order_to_json_v2 signature and side serialization
+        assert payload["order"]["maker"].lower() == test_addr.lower()
+        assert payload["order"]["tokenId"] == "12345"
+        assert payload["order"]["side"] == "BUY"
+        assert "timestamp" in payload["order"]

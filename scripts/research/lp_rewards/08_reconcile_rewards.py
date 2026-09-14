@@ -23,7 +23,10 @@ logger = logging.getLogger("reconcile_rewards")
 async def main():
     protocol = load_protocol()
     storage_path = Path(protocol.data_storage.root_path)
-    wallet_address = os.getenv("LP_ISOLATED_WALLET_ADDRESS", "0x0000000000000000000000000000000000000000")
+    wallet_address = os.getenv("LP_ISOLATED_WALLET_ADDRESS")
+    if not wallet_address:
+        logger.error("DATA_INSUFFICIENT: LP_ISOLATED_WALLET_ADDRESS is missing.")
+        sys.exit(1)
 
     calibrator = RewardCalibrator(
         max_allowed_error_ratio=protocol.gates.gate_b.max_reward_prediction_error
@@ -64,6 +67,11 @@ async def main():
         if not date_val: continue
         actual_val = Decimal(str(item.get("earnings", "0.0")))
         actual_by_date[date_val] = actual_by_date.get(date_val, Decimal("0.0")) + actual_val
+
+    for date_val, projected_val in projected_by_date.items():
+        if date_val not in actual_by_date:
+            logger.error(f"DATA_INSUFFICIENT: Missing actual API reward payout for projected date {date_val}")
+            sys.exit(1)
 
     for date_val, actual_val in actual_by_date.items():
         if date_val not in projected_by_date:

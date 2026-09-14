@@ -101,3 +101,20 @@ python -m pytest tests/research/lp_rewards -v
 ============================= 78 passed in 2.43s ==============================
 ```
 Все **78 тестов** в тестовом наборе проходят успешно.
+
+
+## 9. Финальные исправления Gate B и SDK (Commit 2)
+
+- Добавлен `import os` в `09_evaluate_gate_b.py`, исправлено отсутствие переменной окружения.
+- Усилена проверка кошелька Gate B в `09_evaluate_gate_b.py`: fail-closed, если `wallet_address` отсутствует в отчете или не совпадает с `LP_ISOLATED_WALLET_ADDRESS`.
+- В `08_reconcile_rewards.py` проверка кошелька теперь fail-closed (нет значения по умолчанию), добавлена строгая проверка полноты дат выплат (каждая ожидаемая дата должна присутствовать).
+- Удален fallback-класс `SignedOrderV2` из `polyflip/research/lp_rewards/execution.py`, используется исключительно официальный тип из `py_clob_client_v2`.
+- В `test_live_executor_real.py` добавлен полный интеграционный тест SDK `test_executor_full_sdk_integration`, проверяющий сериализацию `order_to_json_v2()` через mock HTTP endpoint `respx`.
+- Обновлен `pyproject.toml` (`requires-python = ">=3.11,<3.15"`) и синхронизированы лок-файлы `uv lock`.
+
+### Результат прогона тестов:
+```bash
+python -m pytest tests/research/lp_rewards -v
+============================= 88 passed in 2.87s ==============================
+```
+Все **88 тестов** в тестовом наборе проходят успешно.

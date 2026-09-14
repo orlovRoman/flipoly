@@ -14,36 +14,9 @@ from typing import Any, Dict, List, Optional, Set
 from eth_account import Account
 from eth_account.messages import encode_typed_data
 
-try:
-    from py_clob_client_v2.order_utils.model.order_data_v2 import SignedOrderV2
-    from py_clob_client_v2.order_utils.model.side import Side
-    from py_clob_client_v2.order_utils.model.signature_type_v2 import SignatureTypeV2
-except ImportError:
-    class Side(Enum):
-        BUY = 0
-        SELL = 1
-
-    class SignatureTypeV2(Enum):
-        EOA = 0
-        POLY_PROXY = 1
-        POLY_GNOSIS_SAFE = 2
-        POLY_1271 = 3
-
-    @dataclass
-    class SignedOrderV2:
-        salt: str
-        maker: str
-        signer: str
-        tokenId: str
-        makerAmount: str
-        takerAmount: str
-        side: Side
-        signatureType: SignatureTypeV2
-        timestamp: str
-        metadata: str
-        builder: str
-        expiration: str = "0"
-        signature: str = ""
+from py_clob_client_v2.order_utils.model.order_data_v2 import SignedOrderV2
+from py_clob_client_v2.order_utils.model.side import Side
+from py_clob_client_v2.order_utils.model.signature_type_v2 import SignatureTypeV2
 
 getcontext().prec = 28
 logger = logging.getLogger(__name__)

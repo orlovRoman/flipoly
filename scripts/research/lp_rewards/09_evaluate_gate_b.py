@@ -2,6 +2,7 @@ import datetime
 from decimal import Decimal
 import json
 import logging
+import os
 from pathlib import Path
 import sys
 from typing import Any, Dict, List
@@ -103,7 +104,11 @@ def main():
                 rep_wallet = rdata.get("wallet_address")
                 if rep_hash != protocol.sha256_hash:
                     logger.warning(f"Reconciliation report hash mismatch: {rep_hash} != {protocol.sha256_hash}. Discarding.")
-                elif isolated_wallet and rep_wallet and rep_wallet.lower() != isolated_wallet.lower():
+                elif not isolated_wallet:
+                    logger.warning(f"LP_ISOLATED_WALLET_ADDRESS is missing. Discarding.")
+                elif not rep_wallet:
+                    logger.warning(f"Reconciliation report wallet_address is missing. Discarding.")
+                elif rep_wallet.lower() != isolated_wallet.lower():
                     logger.warning(f"Reconciliation report wallet mismatch: {rep_wallet} != {isolated_wallet}. Discarding.")
                 else:
                     mean_prediction_error = Decimal(str(rdata.get("mean_error_ratio", "1.0")))
