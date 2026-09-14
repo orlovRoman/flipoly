@@ -1,0 +1,884 @@
+{
+  "files": [
+    {
+      "csv_lines": 286420,
+      "data_rows": 286419,
+      "day": "all",
+      "group": "flipslice",
+      "match": true,
+      "sha256": "e6dad1c662fd1bb2c6df29b2a5acd497854890fd238b8cf44f5f966eb0a198f4"
+    },
+    {
+      "csv_lines": 163405,
+      "data_rows": 163404,
+      "day": "candles",
+      "group": "full",
+      "match": true,
+      "sha256": "51f6ed33877f5b248bde2db78bfebae63b03845deacac85d8e4b33cef27aa4fd"
+    },
+    {
+      "csv_lines": 37064,
+      "data_rows": 37063,
+      "day": "livemarkets",
+      "group": "full",
+      "match": true,
+      "sha256": "8a7ba300baa7e44240ab36b9d1b6c010b333d793de7980345baeea2084c42563"
+    },
+    {
+      "csv_lines": 27501,
+      "data_rows": 27500,
+      "day": "trades",
+      "group": "full",
+      "match": true,
+      "sha256": "2182856124763bfce39e7624c2eae5d5f6901b7aff99153697090c99a4bdeb96"
+    },
+    {
+      "csv_lines": 10813,
+      "data_rows": 10812,
+      "day": "exrequests",
+      "group": "full",
+      "match": true,
+      "sha256": "2be7d7e85c90cb736f714816fc8e6470662b61fc28c1e68d6b859556217cbe5a"
+    },
+    {
+      "csv_lines": 11494,
+      "data_rows": 11493,
+      "day": "exattempts",
+      "group": "full",
+      "match": true,
+      "sha256": "c687019223da9d1182696f1f1e9335f8fb679543b4819c74a732b6a4dce543e9"
+    },
+    {
+      "csv_lines": 9126,
+      "data_rows": 9125,
+      "day": "exfills",
+      "group": "full",
+      "match": true,
+      "sha256": "16e150bae1c6807b8561d4170b970ab4ff77c91df40826e460043244691a639d"
+    },
+    {
+      "csv_lines": 10913,
+      "data_rows": 10912,
+      "day": "exevents",
+      "group": "full",
+      "match": true,
+      "sha256": "ede9e70e0dc3c6c7e6fd43391a1ddcbb3071fa3525d8328f38a3ed3c7dfec644"
+    },
+    {
+      "csv_lines": 289,
+      "data_rows": 288,
+      "day": "settings",
+      "group": "full",
+      "match": true,
+      "sha256": "20e8806b9dfd4f2a7914b726d2a2ff5f2155689b153107dca14fb4a4d4f17367"
+    },
+    {
+      "csv_lines": 25715,
+      "data_rows": 25714,
+      "day": "2026-07-22",
+      "group": "funnel",
+      "match": true,
+      "sha256": "abe5ca3b0affb74255d5a4bc6766b6f175bf384dffad22478b6db00b954c0465"
+    },
+    {
+      "csv_lines": 80489,
+      "data_rows": 80488,
+      "day": "2026-07-23",
+      "group": "funnel",
+      "match": true,
+      "sha256": "beb465e08f025d88657d86c606265fe37e9d386eb90655f3333ab10f14d8d675"
+    },
+    {
+      "csv_lines": 63635,
+      "data_rows": 63634,
+      "day": "2026-07-24",
+      "group": "funnel",
+      "match": true,
+      "sha256": "4e38e3f307573683ef374314a5ea4433a824f3650b7d181617788ae16500614c"
+    },
+    {
+      "csv_lines": 46621,
+      "data_rows": 46620,
+      "day": "2026-07-25",
+      "group": "funnel",
+      "match": true,
+      "sha256": "e30b068969fa61eab0c574ddea365c24413228718e12843413802b10fcd454bc"
+    },
+    {
+      "csv_lines": 61897,
+      "data_rows": 61896,
+      "day": "2026-07-26",
+      "group": "funnel",
+      "match": true,
+      "sha256": "447133bfe974d8056396b3f72ffd5a2f1aa918663596a12145c37fa1092c67aa"
+    },
+    {
+      "csv_lines": 59271,
+      "data_rows": 59270,
+      "day": "2026-07-27",
+      "group": "funnel",
+      "match": true,
+      "sha256": "3e28267b77bd2d30f1f354fb4eadcf622e190ecf4849972b593a464e67b03f14"
+    },
+    {
+      "csv_lines": 72465,
+      "data_rows": 72464,
+      "day": "2026-07-28",
+      "group": "funnel",
+      "match": true,
+      "sha256": "b343f352e8beca2f2277f6959ba2ab620a166065eeb56fe78b588d34ce6ca488"
+    },
+    {
+      "csv_lines": 37405,
+      "data_rows": 37404,
+      "day": "2026-07-29",
+      "group": "funnel",
+      "match": true,
+      "sha256": "ccabd535932550989860589c9e5c55ba20f5df54a083ffc4fb5af56eec1157ca"
+    },
+    {
+      "csv_lines": 63693,
+      "data_rows": 63692,
+      "day": "2026-07-30",
+      "group": "funnel",
+      "match": true,
+      "sha256": "c8027d36fc91eb2b5411e80800cc6487e2a4588700421636d5b1196f79791a8e"
+    },
+    {
+      "csv_lines": 72763,
+      "data_rows": 72762,
+      "day": "2026-07-31",
+      "group": "funnel",
+      "match": true,
+      "sha256": "3440fba7edb2dfa0b8eb6ca1da0b794e15071193caf60821017b86eda3f8978d"
+    },
+    {
+      "csv_lines": 74201,
+      "data_rows": 74200,
+      "day": "2026-08-01",
+      "group": "funnel",
+      "match": true,
+      "sha256": "0b389556f4e839c1c0d7b7eae570c1640899d91641003c9431a15385770155ad"
+    },
+    {
+      "csv_lines": 74267,
+      "data_rows": 74266,
+      "day": "2026-08-02",
+      "group": "funnel",
+      "match": true,
+      "sha256": "56f771ccea82bb817cd793f0d30ee6d2071412a8a1fa0a086bd5136b037b5dfd"
+    },
+    {
+      "csv_lines": 44067,
+      "data_rows": 44066,
+      "day": "2026-08-03",
+      "group": "funnel",
+      "match": true,
+      "sha256": "1b2046a374244dc5b340d9c23ef8134859066f4c1f952797724a21be70a5ea9b"
+    },
+    {
+      "csv_lines": 34142,
+      "data_rows": 34141,
+      "day": "2026-08-04",
+      "group": "funnel",
+      "match": true,
+      "sha256": "0292aeb00bfb1c5f10b654d2c1b5c92bd2db54d632cc31150c5b4be8bdf8c40c"
+    },
+    {
+      "csv_lines": 36809,
+      "data_rows": 36808,
+      "day": "2026-08-05",
+      "group": "funnel",
+      "match": true,
+      "sha256": "339da068271558aad89d7681eab9182eb28c65ae08442c25a22be8388dbae679"
+    },
+    {
+      "csv_lines": 42599,
+      "data_rows": 42598,
+      "day": "2026-08-06",
+      "group": "funnel",
+      "match": true,
+      "sha256": "0fde9c5c41227115284bc1cffe9adbc10f4f593ee7c70f4d43067ed667924054"
+    },
+    {
+      "csv_lines": 33886,
+      "data_rows": 33885,
+      "day": "2026-08-07",
+      "group": "funnel",
+      "match": true,
+      "sha256": "ce7eff5c00fc6c8a47b85a214b17b46a394fbb36f4cd403bb402ad406cd449c9"
+    },
+    {
+      "csv_lines": 33159,
+      "data_rows": 33158,
+      "day": "2026-08-08",
+      "group": "funnel",
+      "match": true,
+      "sha256": "2ebf4222e18a0040855c413d1a6d656210c00642e5ccca87a9c19a734cc05ec4"
+    },
+    {
+      "csv_lines": 14801,
+      "data_rows": 14800,
+      "day": "2026-08-09",
+      "group": "funnel",
+      "match": true,
+      "sha256": "ff2e6e5ffaeeaecd0a9d36e05fd17137d1fdae46f9eb3e4bc331e646aba79b2e"
+    },
+    {
+      "csv_lines": 20517,
+      "data_rows": 20516,
+      "day": "2026-08-10",
+      "group": "funnel",
+      "match": true,
+      "sha256": "bf4d6c9e6aef1956db1a88bc2b8fe577d9e0a6a0242ccad61fab393f43c851ab"
+    },
+    {
+      "csv_lines": 18799,
+      "data_rows": 18798,
+      "day": "2026-08-11",
+      "group": "funnel",
+      "match": true,
+      "sha256": "17b6692acb954572b9229f981f83ef912aa3d57d2f2252a20f309511e9913e01"
+    },
+    {
+      "csv_lines": 19968,
+      "data_rows": 19967,
+      "day": "2026-08-12",
+      "group": "funnel",
+      "match": true,
+      "sha256": "fc7e03a53edfef738c1c277261ba36086df666e7b230b64b70d7172313c8d8d6"
+    },
+    {
+      "csv_lines": 21797,
+      "data_rows": 21796,
+      "day": "2026-08-13",
+      "group": "funnel",
+      "match": true,
+      "sha256": "d515c04371da3456a3fa52bbc6e40fe99aaabcf3741c2f428d89e1af8fdfc94c"
+    },
+    {
+      "csv_lines": 20879,
+      "data_rows": 20878,
+      "day": "2026-08-14",
+      "group": "funnel",
+      "match": true,
+      "sha256": "f7d4e8abc49314350a2795b57a27a773bbead39e8dbe85f8bd88460d6bf5a25b"
+    },
+    {
+      "csv_lines": 9971,
+      "data_rows": 9970,
+      "day": "2026-08-15",
+      "group": "funnel",
+      "match": true,
+      "sha256": "e7e94228a3d52d08555b99b5dde0b27c2171a0fae17ed885722f9f157598d97e"
+    },
+    {
+      "csv_lines": 1,
+      "data_rows": 0,
+      "day": "2026-08-16",
+      "group": "funnel",
+      "match": true,
+      "sha256": "71e9de6d3450535428c60c90c1b8e119eda7c08d84d9dde29f809e08ea27f249"
+    },
+    {
+      "csv_lines": 7249,
+      "data_rows": 7248,
+      "day": "2026-08-17",
+      "group": "funnel",
+      "match": true,
+      "sha256": "a1919413c49818f6f0a50a68da1ae00e2e536f2581cd76a18d9b70fad51da4f8"
+    },
+    {
+      "csv_lines": 23024,
+      "data_rows": 23023,
+      "day": "2026-08-18",
+      "group": "funnel",
+      "match": true,
+      "sha256": "a2c8867951093a2c627800323334cf0934192e3bd424b091d15b89565bedb1aa"
+    },
+    {
+      "csv_lines": 21186,
+      "data_rows": 21185,
+      "day": "2026-08-19",
+      "group": "funnel",
+      "match": true,
+      "sha256": "8038e39e7e36e7f6dac7e1c906a7e4d9964a38fd63e7be0738bf5ce6bdf746e9"
+    },
+    {
+      "csv_lines": 16986,
+      "data_rows": 16985,
+      "day": "2026-08-20",
+      "group": "funnel",
+      "match": true,
+      "sha256": "95a2e8c73b792a9f599f5db3500cfa68797c1b88c4206a4b365ba27488f62180"
+    },
+    {
+      "csv_lines": 14629,
+      "data_rows": 14628,
+      "day": "2026-08-21",
+      "group": "funnel",
+      "match": true,
+      "sha256": "c4abf9ba891b99e14c46c2261fbf39a1d780e36c7bae982a4a1bf502c77e4d3a"
+    },
+    {
+      "csv_lines": 15570,
+      "data_rows": 15569,
+      "day": "2026-08-22",
+      "group": "funnel",
+      "match": true,
+      "sha256": "faf3d762af7133a69a84596bd58396103021339067e44961c2e723686e3082be"
+    },
+    {
+      "csv_lines": 15795,
+      "data_rows": 15794,
+      "day": "2026-08-23",
+      "group": "funnel",
+      "match": true,
+      "sha256": "5384fbfae2701d30544a71e73b5bc2a9755308666c3f9d77e9bda4bac8e367a6"
+    },
+    {
+      "csv_lines": 10096,
+      "data_rows": 10095,
+      "day": "2026-08-24",
+      "group": "funnel",
+      "match": true,
+      "sha256": "ee8fb1a3594b4d0a2d1bd2ac6b949f5fd7c680c1d1cde883f2991ce22ef9aff6"
+    },
+    {
+      "csv_lines": 16106,
+      "data_rows": 16105,
+      "day": "2026-08-25",
+      "group": "funnel",
+      "match": true,
+      "sha256": "0e541ade686af92cea803472ba2b1e46456b0ef4a16126a6dd2a21c772ede182"
+    },
+    {
+      "csv_lines": 17908,
+      "data_rows": 17907,
+      "day": "2026-08-26",
+      "group": "funnel",
+      "match": true,
+      "sha256": "01ebb4860aca062b5574f7d3817ebacccc65a4d4bac1d3690251710ddcae92eb"
+    },
+    {
+      "csv_lines": 14981,
+      "data_rows": 14980,
+      "day": "2026-08-27",
+      "group": "funnel",
+      "match": true,
+      "sha256": "1446c01fa80d61edc9832905e349f28afdaa97ad0ac312cc2d552f8d0d4169fa"
+    },
+    {
+      "csv_lines": 16035,
+      "data_rows": 16034,
+      "day": "2026-08-28",
+      "group": "funnel",
+      "match": true,
+      "sha256": "2ff438aa69ad55635f32570cef7f845fffe4e675c780128d7d3046336df87b3a"
+    },
+    {
+      "csv_lines": 15354,
+      "data_rows": 15353,
+      "day": "2026-08-29",
+      "group": "funnel",
+      "match": true,
+      "sha256": "c58a426f9ec1db464d1ba06baebfeceda4440f7b1e7c9eefc18bb7de3e1c5b4f"
+    },
+    {
+      "csv_lines": 15879,
+      "data_rows": 15878,
+      "day": "2026-08-30",
+      "group": "funnel",
+      "match": true,
+      "sha256": "cc04aae5f4c4a098955c4a24224983b4f5358f5ffeb37df8b3a1457c92c2d060"
+    },
+    {
+      "csv_lines": 18454,
+      "data_rows": 18453,
+      "day": "2026-08-31",
+      "group": "funnel",
+      "match": true,
+      "sha256": "9e5e4f152675dc0c4ef1b4c86edf5040bf087380dca8f65c094d0a2a19c3eda0"
+    },
+    {
+      "csv_lines": 14754,
+      "data_rows": 14753,
+      "day": "2026-09-01",
+      "group": "funnel",
+      "match": true,
+      "sha256": "f34231646aeed0ad3963ac92a030b96b5b024ac19f730cbadea43e496ecc5fc9"
+    },
+    {
+      "csv_lines": 17721,
+      "data_rows": 17720,
+      "day": "2026-09-02",
+      "group": "funnel",
+      "match": true,
+      "sha256": "8301ad5b60854fc729a97ef9d85f4e6a14fddda0f8738afdf9318876721b2f34"
+    },
+    {
+      "csv_lines": 21684,
+      "data_rows": 21683,
+      "day": "2026-09-03",
+      "group": "funnel",
+      "match": true,
+      "sha256": "3d4990e7017752de8eef1db416f29785a068e1c4823b90a21b0fc936db4d7858"
+    },
+    {
+      "csv_lines": 13544,
+      "data_rows": 13543,
+      "day": "2026-09-04",
+      "group": "funnel",
+      "match": true,
+      "sha256": "4706779a77c45ad3580c521cd370fb6879a5b670b5390138c57d5183679d8494"
+    },
+    {
+      "csv_lines": 1,
+      "data_rows": 0,
+      "day": "2026-09-05",
+      "group": "funnel",
+      "match": true,
+      "sha256": "71e9de6d3450535428c60c90c1b8e119eda7c08d84d9dde29f809e08ea27f249"
+    },
+    {
+      "csv_lines": 7727,
+      "data_rows": 7726,
+      "day": "2026-09-06",
+      "group": "funnel",
+      "match": true,
+      "sha256": "caec4417ab4f9eed9583dc42f1bfc39cb43f34363e080c4327ad40bfe242632e"
+    },
+    {
+      "csv_lines": 18625,
+      "data_rows": 18624,
+      "day": "2026-09-07",
+      "group": "funnel",
+      "match": true,
+      "sha256": "c4fb36fbe906a4c6667c0e71d67a5b6d2c9b1234025d4f49eaa6c5a8c2031bae"
+    },
+    {
+      "csv_lines": 17892,
+      "data_rows": 17891,
+      "day": "2026-09-08",
+      "group": "funnel",
+      "match": true,
+      "sha256": "200b47b29ba26ab2130b68f82ea09f1fc9732610337f8721466d606676c43029"
+    },
+    {
+      "csv_lines": 11414,
+      "data_rows": 11413,
+      "day": "2026-09-09",
+      "group": "funnel",
+      "match": true,
+      "sha256": "2130e8aa86059c036b231e4b55ca85829a664cabfeef116448b721f6702f17f5"
+    },
+    {
+      "csv_lines": 15788,
+      "data_rows": 15787,
+      "day": "2026-09-10",
+      "group": "funnel",
+      "match": true,
+      "sha256": "05903afb2a355afc3ce8d8d685b5466a06adf38ede7bbab4b7f1d58451309103"
+    },
+    {
+      "csv_lines": 15108,
+      "data_rows": 15107,
+      "day": "2026-09-11",
+      "group": "funnel",
+      "match": true,
+      "sha256": "834c8049be623dfecd9f3d849d2e62a029900ff8acf5464855a5130935975704"
+    },
+    {
+      "csv_lines": 15216,
+      "data_rows": 15215,
+      "day": "2026-09-12",
+      "group": "funnel",
+      "match": true,
+      "sha256": "061fc630a66a1ddc5bbadbc3f03b3385f54fb541e90a8bf96c33cc6deef7b2ce"
+    },
+    {
+      "csv_lines": 5329,
+      "data_rows": 5328,
+      "day": "2026-09-13",
+      "group": "funnel",
+      "match": true,
+      "sha256": "ed47e492b9dfe5a6f8289252a4dfbd8814a76eb792cf8a5182a0dc0041e4a62f"
+    },
+    {
+      "csv_lines": 76309,
+      "data_rows": 76308,
+      "day": "2026-08-03",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "759cdfb1bb136d929028f2302eee28a6764a60fb0dfb704e89ce1f7c8be5b47c"
+    },
+    {
+      "csv_lines": 76591,
+      "data_rows": 76590,
+      "day": "2026-08-04",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "0522213999f2fa2709f0dd496e3d51309d71ce19b478360bb9341b95fd05282d"
+    },
+    {
+      "csv_lines": 75069,
+      "data_rows": 75068,
+      "day": "2026-08-05",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "be66d5df3e5d9839c9af089ebeedf620a3ff92708ac2b004587dbe076f1a6794"
+    },
+    {
+      "csv_lines": 85092,
+      "data_rows": 85091,
+      "day": "2026-08-06",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "f1ec5a74702af9f94181157e5fac364ff5e15b2c2a5dea1a4d9d6f2051bf627f"
+    },
+    {
+      "csv_lines": 82365,
+      "data_rows": 82364,
+      "day": "2026-08-07",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "fafb2fcd3c33a8c7a95a7b4e6f34fa3dc065e823352d565a8b5581df9ccb5ac6"
+    },
+    {
+      "csv_lines": 87332,
+      "data_rows": 87331,
+      "day": "2026-08-08",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "9c2930f703ca715a8d988a1e713bd87d64b05ab759df08bd01d9a86083de1ba5"
+    },
+    {
+      "csv_lines": 114985,
+      "data_rows": 114984,
+      "day": "2026-08-09",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "ea87c38c594a7bca5a1ea9fccf32dce41a1439a9a4d0e85083b902c0cbee2838"
+    },
+    {
+      "csv_lines": 122873,
+      "data_rows": 122872,
+      "day": "2026-08-10",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "c197a33967eb24c667a19459e31d2f2687597d1f26b7b2e98783007c1546293b"
+    },
+    {
+      "csv_lines": 107596,
+      "data_rows": 107595,
+      "day": "2026-08-11",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "0317e64ac129ffd40345126b880e1d1e1292144570df56a5f374d4f3b3220289"
+    },
+    {
+      "csv_lines": 88084,
+      "data_rows": 88083,
+      "day": "2026-08-12",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "6ab9a23833c68c4458415bea9e28af78151f7a0cfdff2dc0b196313ec8a4faad"
+    },
+    {
+      "csv_lines": 98778,
+      "data_rows": 98777,
+      "day": "2026-08-13",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "cff628b513f0d7cddae5f684d9037421f038e6b960554d58da157428ef15a148"
+    },
+    {
+      "csv_lines": 89760,
+      "data_rows": 89759,
+      "day": "2026-08-14",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "2d4c2f4dfcacc008f188536abeae3f900c07eb9f093fb94e0a3c963bb6a01bf4"
+    },
+    {
+      "csv_lines": 42548,
+      "data_rows": 42547,
+      "day": "2026-08-15",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "1bb0d3d31320dbe55b6dd4b29cd97afc1d639716c513c5bbf3a9336ef7f6a17a"
+    },
+    {
+      "csv_lines": 1,
+      "data_rows": 0,
+      "day": "2026-08-16",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "2e0a179ff3a5c1712a04b03193cd6c7c16d16e882c37c9732ea657fed8cc9f8d"
+    },
+    {
+      "csv_lines": 35741,
+      "data_rows": 35740,
+      "day": "2026-08-17",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "6d7a260e0099a61f477846f538178e2ab8ff728c8383f534e8f8687227f3d538"
+    },
+    {
+      "csv_lines": 102816,
+      "data_rows": 102815,
+      "day": "2026-08-18",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "47614d53ab782c1597e7d72b5a0093b7b8420453d95f47bfe52986ac028a2e79"
+    },
+    {
+      "csv_lines": 102469,
+      "data_rows": 102468,
+      "day": "2026-08-19",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "892b554ce58cae6aecc634bc5f7ce53d64d60224838656d6a54dc2b0415507e8"
+    },
+    {
+      "csv_lines": 77128,
+      "data_rows": 77127,
+      "day": "2026-08-20",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "69e484361aa8d04aef522610b7a71d75b58f43a2f490925539a7b76a2949951e"
+    },
+    {
+      "csv_lines": 97554,
+      "data_rows": 97553,
+      "day": "2026-08-21",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "fb01dd6aebcbdd5caa370a50f31abe316673da2429a285f7a5e5929e9b7e5d5e"
+    },
+    {
+      "csv_lines": 104441,
+      "data_rows": 104440,
+      "day": "2026-08-22",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "d58e183b49bcf6565b7808d2744086021ea2f502e16425bfd169bc10b2787f85"
+    },
+    {
+      "csv_lines": 103881,
+      "data_rows": 103880,
+      "day": "2026-08-23",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "20b222428c14dfd3e4fd17ec594cb09957f406c849838698ed6b4e7b94a42d8a"
+    },
+    {
+      "csv_lines": 66083,
+      "data_rows": 66082,
+      "day": "2026-08-24",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "a0819d11418d42ff01d22f8d2cd97fc9a84608bfb0ed76d7a9497a1d1aea352a"
+    },
+    {
+      "csv_lines": 103214,
+      "data_rows": 103213,
+      "day": "2026-08-25",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "7cad2e08797314a663e6ffa78b92d604546cde50166a8dd9e148122497d2cf78"
+    },
+    {
+      "csv_lines": 104077,
+      "data_rows": 104076,
+      "day": "2026-08-26",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "5c647e79dca11b9e0ce83fc084772c4dacb3f4d4b6f91b1808d4da9a211b0395"
+    },
+    {
+      "csv_lines": 96237,
+      "data_rows": 96236,
+      "day": "2026-08-27",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "0c24a2d45d007af839ed53c8c2e9a46619e9e2ee69e15e233793a40c4c2fd6ae"
+    },
+    {
+      "csv_lines": 100565,
+      "data_rows": 100564,
+      "day": "2026-08-28",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "e114ba1236145cd1561afbc07c9887e852561c69e74dd263c36e88d0bf6a7b05"
+    },
+    {
+      "csv_lines": 100133,
+      "data_rows": 100132,
+      "day": "2026-08-29",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "ebc0956c462cc9ac04f69ccf6de0bed106395ed8f9231a51dc17f1331388ae01"
+    },
+    {
+      "csv_lines": 99161,
+      "data_rows": 99160,
+      "day": "2026-08-30",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "3d0e5709a8d33566443b1d4723309847e6dd385f2f0cf82d01cf4a27b04e969d"
+    },
+    {
+      "csv_lines": 100828,
+      "data_rows": 100827,
+      "day": "2026-08-31",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "88693af2fb0a8f95585e5e70a12ee10779864b7ae9a51f5cedd2221ce5efb623"
+    },
+    {
+      "csv_lines": 97350,
+      "data_rows": 97349,
+      "day": "2026-09-01",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "c91a8f31812efbd4ee93feed37956b8d17f9ae2b867fa5f9460a6cd6c35005fb"
+    },
+    {
+      "csv_lines": 91639,
+      "data_rows": 91638,
+      "day": "2026-09-02",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "2c76fde92ba100245c4de2d56869780201f133e75cb675321af831c473c672fd"
+    },
+    {
+      "csv_lines": 104782,
+      "data_rows": 104781,
+      "day": "2026-09-03",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "2bcc454e2faf91920b68db4f6706c59f44efe4c42669b34bdafbbabe95478d52"
+    },
+    {
+      "csv_lines": 77917,
+      "data_rows": 77916,
+      "day": "2026-09-04",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "e67c1ebc58a8524acdcc46cd76f65b2143069b1bfacff8f75462827a64c43bc6"
+    },
+    {
+      "csv_lines": 1,
+      "data_rows": 0,
+      "day": "2026-09-05",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "2e0a179ff3a5c1712a04b03193cd6c7c16d16e882c37c9732ea657fed8cc9f8d"
+    },
+    {
+      "csv_lines": 37683,
+      "data_rows": 37682,
+      "day": "2026-09-06",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "1cd1a75fa64911c9a36b8af303a78c391fe10ab6cfd6be556d39fd24e06e641b"
+    },
+    {
+      "csv_lines": 104524,
+      "data_rows": 104523,
+      "day": "2026-09-07",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "421bc598e5edd6e972d8fc301852402a4752e395812159657d74bd482c8282ac"
+    },
+    {
+      "csv_lines": 100693,
+      "data_rows": 100692,
+      "day": "2026-09-08",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "59a8b7caab6d432f794325c4901d59425ead139b4df482811f00dcb77f6ff295"
+    },
+    {
+      "csv_lines": 53738,
+      "data_rows": 53737,
+      "day": "2026-09-09",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "e43f89a4df438071d87e22dc82fb343603b52fdc01fa4ee3a7ac8be5751060af"
+    },
+    {
+      "csv_lines": 80100,
+      "data_rows": 80099,
+      "day": "2026-09-10",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "40b78d17b501e1c84804d0756a64a92f635390aed77988722cd0646de9b784ab"
+    },
+    {
+      "csv_lines": 82978,
+      "data_rows": 82977,
+      "day": "2026-09-11",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "00174c998ec061580ba524ef37221da7b5f8e691cc65ed94f0414603e58ece86"
+    },
+    {
+      "csv_lines": 72105,
+      "data_rows": 72104,
+      "day": "2026-09-12",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "5b43fcffac414e63114398025d545b3bbae2565eb25d1e6086751f7c11739273"
+    },
+    {
+      "csv_lines": 20245,
+      "data_rows": 20244,
+      "day": "2026-09-13",
+      "group": "snapsdec",
+      "match": true,
+      "sha256": "e2212cc7c9dd47926b5154847a4780c283834d4f1d03c70fb5819ad261a75fdc"
+    }
+  ],
+  "reconciliation": {
+    "funnel": {
+      "control_days": 52,
+      "diffs": {
+        "2026-08-16": [
+          0,
+          null
+        ],
+        "2026-09-05": [
+          0,
+          null
+        ],
+        "2026-09-13": [
+          5328,
+          5866
+        ]
+      },
+      "exact_match_days": 51,
+      "manifest_days": 54
+    },
+    "snapsdec": {
+      "control_days": 40,
+      "diffs": {
+        "2026-08-16": [
+          0,
+          null
+        ],
+        "2026-09-05": [
+          0,
+          null
+        ],
+        "2026-09-13": [
+          20244,
+          22044
+        ]
+      },
+      "exact_match_days": 39,
+      "manifest_days": 42
+    }
+  }
+}

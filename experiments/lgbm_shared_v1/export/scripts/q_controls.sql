@@ -1,0 +1,10 @@
+SELECT TO_CHAR(created_at, 'YYYY-MM-DD'), COUNT(*) FROM decision_funnel_log WHERE created_at >= TIMESTAMPTZ '2026-07-22 00:00:00+00' AND created_at < TIMESTAMPTZ '2026-09-14 00:00:00+00' GROUP BY 1 ORDER BY 1;
+SELECT COUNT(*) FROM market_snapshots s JOIN (SELECT DISTINCT market_id FROM decision_funnel_log WHERE created_at >= TIMESTAMPTZ '2026-08-03 00:00:00+00' AND created_at < TIMESTAMPTZ '2026-09-14 00:00:00+00') dm USING (market_id) WHERE s.recorded_at >= TIMESTAMPTZ '2026-08-03 00:00:00+00' AND s.recorded_at < TIMESTAMPTZ '2026-09-14 00:00:00+00';
+SELECT COUNT(*) FROM crypto_candles;
+SELECT COUNT(*) FROM live_markets;
+SELECT COUNT(*) FROM trade_history;
+SELECT COUNT(*) FROM execution_requests;
+SELECT COUNT(*) FROM execution_attempts;
+SELECT COUNT(*) FROM execution_fills;
+SELECT COUNT(*) FROM execution_events;
+SELECT COUNT(*) FROM runtime_settings;
