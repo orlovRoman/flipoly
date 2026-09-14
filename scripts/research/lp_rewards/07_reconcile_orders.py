@@ -26,31 +26,49 @@ async def fetch_remote_orders(
     client: httpx.AsyncClient,
     api_key: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Fetch active orders for user wallet from Polymarket CLOB REST API."""
+    """Fetch active orders for user wallet from Polymarket CLOB REST API with pagination and L2 auth."""
     headers = {}
     if api_key:
         headers["POLY_API_KEY"] = api_key
+    for env_key, hdr_key in [
+        ("POLY_ADDRESS", "POLY_ADDRESS"),
+        ("POLY_SIGNATURE", "POLY_SIGNATURE"),
+        ("POLY_TIMESTAMP", "POLY_TIMESTAMP"),
+        ("POLY_PASSPHRASE", "POLY_PASSPHRASE")
+    ]:
+        val = os.getenv(env_key)
+        if val:
+            headers[hdr_key] = val
 
-    try:
-        # Polymarket CLOB V2 active orders endpoint
-        url = f"{CLOB_API_URL}/data/orders"
-        resp = await client.get(url, params={"maker_address": wallet_address}, headers=headers)
-        if resp.status_code != 200:
-            # Fallback to /orders endpoint
-            url = f"{CLOB_API_URL}/orders"
-            resp = await client.get(url, params={"maker_address": wallet_address}, headers=headers)
+    all_orders = []
+    cursor = None
 
-        if resp.status_code == 200:
-            data = resp.json()
-            if isinstance(data, list):
-                return data
-            elif isinstance(data, dict):
-                return data.get("data", [])
-        logger.warning(f"CLOB orders query returned status {resp.status_code}: {resp.text}")
-        return []
-    except Exception as e:
-        logger.warning(f"Network error querying remote CLOB orders: {e}")
-        return []
+    url = f"{CLOB_API_URL}/data/orders"
+    while True:
+        try:
+            params = {"maker_address": wallet_address}
+            if cursor:
+                params["next_cursor"] = cursor
+
+            resp = await client.get(url, params=params, headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, list):
+                    all_orders.extend(data)
+                    break
+                elif isinstance(data, dict):
+                    all_orders.extend(data.get("data", []))
+                    cursor = data.get("next_cursor")
+                    if not cursor or cursor == "LTE=":
+                        break
+            else:
+                logger.warning(f"CLOB orders query returned status {resp.status_code}: {resp.text}")
+                break
+        except Exception as e:
+            logger.warning(f"Network error querying remote CLOB orders: {e}")
+            break
+
+    return all_orders
 
 
 def reconcile_orders(
@@ -76,7 +94,10 @@ def reconcile_orders(
                 price_mismatches.append({"order_id": oid, "local": str(l_price), "remote": str(r_price)})
 
             l_size = Decimal(str(l_ord.get("size", "0")))
-            r_size = Decimal(str(r_ord.get("size", "0")))
+            r_orig_size = Decimal(str(r_ord.get("original_size", r_ord.get("size", "0"))))
+            r_matched = Decimal(str(r_ord.get("size_matched", "0")))
+            r_size = r_orig_size - r_matched
+            
             if abs(l_size - r_size) > Decimal("0.001"):
                 size_mismatches.append({"order_id": oid, "local": str(l_size), "remote": str(r_size)})
 

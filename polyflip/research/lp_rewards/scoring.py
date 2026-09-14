@@ -255,16 +255,7 @@ def calculate_competitor_and_own_scores(
             status="MID_UNCERTAIN",
         )
 
-    # 1. Competitor Q components from public book
-    comp_q1, comp_q2, comp_q_expected = calculate_q_components(
-        public_yes_bids, public_yes_asks, public_no_bids, public_no_asks,
-        p_mid_star, max_spread, min_size, multiplier
-    )
-    # Competitor bounds: strict 2-sided (min) vs max (sum or one-sided max)
-    comp_q_min = min(comp_q1, comp_q2)
-    comp_q_max = max(comp_q_expected, max(comp_q1, comp_q2))
-
-    # 2. Our own orders: separate by token and side
+    # 1. Our own orders: separate by token and side
     def is_yes(asset_id: str) -> bool:
         if yes_token_id:
             return asset_id == yes_token_id
@@ -296,6 +287,26 @@ def calculate_competitor_and_own_scores(
         our_yes_bids, our_yes_asks, our_no_bids, our_no_asks,
         p_mid_star, max_spread, min_size, multiplier
     )
+
+    # 2. Competitor Q components from public book (deducting our own orders)
+    def subtract_orders(public_levels: List[OrderbookLevel], our_levels: List[OrderbookLevel]) -> List[OrderbookLevel]:
+        public_dict = {lvl.price: lvl.size for lvl in public_levels}
+        for our_lvl in our_levels:
+            if our_lvl.price in public_dict:
+                public_dict[our_lvl.price] = max(Decimal("0.0"), public_dict[our_lvl.price] - our_lvl.size)
+        return [OrderbookLevel(price=p, size=s) for p, s in public_dict.items() if s > Decimal("0.0")]
+
+    comp_yes_bids = subtract_orders(public_yes_bids, our_yes_bids)
+    comp_yes_asks = subtract_orders(public_yes_asks, our_yes_asks)
+    comp_no_bids = subtract_orders(public_no_bids, our_no_bids)
+    comp_no_asks = subtract_orders(public_no_asks, our_no_asks)
+
+    comp_q1, comp_q2, comp_q_expected = calculate_q_components(
+        comp_yes_bids, comp_yes_asks, comp_no_bids, comp_no_asks,
+        p_mid_star, max_spread, min_size, multiplier
+    )
+    comp_q_min = min(comp_q1, comp_q2)
+    comp_q_max = max(comp_q_expected, max(comp_q1, comp_q2))
 
     # 3. Denominators (our liquidity + competitor liquidity)
     d_max = comp_q_max + q_own

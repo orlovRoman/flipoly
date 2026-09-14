@@ -83,14 +83,27 @@ async def periodic_fsm_and_scoring(
     logger.info(f"Started periodic FSM and Scoring loop (every {interval_sec}s).")
     storage_path = Path(protocol.data_storage.root_path)
 
+    order_trackers = {}
+    fsm_ticks = 0
+    market_uptime = {m.condition_id: 0 for m in active_markets}
+    loop_start_time = time.time()
+
     while collector.running:
         try:
             await asyncio.sleep(interval_sec)
             now_ns = time.time_ns()
             date_str = time.strftime("%Y-%m-%d", time.gmtime())
+            fsm_ticks += 1
 
             # Snapshot recent trades to process for fill simulation
-            recent_trades = list(collector.trade_buffer)
+            recent_trades = list(collector.simulation_trade_buffer)
+            collector.simulation_trade_buffer.clear()
+
+            # Clean up closed orders from trackers
+            all_open_oids = set()
+            for m in active_markets:
+                all_open_oids.update(fsms[m.condition_id].open_orders.keys())
+            order_trackers = {oid: trk for oid, trk in order_trackers.items() if oid in all_open_oids}
 
             for market in active_markets:
                 cid = market.condition_id
@@ -116,11 +129,22 @@ async def periodic_fsm_and_scoring(
 
                         for oid, order in list(fsm.open_orders.items()):
                             if order.asset_id == t.get("asset_id"):
-                                tracker = QueuePositionTracker(
-                                    order=order,
-                                    existing_depth_ahead=Decimal("0.0"),
-                                    min_order_age_sec=market.oas,
-                                )
+                                if oid not in order_trackers:
+                                    snap = yes_snap if order.asset_id == market.yes_token_id else no_snap
+                                    levels = snap.bids if order.side == OrderSide.BUY else snap.asks
+                                    depth = Decimal("0.0")
+                                    for lvl in levels:
+                                        if (order.side == OrderSide.BUY and lvl.price > order.price) or \
+                                           (order.side == OrderSide.SELL and lvl.price < order.price):
+                                            depth += lvl.size
+                                        elif lvl.price == order.price:
+                                            depth += lvl.size
+                                    order_trackers[oid] = QueuePositionTracker(
+                                        order=order,
+                                        existing_depth_ahead=depth,
+                                        min_order_age_sec=market.oas,
+                                    )
+                                tracker = order_trackers[oid]
                                 fill = tracker.process_public_trade(t_price, t_size, t_side, t_time)
                                 if fill:
                                     fsm.on_fill(fill)
@@ -129,6 +153,7 @@ async def periodic_fsm_and_scoring(
                 # 2. Quoting FSM management
                 midpoint = calculate_cutoff_midpoint(yes_snap.bids, yes_snap.asks, market.rewards_min_size)
                 if midpoint is not None and not is_uncertain:
+                    market_uptime[cid] += 1
                     if fsm.state == QuotingState.FLAT:
                         new_quotes = fsm.generate_quote_orders(midpoint=midpoint, timestamp_ns=now_ns)
                         positions = {m.condition_id: fsms[m.condition_id].position for m in active_markets}
@@ -153,7 +178,6 @@ async def periodic_fsm_and_scoring(
                     is_uncertain=is_uncertain,
                 )
                 if lp_est.status == "VALID" and lp_est.share_expected > Decimal("0.0"):
-                    # 1 minute sample share of daily reward pool
                     minute_reward = (market.rewards_daily_rate / Decimal("1440.0")) * lp_est.share_expected
                     ledger.record_daily_rewards(date_str, minute_reward)
 
@@ -188,18 +212,22 @@ async def periodic_fsm_and_scoring(
             market_breakdown = {}
             for m in active_markets:
                 m_pos = fsms[m.condition_id].position
+                cov_ratio = market_uptime[m.condition_id] / fsm_ticks if fsm_ticks > 0 else 0.0
                 market_breakdown[m.condition_id] = {
                     "net_pnl": str(m_pos.realized_trading_pnl),
-                    "coverage_ratio": "0.95",
+                    "coverage_ratio": f"{cov_ratio:.4f}",
                 }
+
+            uncertain_count = sum(1 for v in collector.reconciler.uncertain_markets.values() if v)
+            quote_hours = (time.time() - loop_start_time) / 3600.0
 
             eval_record = {
                 "date": date_str,
                 "protocol_id": protocol.protocol_id,
                 "protocol_hash": protocol.sha256_hash,
                 "net_pnl": str(net_pnl),
-                "quote_hours": "24.0",
-                "book_uncertain_count": len(collector.reconciler.uncertain_markets),
+                "quote_hours": f"{quote_hours:.4f}",
+                "book_uncertain_count": uncertain_count,
                 "market_breakdown": market_breakdown,
                 "total_trades": len(ledger.trades),
                 "executable_mtm": str(exec_mtm),

@@ -12,7 +12,7 @@ def test_executor_gate_a_rejection(tmp_path, monkeypatch):
 
     # Gate A file does not exist
     missing_file = tmp_path / "missing_gate_a.json"
-    executor = LiveOrderExecutor(
+    executor = LiveOrderExecutor(clob_client='mock', 
         expected_protocol_hash="hash_123",
         gate_a_verdict_path=missing_file,
         require_gate_a=True,
@@ -34,7 +34,7 @@ def test_executor_gate_a_rejection(tmp_path, monkeypatch):
         "protocol_hash": "hash_123",
     }), encoding="utf-8")
 
-    executor = LiveOrderExecutor(
+    executor = LiveOrderExecutor(clob_client='mock', 
         expected_protocol_hash="hash_123",
         gate_a_verdict_path=gate_a_file,
         require_gate_a=True,
@@ -53,7 +53,7 @@ def test_executor_gate_a_rejection(tmp_path, monkeypatch):
 def test_executor_isolated_wallet_rejection(monkeypatch):
     monkeypatch.setenv("LP_LIVE_ENABLED", "true")
     # Missing wallet
-    executor = LiveOrderExecutor(
+    executor = LiveOrderExecutor(clob_client='mock', 
         expected_protocol_hash="hash_123",
         wallet_address="",
         wallet_private_key="",
@@ -64,7 +64,7 @@ def test_executor_isolated_wallet_rejection(monkeypatch):
 
     # Isolated wallet equals main production wallet
     shared_address = "0x1111111111111111111111111111111111111111"
-    executor_shared = LiveOrderExecutor(
+    executor_shared = LiveOrderExecutor(clob_client='mock', 
         expected_protocol_hash="hash_123",
         wallet_address=shared_address,
         main_wallet_address=shared_address,
@@ -83,7 +83,7 @@ def test_executor_isolated_wallet_rejection(monkeypatch):
 
 def test_executor_working_capital_limit(monkeypatch):
     monkeypatch.setenv("LP_LIVE_ENABLED", "true")
-    executor = LiveOrderExecutor(
+    executor = LiveOrderExecutor(clob_client='mock', 
         expected_protocol_hash="hash_123",
         allocated_capital_limit=Decimal("100.00"),
     )
@@ -113,7 +113,7 @@ def test_executor_working_capital_limit(monkeypatch):
 
 def test_executor_token_allowlist_rejection(monkeypatch):
     monkeypatch.setenv("LP_LIVE_ENABLED", "true")
-    executor = LiveOrderExecutor(
+    executor = LiveOrderExecutor(clob_client='mock', 
         expected_protocol_hash="hash_123",
         allowlist_tokens={"approved_tok_a", "approved_tok_b"},
     )
@@ -131,7 +131,7 @@ def test_executor_token_allowlist_rejection(monkeypatch):
 
 def test_executor_tick_size_and_min_size(monkeypatch):
     monkeypatch.setenv("LP_LIVE_ENABLED", "true")
-    executor = LiveOrderExecutor(
+    executor = LiveOrderExecutor(clob_client='mock', 
         expected_protocol_hash="hash_123",
         min_size=Decimal("10.0"),
         tick_size=Decimal("0.01"),
@@ -168,7 +168,7 @@ def test_executor_eip712_signing_and_cancel_all(monkeypatch):
     test_key = account.key.hex()
     test_addr = account.address
 
-    executor = LiveOrderExecutor(
+    executor = LiveOrderExecutor(clob_client='mock', 
         expected_protocol_hash="hash_123",
         wallet_private_key=test_key,
         wallet_address=test_addr,

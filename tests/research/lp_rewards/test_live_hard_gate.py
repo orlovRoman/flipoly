@@ -7,7 +7,7 @@ from polyflip.research.lp_rewards.execution import LiveOrderExecutor
 
 def test_live_hard_gate_blocks_when_env_disabled(monkeypatch):
     monkeypatch.setenv("LP_LIVE_ENABLED", "false")
-    executor = LiveOrderExecutor(expected_protocol_hash="valid_hash_123")
+    executor = LiveOrderExecutor(clob_client='mock', expected_protocol_hash="valid_hash_123")
 
     with pytest.raises(PermissionError) as exc_info:
         executor.submit_order(
@@ -22,7 +22,7 @@ def test_live_hard_gate_blocks_when_env_disabled(monkeypatch):
 
 def test_live_hard_gate_blocks_protocol_hash_mismatch(monkeypatch):
     monkeypatch.setenv("LP_LIVE_ENABLED", "true")
-    executor = LiveOrderExecutor(expected_protocol_hash="approved_hash_abc")
+    executor = LiveOrderExecutor(clob_client='mock', expected_protocol_hash="approved_hash_abc")
     executor.verify_gate_a = lambda: True
 
     with pytest.raises(ValueError) as exc_info:
@@ -38,7 +38,7 @@ def test_live_hard_gate_blocks_protocol_hash_mismatch(monkeypatch):
 
 def test_live_order_succeeds_when_all_gates_pass(monkeypatch):
     monkeypatch.setenv("LP_LIVE_ENABLED", "true")
-    executor = LiveOrderExecutor(expected_protocol_hash="approved_hash_abc")
+    executor = LiveOrderExecutor(clob_client='mock', expected_protocol_hash="approved_hash_abc")
     executor.verify_gate_a = lambda: True
 
     res = executor.submit_order(

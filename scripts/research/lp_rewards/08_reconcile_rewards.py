@@ -39,9 +39,10 @@ async def main():
     logger.info(f"Retrieved {len(actual_rewards)} actual reward payout records from Polymarket API.")
 
     # 2. Load daily projected evaluations
-    daily_eval_dir = storage_path / "daily_evaluations"
-    live_eval_dir = storage_path / "daily_evaluations_live"
-    eval_dir = live_eval_dir if live_eval_dir.exists() and list(live_eval_dir.glob("*.json")) else daily_eval_dir
+    eval_dir = storage_path / "daily_evaluations_live"
+    if not eval_dir.exists() or not list(eval_dir.glob("*.json")):
+        logger.error("DATA_INSUFFICIENT: No live daily evaluations found. Shadow data is not permitted for Gate B.")
+        sys.exit(1)
 
     projected_by_date: Dict[str, Decimal] = {}
     if eval_dir.exists():
@@ -56,10 +57,12 @@ async def main():
     payout_records: List[Dict[str, Any]] = []
     for item in actual_rewards:
         cid = item.get("condition_id", item.get("market", "c_unknown"))
-        actual_val = Decimal(str(item.get("earnings", item.get("amount", item.get("reward", "0.0")))))
+        actual_val = Decimal(str(item.get("earnings", "0.0")))
         date_val = item.get("date", "")
-        # Look up projected reward or default to observation
-        projected_val = projected_by_date.get(date_val, Decimal(str(item.get("projected", actual_val))))
+        if date_val not in projected_by_date:
+            logger.error(f"DATA_INSUFFICIENT: No live projection found for date {date_val}")
+            sys.exit(1)
+        projected_val = projected_by_date[date_val]
         err = calibrator.record_observation(cid, projected_val, actual_val)
         payout_records.append({
             "condition_id": cid,

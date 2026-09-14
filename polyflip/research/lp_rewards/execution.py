@@ -15,7 +15,7 @@ getcontext().prec = 28
 logger = logging.getLogger(__name__)
 
 POLYGON_CHAIN_ID = 137
-CTF_EXCHANGE_ADDRESS = "0xE111180000d2663c0091e4f400237545b87b996b"
+CTF_EXCHANGE_ADDRESS = "0xE111425114D4B830423406323c280B811B3e1d13"
 
 
 class LiveOrderExecutor:
@@ -54,9 +54,14 @@ class LiveOrderExecutor:
         self.gate_a_verdict_path = gate_a_verdict_path
         self.wallet_private_key = wallet_private_key or os.getenv("LP_WALLET_PRIVATE_KEY")
         self.wallet_address = wallet_address or os.getenv("LP_ISOLATED_WALLET_ADDRESS")
-        if not self.wallet_address and self.wallet_private_key:
+        if self.wallet_private_key:
             try:
-                self.wallet_address = Account.from_key(self.wallet_private_key).address
+                derived_address = Account.from_key(self.wallet_private_key).address
+                if self.wallet_address and derived_address.lower() != self.wallet_address.lower():
+                    raise ValueError(f"Private key mismatch: derived {derived_address}, expected {self.wallet_address}")
+                self.wallet_address = derived_address
+            except ValueError:
+                raise
             except Exception:
                 pass
         self.main_wallet_address = (
@@ -188,7 +193,7 @@ class LiveOrderExecutor:
             try:
                 return int(s, 16)
             except ValueError:
-                return 1
+                raise ValueError(f"Invalid token ID: {token_id}")
         if s.isdigit():
             return int(s)
         try:
@@ -259,10 +264,15 @@ class LiveOrderExecutor:
                     {"name": "salt", "type": "uint256"},
                     {"name": "maker", "type": "address"},
                     {"name": "signer", "type": "address"},
+                    {"name": "taker", "type": "address"},
                     {"name": "tokenId", "type": "uint256"},
                     {"name": "makerAmount", "type": "uint256"},
                     {"name": "takerAmount", "type": "uint256"},
+                    {"name": "expiration", "type": "uint256"},
+                    {"name": "nonce", "type": "uint256"},
+                    {"name": "feeRateBps", "type": "uint256"},
                     {"name": "side", "type": "uint8"},
+                    {"name": "signatureType", "type": "uint8"},
                     {"name": "timestamp", "type": "uint256"},
                     {"name": "metadata", "type": "string"},
                     {"name": "builder", "type": "address"},
@@ -279,10 +289,15 @@ class LiveOrderExecutor:
                 "salt": salt,
                 "maker": maker_address,
                 "signer": maker_address,
+                "taker": "0x0000000000000000000000000000000000000000",
                 "tokenId": self._parse_token_id(token_id),
                 "makerAmount": maker_amount,
                 "takerAmount": taker_amount,
+                "expiration": expiration,
+                "nonce": 0,
+                "feeRateBps": fee_rate_bps,
                 "side": side_int,
+                "signatureType": 0,
                 "timestamp": now_ts,
                 "metadata": "",
                 "builder": "0x0000000000000000000000000000000000000000",
@@ -307,15 +322,16 @@ class LiveOrderExecutor:
     def cancel_all_orders(self) -> bool:
         """Cancel all resting orders on CLOB immediately (emergency guard)."""
         logger.warning("Emergency CANCEL-ALL triggered on live executor.")
-        if self.clob_client:
-            try:
-                if hasattr(self.clob_client, "cancel_all_orders"):
-                    self._execute_client_call("cancel_all_orders")
-                elif hasattr(self.clob_client, "cancel_all"):
-                    self._execute_client_call("cancel_all")
-            except Exception as e:
-                logger.error(f"Failed to cancel all orders via client: {e}")
-                return False
+        if not self.clob_client:
+            raise PermissionError("CLOB client is not authenticated or provided. Live operations forbidden.")
+        try:
+            if hasattr(self.clob_client, "cancel_all_orders"):
+                self._execute_client_call("cancel_all_orders")
+            elif hasattr(self.clob_client, "cancel_all"):
+                self._execute_client_call("cancel_all")
+        except Exception as e:
+            logger.error(f"Failed to cancel all orders via client: {e}")
+            return False
         self.submitted_orders.clear()
         self.current_committed_capital = Decimal("0.0")
         return True
@@ -323,15 +339,16 @@ class LiveOrderExecutor:
     async def cancel_all_orders_async(self) -> bool:
         """Cancel all resting orders on CLOB immediately in async context."""
         logger.warning("Emergency CANCEL-ALL triggered on live executor (async).")
-        if self.clob_client:
-            try:
-                if hasattr(self.clob_client, "cancel_all_orders"):
-                    await self._execute_client_call_async("cancel_all_orders")
-                elif hasattr(self.clob_client, "cancel_all"):
-                    await self._execute_client_call_async("cancel_all")
-            except Exception as e:
-                logger.error(f"Failed to cancel all orders via client: {e}")
-                return False
+        if not self.clob_client:
+            raise PermissionError("CLOB client is not authenticated or provided. Live operations forbidden.")
+        try:
+            if hasattr(self.clob_client, "cancel_all_orders"):
+                await self._execute_client_call_async("cancel_all_orders")
+            elif hasattr(self.clob_client, "cancel_all"):
+                await self._execute_client_call_async("cancel_all")
+        except Exception as e:
+            logger.error(f"Failed to cancel all orders via client: {e}")
+            return False
         self.submitted_orders.clear()
         self.current_committed_capital = Decimal("0.0")
         return True
@@ -351,6 +368,9 @@ class LiveOrderExecutor:
             raise PermissionError(
                 "LP Live trading is disabled. LP_LIVE_ENABLED must be set to 'true' after Gate A passes."
             )
+
+        if not self.clob_client:
+            raise PermissionError("CLOB client is not authenticated or provided. Live operations forbidden.")
 
         if self.expected_protocol_hash and protocol_hash != self.expected_protocol_hash:
             raise ValueError(

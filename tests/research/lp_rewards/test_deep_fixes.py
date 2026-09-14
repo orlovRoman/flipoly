@@ -44,6 +44,7 @@ def test_executor_allowance_verification(monkeypatch):
     monkeypatch.setenv("LP_LIVE_ENABLED", "true")
     executor = LiveOrderExecutor(
         expected_protocol_hash="hash_123",
+        clob_client="mock_client",
     )
     executor.verify_gate_a = lambda: True
 

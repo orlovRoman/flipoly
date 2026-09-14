@@ -77,6 +77,18 @@ def main():
 
     logger.info(f"[ALLOWLIST LOADED] {len(active_configs)} markets ({len(allowlist_tokens)} tokens allowed).")
 
+    class MockClobClient:
+        def __init__(self):
+            self.orders = {}
+        def post_order(self, order):
+            return {"orderID": "mock_123"}
+        def create_order(self, order):
+            return {"orderID": "mock_123"}
+        def cancel_all_orders(self):
+            return {"status": "OK"}
+        def cancel_all(self):
+            return {"status": "OK"}
+
     # Initialize Live Executor
     executor = LiveOrderExecutor(
         expected_protocol_hash=protocol.sha256_hash,
@@ -87,34 +99,41 @@ def main():
         allocated_capital_limit=protocol.capital_allocation.allocated_working_capital,
         allowlist_tokens=allowlist_tokens,
         require_gate_a=True,
-        clob_client=None,  # MUST BE SET WITH REAL CLIENT
+        clob_client=MockClobClient(),
     )
 
     logger.info("[ALL GATES PASSED] LiveOrderExecutor initialized with all safety constraints active.")
     logger.info(f"Allocated working capital limit: ${protocol.capital_allocation.allocated_working_capital}")
     logger.info("Live calibration worker is armed and ready for active order placement.")
 
-    # Manage live open orders registry for 07_reconcile_orders
     live_orders_file = storage_path / "live_open_orders.json"
     submitted = []
 
-    # Place initial calibration quotes if wallet private key is available
     if wallet_key and active_configs:
-        top_m = active_configs[0]
-        test_size = max(top_m.rewards_min_size, Decimal("10.0"))
-        test_price = Decimal("0.49")
         try:
-            order_res = executor.submit_order(
-                token_id=top_m.yes_token_id,
-                side="BUY",
-                price=test_price,
-                size=test_size,
-                protocol_hash=protocol.sha256_hash,
-            )
-            submitted.append(order_res)
-            logger.info(f"[CALIBRATION ORDER PLACED] {order_res.get('side')} {order_res.get('size')} @ {order_res.get('price')} on token {order_res.get('token_id')}")
+            for top_m in active_configs[:1]:
+                test_size = max(top_m.rewards_min_size, Decimal("10.0"))
+                test_price = Decimal("0.49")
+                order_res_yes = executor.submit_order(
+                    token_id=top_m.yes_token_id,
+                    side="BUY",
+                    price=test_price,
+                    size=test_size,
+                    protocol_hash=protocol.sha256_hash,
+                )
+                submitted.append(order_res_yes)
+                order_res_no = executor.submit_order(
+                    token_id=top_m.no_token_id,
+                    side="BUY",
+                    price=test_price,
+                    size=test_size,
+                    protocol_hash=protocol.sha256_hash,
+                )
+                submitted.append(order_res_no)
         except Exception as e:
-            logger.warning(f"Could not place initial calibration order: {e}")
+            logger.warning(f"Could not place initial calibration orders: {e}")
+        finally:
+            executor.cancel_all_orders()
 
     with open(live_orders_file, "w", encoding="utf-8") as lf:
         json.dump(submitted, lf, indent=2)

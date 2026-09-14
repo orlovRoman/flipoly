@@ -101,6 +101,7 @@ class MarketDataCollector:
         self.last_pong_time: float = time.time()
         self.active_markets: Dict[str, MarketRewardConfig] = {}
         self.trade_buffer: List[Dict[str, Any]] = []
+        self.simulation_trade_buffer: List[Dict[str, Any]] = []
 
     def set_active_markets(self, markets: List[MarketRewardConfig]) -> None:
         self.active_markets = {m.condition_id: m for m in markets}
@@ -238,6 +239,7 @@ class MarketDataCollector:
                         "size": str(size),
                         "side": side.value,
                     })
+                    self.simulation_trade_buffer.append(self.trade_buffer[-1])
 
             except Exception as e:
                 logger.debug(f"Error parsing WS message: {e}")
