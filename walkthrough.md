@@ -103,18 +103,47 @@ python -m pytest tests/research/lp_rewards -v
 Все **78 тестов** в тестовом наборе проходят успешно.
 
 
-## 9. Финальные исправления Gate B и SDK (Commit 2)
+## 10. Безусловный Fail-Closed контроль изолированного кошелька и синхронизация Poetry Lock (Итерация 3)
 
-- Добавлен `import os` в `09_evaluate_gate_b.py`, исправлено отсутствие переменной окружения.
-- Усилена проверка кошелька Gate B в `09_evaluate_gate_b.py`: fail-closed, если `wallet_address` отсутствует в отчете или не совпадает с `LP_ISOLATED_WALLET_ADDRESS`.
-- В `08_reconcile_rewards.py` проверка кошелька теперь fail-closed (нет значения по умолчанию), добавлена строгая проверка полноты дат выплат (каждая ожидаемая дата должна присутствовать).
-- Удален fallback-класс `SignedOrderV2` из `polyflip/research/lp_rewards/execution.py`, используется исключительно официальный тип из `py_clob_client_v2`.
-- В `test_live_executor_real.py` добавлен полный интеграционный тест SDK `test_executor_full_sdk_integration`, проверяющий сериализацию `order_to_json_v2()` через mock HTTP endpoint `respx`.
-- Обновлен `pyproject.toml` (`requires-python = ">=3.11,<3.15"`) и синхронизированы лок-файлы `uv lock`.
+В третьей итерации устранены последние критические замечания аудита:
 
-### Результат прогона тестов:
-```bash
-python -m pytest tests/research/lp_rewards -v
-============================= 88 passed in 2.87s ==============================
-```
-Все **88 тестов** в тестовом наборе проходят успешно.
+1. **Безусловный Fail-Closed в Gate B (`09_evaluate_gate_b.py`)**:
+   - Переменная окружения `LP_ISOLATED_WALLET_ADDRESS` теперь проверяется **в самом начале** функции `main()`, до загрузки файлов и расчетов. При отсутствии или пустой строке скрипт немедленно логирует ошибку `LP_ISOLATED_WALLET_ADDRESS is missing. Rejecting Gate B.` и завершается с `sys.exit(1)`.
+   - Проверка каталога сверки `storage_path / "reconciliation"` и файлов `rewards_*.json` переведена в строгий режим fail-closed: если файлов сверки нет, выполнение не продолжается с дефолтной ошибкой, а немедленно прерывается с `sys.exit(1)`.
+   - Добавлены проверки несовпадения кошелька в отчете сверки с изолированным кошельком и несовпадения хэша протокола.
+
+2. **Безусловный Fail-Closed кошелька в `LiveOrderExecutor.submit_order()` (`execution.py`)**:
+   - В метод `submit_order()` добавлена безусловная проверка: `self.wallet_address` обязан быть задан, не быть пустым и не быть нулевым адресом (`0x0000000000000000000000000000000000000000`). В противном случае выбрасывается `PermissionError("Live execution requires configured non-zero wallet_address")`.
+   - Метод `self.verify_isolated_wallet()` вызывается **безусловно**, даже если параметры `live_balance` и `allowance` были переданы вручную. Это исключает генерацию ордеров с нулевым `maker` при любых условиях.
+
+3. **Синхронизация зависимостей и `poetry.lock`**:
+   - В `pyproject.toml` в секцию `[tool.poetry.dependencies]` явно добавлена зависимость `websockets = ">=12.0,<16.0"`, а также подтверждены `py-clob-client-v2 = "^1.1.0"`, `eth-account = "^0.13.0"`, `pyarrow = "^17.0.0"`. В секции dev-зависимостей подтвержден `respx = "^0.21.1"`.
+   - Запущен `poetry lock` (через Poetry 2.4.3), перегенерировавший `poetry.lock`. Лок-файл теперь полностью содержит `py-clob-client-v2`, `websockets`, `eth-account`, `pyarrow`, `fastapi`, `asyncpg`.
+   - Синхронизирован `uv.lock`.
+   - Проверена сборка зависимостей для `Dockerfile` через `poetry export -f requirements.txt --without-hashes`.
+
+4. **Инструкция по запуску тестов на сервере**:
+   > ⚠️ **Важное пояснение по серверному окружению**:
+   > На боевом сервере системный бинарник `/usr/bin/python3` не содержит библиотек проекта. Запуск `python3 -m pytest ...` приводит к ошибкам `ModuleNotFoundError` (`websockets`, `pyarrow`, `respx`, `eth_account`, `py_clob_client_v2`).
+   >
+   > Для корректного запуска тестов на сервере **необходимо использовать виртуальное окружение Poetry**:
+   > ```bash
+   > # Вариант 1 (рекомендуемый): через Poetry CLI
+   > poetry run pytest tests/research/lp_rewards -v
+   >
+   > # Вариант 2: через активированное виртуальное окружение
+   > source .venv/bin/activate
+   > pytest tests/research/lp_rewards -v
+   >
+   > # Вариант 3: прямой вызов python из virtualenv
+   > ./.venv/bin/python -m pytest tests/research/lp_rewards -v
+   > ```
+
+5. **Результаты локального тестирования и валидации**:
+   - Добавлены unit-тесты на немедленное падение Gate B при отсутствии кошелька или отчетов сверки, а также тесты на отклонение нулевого и отсутствующего адреса кошелька в `LiveOrderExecutor`.
+   - Результат прогона всего тестового набора:
+     ```bash
+     pytest tests/research/lp_rewards -v
+     ============================= 95 passed in 4.14s ==============================
+     ```
+   - Команда `git diff --check` проходит с нулевым кодом возврата (нет trailing whitespace и некорректных переводов строк).

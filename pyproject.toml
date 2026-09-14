@@ -35,6 +35,7 @@ sentry-sdk = {extras = ["fastapi"], version = "^2.8.0"}
 aiohttp = "^3.9.0"
 eth-account = "^0.13.0"
 py-clob-client-v2 = "^1.1.0"
+websockets = ">=12.0,<16.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^9.0.3"

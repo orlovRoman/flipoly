@@ -44,6 +44,12 @@ def calculate_max_drawdown(daily_pnls: List[Decimal], initial_capital: Decimal =
 
 
 def main():
+    isolated_wallet = os.getenv("LP_ISOLATED_WALLET_ADDRESS")
+    if not isolated_wallet or not isolated_wallet.strip():
+        logger.error("LP_ISOLATED_WALLET_ADDRESS is missing. Rejecting Gate B.")
+        print("TARGET_REJECTED: LP_ISOLATED_WALLET_ADDRESS is missing. Rejecting Gate B.")
+        sys.exit(1)
+
     protocol = load_protocol()
     storage_path = Path(protocol.data_storage.root_path)
 
@@ -93,29 +99,27 @@ def main():
 
     # 2. Check latest reward prediction error from reconciliation reports
     recon_dir = storage_path / "reconciliation"
-    mean_prediction_error = Decimal("1.0")
-    isolated_wallet = os.getenv("LP_ISOLATED_WALLET_ADDRESS")
-    if recon_dir.exists():
-        reward_reports = sorted(recon_dir.glob("rewards_*.json"))
-        if reward_reports:
-            with open(reward_reports[-1], "r", encoding="utf-8") as rf:
-                rdata = json.load(rf)
-                rep_hash = rdata.get("protocol_hash")
-                rep_wallet = rdata.get("wallet_address")
-                if rep_hash != protocol.sha256_hash:
-                    logger.error(f"Reconciliation report hash mismatch: {rep_hash} != {protocol.sha256_hash}. Rejecting Gate B.")
-                    sys.exit(1)
-                elif not isolated_wallet:
-                    logger.error("LP_ISOLATED_WALLET_ADDRESS is missing. Rejecting Gate B.")
-                    sys.exit(1)
-                elif not rep_wallet:
-                    logger.error("Reconciliation report wallet_address is missing. Rejecting Gate B.")
-                    sys.exit(1)
-                elif rep_wallet.lower() != isolated_wallet.lower():
-                    logger.error(f"Reconciliation report wallet mismatch: {rep_wallet} != {isolated_wallet}. Rejecting Gate B.")
-                    sys.exit(1)
-                else:
-                    mean_prediction_error = Decimal(str(rdata.get("mean_error_ratio", "1.0")))
+    reward_reports = sorted(recon_dir.glob("rewards_*.json")) if recon_dir.exists() else []
+    if not reward_reports:
+        logger.error("No reconciliation reports found. Rejecting Gate B.")
+        print("DATA_INSUFFICIENT: No reconciliation reports found. Rejecting Gate B.")
+        sys.exit(1)
+
+    with open(reward_reports[-1], "r", encoding="utf-8") as rf:
+        rdata = json.load(rf)
+        rep_hash = rdata.get("protocol_hash")
+        rep_wallet = rdata.get("wallet_address")
+        if rep_hash != protocol.sha256_hash:
+            logger.error(f"Reconciliation report hash mismatch: {rep_hash} != {protocol.sha256_hash}. Rejecting Gate B.")
+            sys.exit(1)
+        elif not rep_wallet:
+            logger.error("Reconciliation report wallet_address is missing. Rejecting Gate B.")
+            sys.exit(1)
+        elif rep_wallet.lower() != isolated_wallet.lower():
+            logger.error(f"Reconciliation report wallet mismatch: {rep_wallet} != {isolated_wallet}. Rejecting Gate B.")
+            sys.exit(1)
+        else:
+            mean_prediction_error = Decimal(str(rdata.get("mean_error_ratio", "1.0")))
 
     # 3. Calculate bootstrap CI and drawdown
     point, lower, upper = compute_block_bootstrap_ci(

@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 POLYGON_CHAIN_ID = 137
 CTF_EXCHANGE_ADDRESS = "0xE111180000d2663C0091e4f400237545B87B996B"
+ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 
 
 class LiveOrderExecutor:
@@ -127,7 +128,7 @@ class LiveOrderExecutor:
         addr = wallet_address or self.wallet_address
         main_addr = main_wallet_address or self.main_wallet_address
 
-        if not addr:
+        if not addr or addr.lower() == ZERO_ADDRESS.lower():
             raise ValueError("Dedicated LP isolated wallet address is not configured.")
 
         if main_addr and addr.lower() == main_addr.lower():
@@ -314,7 +315,7 @@ class LiveOrderExecutor:
             maker_amount = int(size * Decimal("1e6"))
             taker_amount = int(price * size * Decimal("1e6"))
 
-        maker_address = self.wallet_address or "0x0000000000000000000000000000000000000000"
+        maker_address = self.wallet_address or ZERO_ADDRESS
         empty_bytes32 = "0x" + "00" * 32
 
         order_data = {
@@ -434,8 +435,14 @@ class LiveOrderExecutor:
         if self.require_gate_a:
             self.verify_gate_a()
 
-        if self.wallet_address:
-            self.verify_isolated_wallet()
+        if (
+            not self.wallet_address
+            or not self.wallet_address.strip()
+            or self.wallet_address.lower() == ZERO_ADDRESS.lower()
+        ):
+            raise PermissionError("Live execution requires configured non-zero wallet_address")
+
+        self.verify_isolated_wallet()
 
         self.verify_token_allowlist(token_id)
         self.verify_tick_and_min_size(price, size)

@@ -45,6 +45,7 @@ def test_executor_allowance_verification(monkeypatch):
     executor = LiveOrderExecutor(
         expected_protocol_hash="hash_123",
         clob_client="mock_client",
+        wallet_address="0x1111111111111111111111111111111111111111",
     )
     executor.verify_gate_a = lambda: True
 
@@ -721,3 +722,116 @@ def test_live_calibration_fetch_live_midpoint():
     client_book = MockClobWithBook()
     mid_book = fetch_live_midpoint(client_book, "tok_123")
     assert mid_book == Decimal("0.50")
+
+
+def test_gate_b_evaluator_script_missing_wallet_fails_closed(monkeypatch):
+    """Verify 09_evaluate_gate_b.py main() immediately exits with code 1 if LP_ISOLATED_WALLET_ADDRESS is missing."""
+    mod_09 = importlib.import_module("scripts.research.lp_rewards.09_evaluate_gate_b")
+    monkeypatch.delenv("LP_ISOLATED_WALLET_ADDRESS", raising=False)
+    with pytest.raises(SystemExit) as exc:
+        mod_09.main()
+    assert exc.value.code == 1
+
+
+def test_gate_b_evaluator_script_empty_wallet_fails_closed(monkeypatch):
+    """Verify 09_evaluate_gate_b.py main() immediately exits with code 1 if LP_ISOLATED_WALLET_ADDRESS is empty whitespace."""
+    mod_09 = importlib.import_module("scripts.research.lp_rewards.09_evaluate_gate_b")
+    monkeypatch.setenv("LP_ISOLATED_WALLET_ADDRESS", "   ")
+    with pytest.raises(SystemExit) as exc:
+        mod_09.main()
+    assert exc.value.code == 1
+
+
+def test_gate_b_evaluator_script_missing_recon_files_fails_closed(tmp_path, monkeypatch):
+    """Verify 09_evaluate_gate_b.py main() exits with code 1 when reconciliation reports are missing."""
+    mod_09 = importlib.import_module("scripts.research.lp_rewards.09_evaluate_gate_b")
+    monkeypatch.setenv("LP_ISOLATED_WALLET_ADDRESS", "0x1234567890123456789012345678901234567890")
+
+    from polyflip.research.lp_rewards.protocol import load_protocol
+    protocol = load_protocol().model_copy(deep=True)
+    protocol.data_storage.root_path = str(tmp_path)
+    monkeypatch.setattr(mod_09, "load_protocol", lambda: protocol)
+
+    eval_dir = tmp_path / "daily_evaluations_live"
+    eval_dir.mkdir(parents=True)
+    with open(eval_dir / "eval_20260901.json", "w", encoding="utf-8") as f:
+        json.dump({
+            "date": "2026-09-01",
+            "net_pnl": "4.0",
+            "protocol_hash": protocol.sha256_hash,
+        }, f)
+
+    with pytest.raises(SystemExit) as exc:
+        mod_09.main()
+    assert exc.value.code == 1
+
+
+def test_gate_b_evaluator_script_mismatched_wallet_in_recon_fails_closed(tmp_path, monkeypatch):
+    """Verify 09_evaluate_gate_b.py main() exits with code 1 when reconciliation report has mismatched wallet."""
+    mod_09 = importlib.import_module("scripts.research.lp_rewards.09_evaluate_gate_b")
+    monkeypatch.setenv("LP_ISOLATED_WALLET_ADDRESS", "0x1234567890123456789012345678901234567890")
+
+    from polyflip.research.lp_rewards.protocol import load_protocol
+    protocol = load_protocol().model_copy(deep=True)
+    protocol.data_storage.root_path = str(tmp_path)
+    monkeypatch.setattr(mod_09, "load_protocol", lambda: protocol)
+
+    eval_dir = tmp_path / "daily_evaluations_live"
+    eval_dir.mkdir(parents=True)
+    with open(eval_dir / "eval_20260901.json", "w", encoding="utf-8") as f:
+        json.dump({
+            "date": "2026-09-01",
+            "net_pnl": "4.0",
+            "protocol_hash": protocol.sha256_hash,
+        }, f)
+
+    recon_dir = tmp_path / "reconciliation"
+    recon_dir.mkdir(parents=True)
+    with open(recon_dir / "rewards_20260901.json", "w", encoding="utf-8") as f:
+        json.dump({
+            "protocol_hash": protocol.sha256_hash,
+            "wallet_address": "0x9999999999999999999999999999999999999999",
+            "mean_error_ratio": "0.15",
+        }, f)
+
+    with pytest.raises(SystemExit) as exc:
+        mod_09.main()
+    assert exc.value.code == 1
+
+
+def test_gate_b_evaluator_script_happy_path(tmp_path, monkeypatch):
+    """Verify 09_evaluate_gate_b.py main() completes and writes artifact when wallet and recon match."""
+    mod_09 = importlib.import_module("scripts.research.lp_rewards.09_evaluate_gate_b")
+    wallet = "0x1234567890123456789012345678901234567890"
+    monkeypatch.setenv("LP_ISOLATED_WALLET_ADDRESS", wallet)
+
+    from polyflip.research.lp_rewards.protocol import load_protocol
+    protocol = load_protocol().model_copy(deep=True)
+    protocol.data_storage.root_path = str(tmp_path)
+    monkeypatch.setattr(mod_09, "load_protocol", lambda: protocol)
+
+    eval_dir = tmp_path / "daily_evaluations_live"
+    eval_dir.mkdir(parents=True)
+    with open(eval_dir / "eval_20260901.json", "w", encoding="utf-8") as f:
+        json.dump({
+            "date": "2026-09-01",
+            "net_pnl": "4.0",
+            "protocol_hash": protocol.sha256_hash,
+        }, f)
+
+    recon_dir = tmp_path / "reconciliation"
+    recon_dir.mkdir(parents=True)
+    with open(recon_dir / "rewards_20260901.json", "w", encoding="utf-8") as f:
+        json.dump({
+            "protocol_hash": protocol.sha256_hash,
+            "wallet_address": wallet,
+            "mean_error_ratio": "0.15",
+        }, f)
+
+    mod_09.main()
+    verdict_file = tmp_path / "gate_b_verdict.json"
+    assert verdict_file.exists()
+    with open(verdict_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    assert data["protocol_id"] == protocol.protocol_id
+    assert data["mean_prediction_error"] == "0.15"

@@ -74,6 +74,44 @@ def test_executor_isolated_wallet_rejection(monkeypatch):
         executor.verify_isolated_wallet()
     assert "wallet address is not configured" in str(exc.value)
 
+    # Zero address rejection in verify_isolated_wallet
+    executor_zero = LiveOrderExecutor(
+        clob_client=MockClobClient(),
+        expected_protocol_hash="hash_123",
+        wallet_address="0x0000000000000000000000000000000000000000",
+    )
+    with pytest.raises(ValueError) as exc_z:
+        executor_zero.verify_isolated_wallet()
+    assert "wallet address is not configured" in str(exc_z.value)
+
+    # Submit order rejects missing wallet
+    executor.verify_gate_a = lambda: True
+    with pytest.raises(PermissionError) as exc_sub_m:
+        executor.submit_order(
+            token_id="12345",
+            side="BUY",
+            price=Decimal("0.50"),
+            size=Decimal("10.0"),
+            protocol_hash="hash_123",
+            live_balance=Decimal("100.00"),
+            allowance=Decimal("100.00"),
+        )
+    assert "Live execution requires configured non-zero wallet_address" in str(exc_sub_m.value)
+
+    # Submit order rejects zero wallet
+    executor_zero.verify_gate_a = lambda: True
+    with pytest.raises(PermissionError) as exc_sub_z:
+        executor_zero.submit_order(
+            token_id="12345",
+            side="BUY",
+            price=Decimal("0.50"),
+            size=Decimal("10.0"),
+            protocol_hash="hash_123",
+            live_balance=Decimal("100.00"),
+            allowance=Decimal("100.00"),
+        )
+    assert "Live execution requires configured non-zero wallet_address" in str(exc_sub_z.value)
+
     # Isolated wallet equals main production wallet
     shared_address = "0x1111111111111111111111111111111111111111"
     executor_shared = LiveOrderExecutor(
@@ -99,6 +137,7 @@ def test_executor_working_capital_limit(monkeypatch):
     executor = LiveOrderExecutor(
         clob_client=MockClobClient(),
         expected_protocol_hash="hash_123",
+        wallet_address="0x1111111111111111111111111111111111111111",
         allocated_capital_limit=Decimal("100.00"),
     )
     executor.verify_gate_a = lambda: True
@@ -134,6 +173,7 @@ def test_executor_token_allowlist_rejection(monkeypatch):
     executor = LiveOrderExecutor(
         clob_client=MockClobClient(),
         expected_protocol_hash="hash_123",
+        wallet_address="0x1111111111111111111111111111111111111111",
         allowlist_tokens={"approved_tok_a", "approved_tok_b"},
     )
     executor.verify_gate_a = lambda: True
@@ -153,6 +193,7 @@ def test_executor_tick_size_and_min_size(monkeypatch):
     executor = LiveOrderExecutor(
         clob_client=MockClobClient(),
         expected_protocol_hash="hash_123",
+        wallet_address="0x1111111111111111111111111111111111111111",
         min_size=Decimal("10.0"),
         tick_size=Decimal("0.01"),
     )
