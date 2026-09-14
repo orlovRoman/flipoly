@@ -53,6 +53,15 @@ class RewardCalibrator:
         headers = {}
         if api_key:
             headers["POLY_API_KEY"] = api_key
+        # For L2 API, require all headers
+        poly_address = os.getenv("POLY_ADDRESS")
+        poly_signature = os.getenv("POLY_SIGNATURE")
+        poly_timestamp = os.getenv("POLY_TIMESTAMP")
+        poly_passphrase = os.getenv("POLY_PASSPHRASE")
+        if poly_address: headers["POLY_ADDRESS"] = poly_address
+        if poly_signature: headers["POLY_SIGNATURE"] = poly_signature
+        if poly_timestamp: headers["POLY_TIMESTAMP"] = poly_timestamp
+        if poly_passphrase: headers["POLY_PASSPHRASE"] = poly_passphrase
 
         try:
             url = f"{base_url}/rewards/user"
@@ -62,7 +71,8 @@ class RewardCalibrator:
                 if isinstance(data, list):
                     return data
                 elif isinstance(data, dict):
-                    return data.get("data") or data.get("rewards") or [data]
+                    # API returns earnings
+                    return data.get("earnings") or data.get("data") or data.get("rewards") or [data]
             return []
         except Exception as e:
             logger.warning(f"Failed to fetch actual rewards for wallet {wallet_address}: {e}")

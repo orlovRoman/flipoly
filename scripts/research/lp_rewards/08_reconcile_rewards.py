@@ -56,9 +56,10 @@ async def main():
     payout_records: List[Dict[str, Any]] = []
     for item in actual_rewards:
         cid = item.get("condition_id", item.get("market", "c_unknown"))
-        actual_val = Decimal(str(item.get("amount", item.get("reward", "0.0"))))
+        actual_val = Decimal(str(item.get("earnings", item.get("amount", item.get("reward", "0.0")))))
+        date_val = item.get("date", "")
         # Look up projected reward or default to observation
-        projected_val = Decimal(str(item.get("projected", actual_val)))
+        projected_val = projected_by_date.get(date_val, Decimal(str(item.get("projected", actual_val))))
         err = calibrator.record_observation(cid, projected_val, actual_val)
         payout_records.append({
             "condition_id": cid,
@@ -67,11 +68,9 @@ async def main():
             "error_ratio": str(err),
         })
 
-    # If no live API rewards were retrieved yet, use evaluations as baseline
-    if not actual_rewards and projected_by_date:
-        logger.info("No remote API reward records returned yet. Evaluating calibrator on available records.")
-        for d, proj in projected_by_date.items():
-            calibrator.record_observation(d, proj, proj)
+    if not actual_rewards:
+        logger.error("DATA_INSUFFICIENT: No remote API reward records returned.")
+        sys.exit(1)
 
     passes, mean_error = calibrator.evaluate_gate_b_accuracy()
 

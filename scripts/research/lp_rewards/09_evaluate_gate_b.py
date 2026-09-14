@@ -57,10 +57,8 @@ def main():
     eval_files = sorted(live_eval_dir.glob("*.json")) if live_eval_dir.exists() else []
 
     if not eval_files:
-        # Check standard daily evaluations for live-flagged days
-        standard_dir = storage_path / "daily_evaluations"
-        if standard_dir.exists():
-            eval_files = sorted(standard_dir.glob("*.json"))
+        print("DATA_INSUFFICIENT: No live daily evaluations found.")
+        sys.exit(1)
 
     daily_records: List[Dict[str, Any]] = []
     daily_pnls: List[Decimal] = []
