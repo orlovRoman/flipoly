@@ -5,6 +5,8 @@
   "branch": "research/lp-rewards",
   "base_commit_sha": "220ebe238d6666e99269a0de56b37f17490ab2c2",
   "base_commit_short": "220ebe23",
+  "final_commit_sha": "42ec0e244d81a1d490af81d18fb64ec6994d19f2",
+  "final_commit_short": "42ec0e24",
   "origin_sha": "220ebe238d6666e99269a0de56b37f17490ab2c2",
   "production_main_sha": "bc49cb93824555f46f48711a63ebc38f674f06de",
   "production_main_untouched": true,

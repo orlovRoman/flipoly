@@ -49,7 +49,10 @@ def main():
     print("=" * 60)
     print(f"Criteria Verification Checklist:")
     print(f"  [{'PASS' if report.total_days >= protocol.gates.gate_a.min_calendar_days else 'FAIL'}] Calendar Days: {report.total_days} (min {protocol.gates.gate_a.min_calendar_days})")
-    print(f"  [{'PASS' if report.total_quote_hours >= Decimal(str(protocol.gates.gate_a.min_quote_hours)) else 'FAIL'}] Quote-Hours: {report.total_quote_hours:.1f} (min {protocol.gates.gate_a.min_quote_hours})")
+    sim_pass = report.total_simulated_quote_hours >= Decimal(str(protocol.gates.gate_a.min_quote_hours))
+    print(f"  [{'PASS' if sim_pass else 'FAIL'}] Simulated Quote-Hours: {report.total_simulated_quote_hours:.1f} (min {protocol.gates.gate_a.min_quote_hours})")
+    print(f"  [INFO] Actual Quote-Hours (Shadow mode): {report.total_actual_quote_hours:.1f} (real CLOB orders = 0.0)")
+    print(f"  [{'PASS' if sim_pass else 'FAIL'}] Quote-Hours (Legacy): {report.total_quote_hours:.1f}")
     print(f"  [{'PASS' if report.active_markets_count >= protocol.gates.gate_a.min_active_markets else 'FAIL'}] Active Markets: {report.active_markets_count} (min {protocol.gates.gate_a.min_active_markets})")
     print(f"  [{'PASS' if report.min_market_coverage >= protocol.gates.gate_a.min_market_coverage_ratio else 'FAIL'}] Min Coverage Ratio: {float(report.min_market_coverage)*100:.2f}% (min {float(protocol.gates.gate_a.min_market_coverage_ratio)*100:.1f}%)")
     print(f"  [{'PASS' if report.max_market_pnl_share <= protocol.gates.gate_a.max_single_market_pnl_share else 'FAIL'}] Max Single Market PnL Share: {float(report.max_market_pnl_share)*100:.2f}% (max {float(protocol.gates.gate_a.max_single_market_pnl_share)*100:.1f}%)")
@@ -79,6 +82,8 @@ def main():
         "upper_95": str(report.upper_95),
         "total_days": report.total_days,
         "total_quote_hours": str(report.total_quote_hours),
+        "total_simulated_quote_hours": str(report.total_simulated_quote_hours),
+        "total_actual_quote_hours": str(report.total_actual_quote_hours),
         "active_markets_count": report.active_markets_count,
         "min_market_coverage": str(report.min_market_coverage),
         "max_market_pnl_share": str(report.max_market_pnl_share),

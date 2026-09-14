@@ -7,6 +7,7 @@ from polyflip.research.lp_rewards.evaluation import (
     determine_gate_b_verdict,
     evaluate_gate_a_full,
 )
+from polyflip.research.lp_rewards.models import DailyEvaluationRecord
 from polyflip.research.lp_rewards.reward_calibration import RewardCalibrator
 
 
@@ -209,3 +210,66 @@ def test_reward_calibrator_relative_error_relative_to_actual():
     passes_updated, mean_err_updated = calibrator.evaluate_gate_b_accuracy()
     assert passes_updated is False
     assert mean_err_updated == Decimal("0.40")
+
+
+def test_daily_evaluation_record_quote_hours_bidirectional_sync():
+    """Verify DailyEvaluationRecord bidirectionally synchronizes simulated_quote_hours and quote_hours."""
+    # From simulated_quote_hours
+    r1 = DailyEvaluationRecord(
+        date="2026-09-14",
+        protocol_id="proto1",
+        protocol_hash="hash1",
+        simulated_quote_hours=Decimal("15.5"),
+    )
+    assert r1.simulated_quote_hours == Decimal("15.5")
+    assert r1.quote_hours == Decimal("15.5")
+    assert r1.actual_quote_hours == Decimal("0.0")
+
+    # From legacy quote_hours
+    r2 = DailyEvaluationRecord(
+        date="2026-09-15",
+        protocol_id="proto1",
+        protocol_hash="hash1",
+        quote_hours=Decimal("18.25"),
+    )
+    assert r2.quote_hours == Decimal("18.25")
+    assert r2.simulated_quote_hours == Decimal("18.25")
+    assert r2.actual_quote_hours == Decimal("0.0")
+
+
+def test_evaluate_gate_a_full_simulated_and_actual_quote_hours():
+    """Verify GateAEvaluationReport tracks simulated vs actual quote-hours separately."""
+    daily_records = []
+    for day in range(7):
+        market_breakdown = {}
+        for m in range(12):
+            market_breakdown[f"cond_{m}"] = {
+                "net_pnl": "0.35",
+                "coverage_ratio": "0.995",
+            }
+        daily_records.append({
+            "day": day,
+            "date": f"2026-09-0{day+1}",
+            "net_pnl": "4.20",
+            "simulated_quote_hours": "18.0",
+            "actual_quote_hours": "0.0",
+            "protocol_hash": "hash_v0.1_verified",
+            "book_uncertain_count": 0,
+            "market_breakdown": market_breakdown,
+        })
+
+    report = evaluate_gate_a_full(
+        daily_records=daily_records,
+        expected_protocol_hash="hash_v0.1_verified",
+        target_rate=Decimal("3.50"),
+        min_calendar_days=7,
+        min_quote_hours=100,
+        min_active_markets=10,
+        min_market_coverage_ratio=Decimal("0.99"),
+        max_single_market_pnl_share=Decimal("0.50"),
+    )
+
+    assert report.total_simulated_quote_hours == Decimal("126.0")
+    assert report.total_actual_quote_hours == Decimal("0.0")
+    assert report.total_quote_hours == Decimal("126.0")
+    assert report.verdict == "PROCEED_LIVE"

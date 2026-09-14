@@ -43,6 +43,7 @@ def audit_l2_parquet(
         "min_price": None,
         "max_price": None,
         "duplicates": 0,
+        "dates": set(),
     }
 
     if now_ns is None:
@@ -89,6 +90,11 @@ def audit_l2_parquet(
         ts = df["timestamp_ns"].astype("int64")
         vf = df["valid_from_ns"].astype("int64")
         vt = df["valid_to_ns"].astype("int64")
+        unique_ts = ts.dropna().unique()
+        stats["dates"] = {
+            time.strftime("%Y-%m-%d", time.gmtime(int(t) / 1e9))
+            for t in unique_ts
+        }
     except Exception as e:
         violations.append(f"Failed to parse integer timestamps in {file_path.name}: {e}")
         return False, violations, stats
@@ -178,6 +184,8 @@ def audit_daily_evaluations(
         "files_count": len(eval_files),
         "dates": [],
         "total_quote_hours": Decimal("0.0"),
+        "total_simulated_quote_hours": Decimal("0.0"),
+        "total_actual_quote_hours": Decimal("0.0"),
     }
 
     dates_seen = set()
@@ -202,15 +210,31 @@ def audit_daily_evaluations(
         if not rec_hash or rec_hash != expected_protocol_hash:
             violations.append(f"Protocol hash mismatch in {f.name}: {rec_hash} != {expected_protocol_hash}")
 
+        # Check simulated and actual quote-hours
+        sim_val = data.get("simulated_quote_hours")
+        if sim_val is None:
+            sim_val = data.get("quote_hours", "0.0")
         try:
-            qh = Decimal(str(data.get("quote_hours", "0.0")))
-            if qh < Decimal("0.0"):
-                violations.append(f"Negative quote_hours {qh} in {f.name}")
-            elif qh > Decimal("24.01"):
-                violations.append(f"quote_hours {qh} exceeds 24h per day in {f.name}")
-            stats["total_quote_hours"] += qh
+            sim_qh = Decimal(str(sim_val))
+            if sim_qh < Decimal("0.0"):
+                violations.append(f"Negative quote_hours {sim_qh} in {f.name}")
+            elif sim_qh > Decimal("24.01"):
+                violations.append(f"quote_hours {sim_qh} exceeds 24h per day in {f.name}")
+            stats["total_simulated_quote_hours"] += sim_qh
+            stats["total_quote_hours"] += sim_qh
         except Exception as e:
             violations.append(f"Invalid quote_hours in {f.name}: {e}")
+
+        act_val = data.get("actual_quote_hours", "0.0")
+        try:
+            act_qh = Decimal(str(act_val))
+            if act_qh < Decimal("0.0"):
+                violations.append(f"Negative actual_quote_hours {act_qh} in {f.name}")
+            elif act_qh > Decimal("24.01"):
+                violations.append(f"actual_quote_hours {act_qh} exceeds 24h per day in {f.name}")
+            stats["total_actual_quote_hours"] += act_qh
+        except Exception as e:
+            violations.append(f"Invalid actual_quote_hours in {f.name}: {e}")
 
         try:
             _ = Decimal(str(data.get("net_pnl", "0.0")))
@@ -248,7 +272,7 @@ def audit_data_quality(
             if not valid:
                 all_violations.extend(viols)
             total_l2_rows += stats.get("rows", 0)
-            date_coverage.setdefault(m_dir.name, set()).add(p_file.stem)
+            date_coverage.setdefault(m_dir.name, set()).update(stats.get("dates", set()))
 
     # 2. Audit Public Trades
     trade_markets = list(trades_dir.glob("*")) if trades_dir.exists() else []
@@ -289,7 +313,7 @@ def audit_data_quality(
 
     if all_violations:
         status = "DATA_INTEGRITY_VIOLATION"
-    elif len(all_market_ids) >= req_markets and min_cov >= req_cov and len(eval_stats["dates"]) >= req_days and eval_stats["total_quote_hours"] >= req_quote_hours:
+    elif len(all_market_ids) >= req_markets and min_cov >= req_cov and len(eval_stats["dates"]) >= req_days and eval_stats["total_simulated_quote_hours"] >= req_quote_hours:
         status = "DATA_QUALITY_VERIFIED_PASS"
     elif len(all_market_ids) > 0 or total_l2_files > 0:
         status = "DATA_QUALITY_ACCUMULATING"
@@ -309,6 +333,8 @@ def audit_data_quality(
         "avg_coverage_ratio": avg_cov,
         "eval_days_count": len(eval_stats["dates"]),
         "total_quote_hours": str(eval_stats["total_quote_hours"]),
+        "total_simulated_quote_hours": str(eval_stats["total_simulated_quote_hours"]),
+        "total_actual_quote_hours": str(eval_stats["total_actual_quote_hours"]),
     }
 
 
@@ -333,7 +359,9 @@ def main():
     print(f"  - Total L2 Parquet Files: {result['total_l2_files']} ({result['total_l2_rows']} rows)")
     print(f"  - Total Trade Parquet Files: {result['total_trade_files']} ({result['total_trade_rows']} rows)")
     print(f"  - Daily Evaluation Days: {result['eval_days_count']}")
-    print(f"  - Total Quote-Hours: {result['total_quote_hours']}")
+    print(f"  - Total Simulated Quote-Hours: {result['total_simulated_quote_hours']}")
+    print(f"  - Total Actual Quote-Hours: {result['total_actual_quote_hours']} (shadow mode = 0.0, real CLOB orders only in canary)")
+    print(f"  - Total Quote-Hours (Legacy): {result['total_quote_hours']}")
     print(f"\nCoverage Statistics:")
     print(f"  - Min Coverage Ratio: {result['min_coverage_ratio'] * 100:.1f}%")
     print(f"  - Avg Coverage Ratio: {result['avg_coverage_ratio'] * 100:.1f}%")

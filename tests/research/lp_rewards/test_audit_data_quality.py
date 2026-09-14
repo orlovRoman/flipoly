@@ -275,3 +275,96 @@ def test_audit_data_quality_full_flow(tmp_path):
     assert res_bad["status"] == "DATA_INTEGRITY_VIOLATION"
     assert res_bad["is_valid"] is False
     assert len(res_bad["violations"]) > 0
+
+
+def test_audit_l2_parquet_calendar_coverage_by_timestamp_ns(tmp_path):
+    """Verify that multiple files with different filenames within the same UTC day count as 1 day."""
+    protocol = load_protocol()
+    storage = tmp_path / "lp_storage"
+    m1_dir = storage / "l2_snapshots" / "cond_test_cov"
+    m1_dir.mkdir(parents=True)
+
+    # Base timestamp: 2026-09-14 10:00:00 UTC = 1789376400 seconds
+    base_ts_ns = 1_789_376_400_000_000_000
+
+    # Write 5 files with completely different names, all containing data for the same UTC day
+    for i in range(5):
+        p_file = m1_dir / f"arbitrary_batch_{i}_{i*100}.parquet"
+        file_ts = base_ts_ns + i * 3600 * 1_000_000_000  # 1 hour later, still same UTC day
+        df = pd.DataFrame([
+            {
+                "timestamp_ns": file_ts,
+                "condition_id": "cond_test_cov",
+                "asset_id": "tok1",
+                "side": "bid",
+                "price": "0.45",
+                "size": "100.0",
+                "valid_from_ns": file_ts,
+                "valid_to_ns": file_ts + 10_000_000_000,
+                "order_age_sec": "0.0",
+            }
+        ])
+        df.to_parquet(p_file, compression="zstd", index=False)
+
+    res = audit_data_quality(storage, protocol, now_ns=base_ts_ns + 86400 * 1_000_000_000)
+    assert res["is_valid"] is True
+    assert res["total_l2_files"] == 5
+    # Crucial: 5 files for the same UTC day must yield exactly 1 calendar day of coverage
+    expected_ratio = 1.0 / float(protocol.gates.gate_a.min_calendar_days)
+    assert abs(res["min_coverage_ratio"] - expected_ratio) < 1e-6
+    assert abs(res["avg_coverage_ratio"] - expected_ratio) < 1e-6
+
+
+def test_audit_daily_evaluations_simulated_and_actual_quote_hours(tmp_path):
+    """Verify audit_daily_evaluations handles both simulated and actual quote-hours."""
+    eval_dir = tmp_path / "daily_evaluations"
+    eval_dir.mkdir()
+
+    # Case 1: Standard record with simulated_quote_hours and actual_quote_hours
+    f1 = eval_dir / "2026-09-14.json"
+    with open(f1, "w", encoding="utf-8") as f:
+        json.dump({
+            "date": "2026-09-14",
+            "protocol_hash": "correct_hash",
+            "simulated_quote_hours": "14.5",
+            "actual_quote_hours": "0.0",
+            "quote_hours": "14.5",
+            "net_pnl": "2.5",
+        }, f)
+
+    valid, viols, stats = audit_daily_evaluations(eval_dir, expected_protocol_hash="correct_hash")
+    assert valid is True
+    assert len(viols) == 0
+    assert stats["total_simulated_quote_hours"] == Decimal("14.5")
+    assert stats["total_actual_quote_hours"] == Decimal("0.0")
+    assert stats["total_quote_hours"] == Decimal("14.5")
+
+    # Case 2: Legacy record with only quote_hours
+    f2 = eval_dir / "2026-09-15.json"
+    with open(f2, "w", encoding="utf-8") as f:
+        json.dump({
+            "date": "2026-09-15",
+            "protocol_hash": "correct_hash",
+            "quote_hours": "10.0",
+            "net_pnl": "1.0",
+        }, f)
+
+    valid, viols, stats = audit_daily_evaluations(eval_dir, expected_protocol_hash="correct_hash")
+    assert valid is True
+    assert stats["total_simulated_quote_hours"] == Decimal("24.5")
+    assert stats["total_quote_hours"] == Decimal("24.5")
+
+    # Case 3: Negative actual quote-hours
+    f3 = eval_dir / "2026-09-16.json"
+    with open(f3, "w", encoding="utf-8") as f:
+        json.dump({
+            "date": "2026-09-16",
+            "protocol_hash": "correct_hash",
+            "simulated_quote_hours": "10.0",
+            "actual_quote_hours": "-1.0",
+            "net_pnl": "1.0",
+        }, f)
+
+    valid, viols, _ = audit_daily_evaluations(eval_dir, expected_protocol_hash="correct_hash")
+    assert valid is False
+    assert any("Negative actual_quote_hours" in v for v in viols)

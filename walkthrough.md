@@ -277,3 +277,68 @@ python -m pytest tests/research/lp_rewards -v
 - **Итоговое решение**: **`DATA_INSUFFICIENT`** — продолжить сбор теневых данных (shadow collector) на staging-хранилище `D:\flipoly-research\lp-rewards\` в течение положенных 24–48 часов (и далее до 7 суток для Gate A) без LIVE-расширения.
 - Торговые модели (LightGBM/COMBINED) изолированы и не активировались.
 - Ветка `research/lp-rewards` не сливалась в `main`. Ветка `main` чиста и неизменна.
+
+---
+
+## 13. Устранение замечаний и подготовка к непрерывному сбору (Commit 42ec0e24+)
+
+По результатам верификации коммита `42ec0e24` устранены выявленные методологические замечания и обеспечены строгие гарантии перед длительным shadow-запуском:
+
+### 1. Исправление расчета календарного покрытия по `timestamp_ns` в `04_audit_data_quality.py`
+- **Проблема**: Ранее покрытие рынков по дням накапливалось по `p_file.stem`. Если за одни сутки создавалось несколько parquet-файлов с разными именами, счетчик уникальных дней искусственно завышался.
+- **Решение**:
+  - В функции `audit_l2_parquet` даты определяются строго по фактическим целочисленным значениям `timestamp_ns` из содержимого строк DataFrame:
+    ```python
+    unique_ts = ts.dropna().unique()
+    stats["dates"] = {
+        time.strftime("%Y-%m-%d", time.gmtime(int(t) / 1e9))
+        for t in unique_ts
+    }
+    ```
+  - В `audit_data_quality` уникальные дни рынка агрегируются объединением множеств дат:
+    ```python
+    file_dates = stats.get("dates", set())
+    date_coverage.setdefault(m_dir.name, set()).update(file_dates)
+    ```
+  - Теперь произвольное число файлов за одни сутки (например, 5 батчей за 2026-09-14) дает ровно 1 календарный день в расчете покрытия. Поведение подтверждено новым юнит-тестом `test_audit_l2_parquet_calendar_coverage_by_timestamp_ns`.
+
+### 2. Явное разделение `simulated_quote_hours` и `actual_quote_hours`
+- **Методологическое основание**: В shadow-режиме FSM оперирует виртуальными намерениями выставить ордера (`fsm.open_orders`), но реальные ордера в CLOB отсутствуют. Это виртуальные часы котирования, а не фактическое присутствие заявок в биржевом стакане.
+- **Реализация**:
+  - В `polyflip/research/lp_rewards/models.py` добавлена модель `DailyEvaluationRecord`:
+    - `simulated_quote_hours: Decimal`: учитывает время нахождения виртуальных котировок в рынке.
+    - `actual_quote_hours: Decimal`: в shadow-режиме строго зафиксировано как `"0.0"`. Фактические часы измеряются исключительно во время canary/live по подтвержденным биржей ордерам.
+    - `quote_hours: Optional[Decimal]`: двунаправленно синхронизируется с `simulated_quote_hours` для 100% обратной совместимости.
+  - В `scripts/research/lp_rewards/03_run_shadow_collector.py` ежедневные записи `daily_evaluations/<date>.json` теперь сохраняют поля `simulated_quote_hours`, `actual_quote_hours: "0.0"` и `quote_hours`.
+  - В `04_audit_data_quality.py` и `05_evaluate_gate_a.py` обе метрики выводятся явно в чек-листе и валидируются в Gate A.
+
+### 3. Обновление манифестов
+- В `artifacts/research/lp_rewards/staging_manifest.json` и `artifacts/staging_manifest_220ebe23.json` добавлено поле:
+  ```json
+  "final_commit_sha": "42ec0e244d81a1d490af81d18fb64ec6994d19f2",
+  "final_commit_short": "42ec0e24",
+  ```
+  с сохранением `base_commit_sha: "220ebe23..."`.
+- Создан отдельный манифест `artifacts/staging_manifest_42ec0e24.json`.
+
+### 4. Регламент и скрипты для непрерывного фонового shadow-сбора
+- **Ротация логов**: В `03_run_shadow_collector.py` добавлен аргумент `--log-file` с поддержкой `RotatingFileHandler` (20 МБ на файл, 5 бэкапов, суммарно не более 100 МБ).
+- **Скрипты запуска**:
+  - `scripts/research/lp_rewards/run_continuous_shadow.sh` — Bash-скрипт запуска для боевого сервера.
+  - `scripts/research/lp_rewards/run_continuous_shadow.py` — кросс-платформенный раннер.
+- **Аппаратные ограничения**:
+  - `LP_LIVE_ENABLED=false` зафиксировано жестко; попытка передать `true` до прохождения Gate A немедленно прерывает процесс (`exit code 1`).
+  - `SystemWatchdog` непрерывно проверяет свободное место на целевом диске (`D:\flipoly-research\lp-rewards` или сервере) и инициирует аварийную остановку `EMERGENCY_HALT` при падении ниже 20 ГБ.
+- **Команда фонового запуска на сервере**:
+  ```bash
+  nohup ./scripts/research/lp_rewards/run_continuous_shadow.sh > /dev/null 2>&1 &
+  ```
+
+### 5. Итоговая валидация
+- Тестовый набор LP Rewards:
+  ```bash
+  uv run pytest tests/research/lp_rewards -v -W error
+  ============================= 124 passed in 1.67s =============================
+  ```
+- 124 теста проходят со 100% успехом под `-W error`, 0 предупреждений.
+- `git diff --check` выполняется чисто.

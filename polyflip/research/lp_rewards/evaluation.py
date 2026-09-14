@@ -13,6 +13,8 @@ class GateAEvaluationReport(BaseModel):
     upper_95: Decimal
     total_days: int
     total_quote_hours: Decimal
+    total_simulated_quote_hours: Decimal = Decimal("0.0")
+    total_actual_quote_hours: Decimal = Decimal("0.0")
     active_markets_count: int
     min_market_coverage: Decimal
     max_market_pnl_share: Decimal
@@ -109,6 +111,8 @@ def evaluate_gate_a_full(
 
     daily_pnls: List[Decimal] = []
     total_quote_hours = Decimal("0.0")
+    total_simulated_quote_hours = Decimal("0.0")
+    total_actual_quote_hours = Decimal("0.0")
     markets_seen = set()
     market_pnls: Dict[str, Decimal] = {}
     coverage_by_market: Dict[str, List[Decimal]] = {}
@@ -119,8 +123,11 @@ def evaluate_gate_a_full(
         pnl = Decimal(str(r.get("net_pnl", "0.0")))
         daily_pnls.append(pnl)
 
-        qh = Decimal(str(r.get("quote_hours", "0.0")))
-        total_quote_hours += qh
+        sim_qh = Decimal(str(r.get("simulated_quote_hours", r.get("quote_hours", "0.0"))))
+        act_qh = Decimal(str(r.get("actual_quote_hours", "0.0")))
+        total_simulated_quote_hours += sim_qh
+        total_actual_quote_hours += act_qh
+        total_quote_hours += sim_qh
 
         ph = r.get("protocol_hash")
         if ph:
@@ -136,8 +143,11 @@ def evaluate_gate_a_full(
             cov = Decimal(str(mdata.get("coverage_ratio", "1.0")))
             coverage_by_market.setdefault(cid, []).append(cov)
 
-    if total_quote_hours < Decimal(str(min_quote_hours)):
-        rejection_reasons.append(f"Insufficient quote-hours: {total_quote_hours:.1f} < {min_quote_hours}")
+    if total_simulated_quote_hours < Decimal(str(min_quote_hours)):
+        rejection_reasons.append(
+            f"Insufficient quote-hours: {total_simulated_quote_hours:.1f} simulated < {min_quote_hours} "
+            f"(actual quote-hours in shadow mode: {total_actual_quote_hours:.1f})"
+        )
 
     active_markets_count = len(markets_seen)
     if active_markets_count < min_active_markets:
@@ -213,6 +223,8 @@ def evaluate_gate_a_full(
         upper_95=upper,
         total_days=total_days,
         total_quote_hours=total_quote_hours,
+        total_simulated_quote_hours=total_simulated_quote_hours,
+        total_actual_quote_hours=total_actual_quote_hours,
         active_markets_count=active_markets_count,
         min_market_coverage=min_market_coverage,
         max_market_pnl_share=max_market_pnl_share,

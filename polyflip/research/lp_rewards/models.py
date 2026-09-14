@@ -1,7 +1,7 @@
 from decimal import Decimal
 from enum import Enum
-from typing import Dict, List, Optional
-from pydantic import BaseModel, Field
+from typing import Any, Dict, List, Optional
+from pydantic import BaseModel, Field, model_validator
 
 
 class QuotingState(str, Enum):
@@ -104,3 +104,36 @@ class SampleScore(BaseModel):
     q_two: Decimal = Decimal("0.0")
     q_min: Decimal = Decimal("0.0")
     status: str = "VALID"  # VALID, MID_UNCERTAIN, BOOK_UNCERTAIN
+
+
+class DailyEvaluationRecord(BaseModel):
+    """Daily evaluation record capturing PnL, quote-hours, and market metrics.
+
+    Explicitly separates simulated_quote_hours (virtual orders in shadow mode)
+    from actual_quote_hours (strictly 0.0 in shadow mode, measured in live/canary).
+    Provides backward compatibility for quote_hours.
+    """
+    date: str
+    protocol_id: str
+    protocol_hash: str
+    net_pnl: Decimal = Decimal("0.0")
+    simulated_quote_hours: Decimal = Decimal("0.0")
+    actual_quote_hours: Decimal = Decimal("0.0")
+    quote_hours: Optional[Decimal] = None
+    book_uncertain_count: int = 0
+    market_breakdown: Dict[str, Any] = Field(default_factory=dict)
+    total_trades: int = 0
+    executable_mtm: Decimal = Decimal("0.0")
+    total_rewards_accrued: Decimal = Decimal("0.0")
+
+    @model_validator(mode="before")
+    @classmethod
+    def sync_quote_hours(cls, values: Any) -> Any:
+        if isinstance(values, dict):
+            sim = values.get("simulated_quote_hours")
+            qh = values.get("quote_hours")
+            if sim is not None and qh is None:
+                values["quote_hours"] = sim
+            elif qh is not None and sim is None:
+                values["simulated_quote_hours"] = qh
+        return values

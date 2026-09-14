@@ -238,7 +238,9 @@ async def periodic_fsm_and_scoring(
                 "protocol_id": protocol.protocol_id,
                 "protocol_hash": protocol.sha256_hash,
                 "net_pnl": str(net_pnl),
-                "quote_hours": f"{quote_hours:.6f}",
+                "simulated_quote_hours": f"{quote_hours:.6f}",
+                "actual_quote_hours": "0.0",  # Strictly 0.0 in shadow mode; real orders measured only in canary/live
+                "quote_hours": f"{quote_hours:.6f}",  # Backwards compatibility
                 "book_uncertain_count": uncertain_count,
                 "market_breakdown": market_breakdown,
                 "total_trades": len(ledger.trades),
@@ -345,5 +347,25 @@ if __name__ == "__main__":
         default=None,
         help="Run collector for a limited number of seconds (for smoke tests / verification).",
     )
+    parser.add_argument(
+        "--log-file",
+        type=str,
+        default=None,
+        help="Path to rotating log file for continuous background execution.",
+    )
     cli_args = parser.parse_args()
+
+    if cli_args.log_file:
+        from logging.handlers import RotatingFileHandler
+        log_path = Path(cli_args.log_file)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        file_handler = RotatingFileHandler(
+            str(log_path),
+            maxBytes=20 * 1024 * 1024,  # 20 MB per file
+            backupCount=5,
+            encoding="utf-8",
+        )
+        file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+        logging.getLogger().addHandler(file_handler)
+
     asyncio.run(main(smoke_seconds=cli_args.smoke_seconds))
