@@ -1,0 +1,15 @@
+{
+  "python": "3.14.4",
+  "libs": {
+    "numpy": "2.4.6",
+    "pandas": "3.0.3",
+    "sklearn": "1.9.0",
+    "scipy": "1.18.0",
+    "lightgbm": "4.6.0",
+    "pyarrow": "25.0.1",
+    "shap": "0.52.0"
+  },
+  "spec_sha": "1649bc7c7c3459353bec571f5b3d501e9c71dfacf5f1a32772503aef87fcefea",
+  "dataset_parquet_sha": "48a239b636125cff626c6179008aec22bbbe167822f078d98354997282af9f06",
+  "blobs_sha": "1a065d99ea7a11930f65ede3556a9243a43a8952fc65238de126ce47752a1e42"
+}
