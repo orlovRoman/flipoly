@@ -1,0 +1,2 @@
+# Feature CLOSEOUT
+verdict: STOP_NO_SUPPORTED_FEATURES

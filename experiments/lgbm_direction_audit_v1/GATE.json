@@ -1,0 +1,4 @@
+{
+  "verdict": "STOP_NO_DIRECTIONAL_INCREMENT",
+  "reason": "REPRODUCIBLE 3/73 < threshold, no OOF improvement, CI includes 0"
+}
