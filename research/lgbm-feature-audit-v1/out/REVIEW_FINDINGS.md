@@ -56,7 +56,10 @@
 - F5 is explicitly INCONCLUSIVE (200-perm resolution, min p_holm 0.1741);
   F6 day-block LL robustly helps cross_asset_breadth + volume_taker_flow;
   trading net robustly hurt by removing sequence/time/polymarket_state.
-- verify_final.py: PASS, **71 checks**. Git-часть: PENDING (push в research/lgbm-feature-audit-v1; ветка сейчас на f4befc8d).
+- verify_final.py: PASS, **71 checks**. Git: PUBLISHED — ветка
+  `research/lgbm-feature-audit-v1`, коммит `2d820dd` (предыдущий `f4befc8`); из чистого
+  checkout воспроизведено 41/41 проверок на опубликованных лёгких артефактах
+  (полный 71-check требует регенерации `FEATURE_MATRIX` + `_abl_preds` пайплайном).
 - Исследовательский расчёт: PASS / COMPLETED. Решение: STOP_NO_SUPPORTED_FEATURES.
   Активация новых моделей/фич по этому аудиту запрещена; работающие production-модели,
   CT, LogReg и текущие торговые режимы не затрагиваются.
