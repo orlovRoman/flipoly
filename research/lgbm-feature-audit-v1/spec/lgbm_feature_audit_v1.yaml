@@ -1,0 +1,113 @@
+# =============================================================================
+# lgbm_feature_audit_v1/spec.yaml — FROZEN at Этап 1 (hash-locked)
+# Audit of feature usefulness. Independent of direction-audit results.
+# =============================================================================
+experiment_id: lgbm_feature_audit_v1
+spec_version: 1.0.0
+status: FROZEN
+branch_future: research/lgbm-feature-audit-v1
+parent: lgbm_shared_v1
+live_orders_enabled: false
+
+catalog_F1:
+  union_of_checked_model_schemas: true
+  per_feature: [formula, source, horizon, timestamp, missing_rule,
+    evaluation_target_cohort, consumer_models]
+  evaluation_target_cohort_is_assessment_target_not_inherent_property: true
+  frozen_groups: [price_returns, volatility, volume_taker_flow, trend,
+    cross_asset_breadth, polymarket_state, time, regime, missing_flags, sequence]
+  groups_frozen_before_outcomes: true
+  output: FEATURE_CATALOG.csv
+
+quality_F2:
+  per_fold: [missing_rate, quantiles, nunique, outliers, constants, drift]
+  missing_flags_checked_separately: true
+  thresholds:
+    future_timestamp_any_row: LEAKAGE_RISK_block
+    missing_shift_gt_pp: 10
+    missing_shift_label: MISSINGNESS_DRIFT
+    psi_gt: 0.25
+    psi_label: DATA_DRIFT
+    val_outside_train_IQR_pct: 1
+    val_outside_train_IQR_range: [Q1-5xIQR, Q3+5xIQR]
+    val_outside_label: OUTLIER_HEAVY
+    nan_inf_postproc: fold_block
+  output: FEATURE_DATA_QUALITY.csv
+
+correlations_F3:
+  scope: train_part_each_fold
+  metrics: [pearson, spearman]
+  missing_mask_jaccard: true
+  near_duplicate: {abs_spearman_ge: 0.98, jaccard_missing_ge: 0.99}
+  group_verdict_if_both_in_ge_folds: 4
+  correlated_also_as_group: true
+  output: FEATURE_CORRELATIONS.parquet
+
+importance_F4:
+  frozen_blobs_only_no_refit: true
+  per_validation_fold: [split_importance, gain_importance, shap, permutation]
+  permutation_strata: [day, asset, regime]
+  never_shuffle_across_periods: true
+  shap_sign_stability_across_folds: true
+  research_only_refits_allowed_in_ablations_only: true
+  importance_is_not_causal_value: true
+  distinction: [model_uses, improves_oof, affects_decision]
+
+univariate_F5:
+  config: {kind: L2_LogReg, C: 1, intercept: true, scaler: StandardScaler_train,
+    seed: 20260913}
+  mapping: train_k_to_validation_k
+  legacy_cohort_target: native_target
+  canonical_cohort_target: contract_target
+  holm: {within: confirmatory_target_cohort, alpha: 0.05}
+  asset_regime_cuts_descriptive: true
+
+ablation_F6:
+  variants: [ALL, DROP_GROUP, ONLY_GROUP, MINIMAL_CONTROL]
+  minimal_control:
+    binance: [ret_1]
+    final_outcome: [p_market_yes, time_to_expiry]
+    flip: [mid_price, spread, time_left]
+  same_lgbm_params_no_per_ablation_tuning: true
+  metrics: [delta_logloss, delta_brier, delta_canonical_pnl]
+  positive_folds_shown: true
+  correlated_group_substitution_checked: true
+  ablated_models_never_in_registry: true
+  economics_policy: FEATURE_POLICY_V1
+feature_policy_v1:
+  direction_flip_thresholds: [0.55, 0.45]
+  canonical_final_model: positive_net_EV
+  budget_usd: 1
+  exec: L1_plus_0pt5pct
+  fee: canonical
+  guards: same_price_spread_time
+  no_mrf_no_logreg_atop: true
+  immutable: true
+
+policy_impact_F7:
+  chain: [prediction_change, up_down_change, logreg_agreement_change,
+    buy_skip_change, side_change, pnl_change]
+  labels:
+    improves_brier_no_decision_change: NO_POLICY_IMPACT
+    decision_change_no_economics: HARMFUL_OR_NEUTRAL
+
+feature_gate:
+  supported_requires_all:
+    - permutation_hurts_validation
+    - drop_group_hurts_oof
+    - effect_in_ge_folds: 4
+    - improvement_ci_not_crossing_zero
+    - holds_after_correlations
+    - no_leakage_no_missingness_proxy
+    - stable_effect_direction
+    - paired_trading_economics_impact
+  main_ci: paired_dayblock_CI_of_logloss_without_minus_with
+  trading_ci: paired_canonical_net_per_opportunity
+  status_priority: [LEAKAGE_RISK, DATA_QUALITY_BLOCKED, REDUNDANT, UNSTABLE,
+    NATIVE_ONLY, CONTRACT_ONLY_DIAGNOSTIC, NO_POLICY_IMPACT, SUPPORTED, UNSUPPORTED]
+  NATIVE_ONLY: native_confirmed_not_contract_or_policy
+  CONTRACT_ONLY_DIAGNOSTIC: contract_effect_no_native_effect_never_forward_candidate
+
+independence:
+  no_backport_into_direction: true
+  no_dataset_fold_model_changes: true

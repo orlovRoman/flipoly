@@ -1,0 +1,82 @@
+{
+ "gate_name": "feature_audit_v1",
+ "spec": "lgbm_feature_audit_v1.yaml",
+ "spec_sha256": "ca4dd2fdb7ea6b65e084cb4c59941bcb65741519b385b1fc36e4c5a971147295",
+ "feature_spec_version": "1.0.0",
+ "gate_version": "v1.1.0",
+ "verdict": "STOP_NO_SUPPORTED_FEATURES",
+ "status": "COMPLETED",
+ "n_supported": 0,
+ "n_total": 79,
+ "n_blocked": 31,
+ "n_redundant": 8,
+ "n_unstable": 5,
+ "n_no_policy_impact": 20,
+ "n_unsupported": 15,
+ "gate_conditions": [
+  "permutation_hurts_validation",
+  "drop_group_hurts_oof",
+  "effect_in_ge_folds_ge4",
+  "improvement_ci_not_crossing_zero",
+  "stable_effect_direction",
+  "no_leakage_no_missingness_proxy",
+  "holds_after_correlations",
+  "paired_trading_economics_impact"
+ ],
+ "leakage_check": "sampled provenance clean (60k deterministic rows, SAMPLED_LEAKAGE_CHECK); full-matrix provenance by construction (as-of searchsorted + 29s lag)",
+ "f5_resolution": "INCONCLUSIVE: individual univariate significance is not asserted (resolution limited to 200 permutations; no p_holm < 0.05 across 79 features).",
+ "missingness_proxy": "395 feature-fold rows on 79 real features (MISSINGNESS_PROXY.csv); flagged(>0.2): 0",
+ "reason": "0/79 clear the 8-condition SUPPORTED grid; verdicts are drawn from real F2-F7 measures, no constant flags",
+ "top_groups_by_ll": [
+  {
+   "group": "regime",
+   "dayblock_improvement_ll": 0.013400951618670593,
+   "ci_low": -0.010713369323542537,
+   "ci_high": 0.04861160286322111
+  },
+  {
+   "group": "cross_asset_breadth",
+   "dayblock_improvement_ll": 0.013379587375301292,
+   "ci_low": 0.0007005020556952262,
+   "ci_high": 0.03362155246021927
+  },
+  {
+   "group": "price_returns",
+   "dayblock_improvement_ll": 0.009473600184686438,
+   "ci_low": -0.0004980902007913966,
+   "ci_high": 0.022689244150111792
+  },
+  {
+   "group": "MINIMAL_VS_ALL",
+   "dayblock_improvement_ll": 0.009119515974898896,
+   "ci_low": -0.014595125697763797,
+   "ci_high": 0.04060580878401044
+  }
+ ],
+ "top_groups_by_net": [
+  {
+   "group": "regime",
+   "trading_impact_net": 0.041773453604496184,
+   "ci_low": -0.032679726284924764,
+   "ci_high": 0.14598128610872643
+  },
+  {
+   "group": "sequence",
+   "trading_impact_net": 0.036855253791561696,
+   "ci_low": 0.006901709095671261,
+   "ci_high": 0.07237538873875994
+  },
+  {
+   "group": "trend",
+   "trading_impact_net": 0.03322660852432974,
+   "ci_low": -0.0065306159341225025,
+   "ci_high": 0.08827830948792982
+  },
+  {
+   "group": "time",
+   "trading_impact_net": 0.032949255874822315,
+   "ci_low": 0.005296884834237842,
+   "ci_high": 0.0761164590122085
+  }
+ ]
+}

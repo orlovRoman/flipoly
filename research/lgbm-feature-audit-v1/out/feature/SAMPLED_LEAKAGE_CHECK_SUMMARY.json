@@ -1,0 +1,45 @@
+{
+  "sample_scope": "deterministic seeded sample, 12000 rows per eval fold F2..F6",
+  "checked_rows": 60000,
+  "total_rows": 1497818,
+  "coverage_fraction": 0.040058271432176676,
+  "checked_per_fold": {
+    "F2": 12000,
+    "F3": 12000,
+    "F4": 12000,
+    "F5": 12000,
+    "F6": 12000
+  },
+  "n_features": 79,
+  "any_future_timestamp_row_in_sample": false,
+  "any_value_mismatch_in_sample": true,
+  "leakage_risk_block_in_sample": false,
+  "full_matrix_provenance": "asserted by construction in f1_build_matrix (as-of searchsorted + 29s lag); no full-matrix row-by-row timestamp scan was run",
+  "flagged_rows": [
+    {
+      "feature": "funding_rate",
+      "origin_le_decision": 1.0,
+      "value_match_pct": 0.0
+    },
+    {
+      "feature": "funding_rate_ma3",
+      "origin_le_decision": 1.0,
+      "value_match_pct": 0.0
+    },
+    {
+      "feature": "funding_extreme",
+      "origin_le_decision": 1.0,
+      "value_match_pct": 0.0
+    },
+    {
+      "feature": "strike_gap_pct",
+      "origin_le_decision": 1.0,
+      "value_match_pct": 0.0
+    },
+    {
+      "feature": "log_moneyness",
+      "origin_le_decision": 1.0,
+      "value_match_pct": 0.0
+    }
+  ]
+}

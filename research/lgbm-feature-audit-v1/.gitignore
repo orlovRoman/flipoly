@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+data/
+tmp/
+out/feature/_abl_preds/
+out/feature/FEATURE_MATRIX.parquet
+out/feature/_candle_features_*.parquet
+out/feature/_snapshot_features.parquet
+out/feature/LEAKAGE_CHECK.csv
+out/feature/LEAKAGE_CHECK_SUMMARY.json
+out/feature/GROUP_DAYBLOCK_LL.csv
+out/feature/GROUP_TRADING_DAYBLOCK_LL.csv

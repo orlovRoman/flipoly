@@ -1,0 +1,263 @@
+{
+ "python": "3.14.4",
+ "libs": {
+  "numpy": "2.4.6",
+  "pandas": "3.0.3",
+  "sklearn": "1.9.0",
+  "scipy": "1.18.0",
+  "lightgbm": "4.6.0",
+  "pyarrow": "25.0.1",
+  "shap": "0.52.0"
+ },
+ "spec_sha": "ca4dd2fdb7ea6b65e084cb4c59941bcb65741519b385b1fc36e4c5a971147295",
+ "spec_sha_note": "feature-spec lgbm_feature_audit_v1.yaml (frozen); direction spec c36f0de5... is NOT the binding SHA",
+ "spec_source_feature": "research/lgbm-feature-audit-v1 spec/lgbm_feature_audit_v1.yaml (frozen v1.0.0)",
+ "spec_commit": "b37371af0108139da5143cf6a51fd57bae1758a3",
+ "dataset_parquet_sha": "48a239b636125cff626c6179008aec22bbbe167822f078d98354997282af9f06",
+ "blobs_sha": "1a065d99ea7a11930f65ede3556a9243a43a8952fc65238de126ce47752a1e42",
+ "e1_summary_classified_sha256": "b11fab41a8ab1fdd2f5cf71c692d6e2bf8000f9ac21b0a67ace11eee7438008a",
+ "e1_summary_classified_source": "e1_classify.py v1.3",
+ "e1_frozen_criteria_source": "spec.yaml e1_frozen_criteria (1a4d1658)",
+ "spec_source": "research/lgbm-feature-audit-v1 spec/lgbm_feature_audit_v1.yaml (frozen v1.0.0)",
+ "dataset_logical_sha": "b1895f2ae4394131177415ff7df182b4b80f5e94023ff415a1b75b8b679b7c1b",
+ "dataset_file_sha": "48a239b636125cff626c6179008aec22bbbe167822f078d98354997282af9f06",
+ "double_build_verified": true,
+ "double_build_note": "shared_ds and shared_ds2 both produce logical SHA b1895f2a",
+ "e5_source": "e5_real.py v4",
+ "e5_opportunities": 2602,
+ "e5_days": 8,
+ "e5_delta_mean": 8.68e-05,
+ "e5_delta_ci95": [
+  -9e-06,
+  0.00017
+ ],
+ "e5_parity_buy_skip_match_pct": 100.0,
+ "e5_parity_on_buy_pct": 100.0,
+ "e5_side_dist": {
+  "R0": {
+   "SKIP": 2415,
+   "BUY_YES": 98,
+   "BUY_NO": 89
+  },
+  "R1": {
+   "SKIP": 2415,
+   "BUY_YES": 98,
+   "BUY_NO": 89
+  },
+  "R2": {
+   "SKIP": 2563,
+   "BUY_YES": 32,
+   "BUY_NO": 7
+  },
+  "R4": {
+   "SKIP": 2572,
+   "BUY_YES": 25,
+   "BUY_NO": 5
+  }
+ },
+ "e5_main_effect": "R1_minus_R2",
+ "e5_quotes": "inverted_from_recorded_weighted_net_ev_fee_plus_slippage",
+ "e6_source": "e5_real.py v4 (economics+bootstrap)",
+ "e6_bootstrap_reps": 5000,
+ "e6_bootstrap_seed": 20260913,
+ "e6_bootstrap_ci95": [
+  -9e-06,
+  0.00017
+ ],
+ "e6_bootstrap_mean": 8.68e-05,
+ "feature_matrix": {
+  "source": "f1_matrix.py",
+  "rows": 1497818,
+  "features": 79,
+  "snapshot_coverage_pct": 51.08,
+  "lag_seconds": 29,
+  "paradox_note": "snapshot features are ~51%% present; earliest fold F1 predates snapshot coverage (~0%%)"
+ },
+ "f2_quality": {
+  "source": "f2_quality.py",
+  "globally_100pct_missing": [
+   "funding_rate",
+   "funding_rate_ma3",
+   "funding_extreme",
+   "strike_gap_pct",
+   "log_moneyness"
+  ],
+  "missingness_drift_features": 26,
+  "artifact": "FEATURE_DATA_QUALITY.csv"
+ },
+ "f2b_leakage": {
+  "source": "f2b_leakage.py",
+  "sample_scope": "deterministic seeded sample, 12000 rows per eval fold F2..F6",
+  "checked_rows": 60000,
+  "total_rows": 1497818,
+  "coverage_fraction": 0.04005929743949795,
+  "checked_per_fold": {
+   "F2": 12000,
+   "F3": 12000,
+   "F4": 12000,
+   "F5": 12000,
+   "F6": 12000
+  },
+  "candle_rows": 220,
+  "snapshot_rows": 26,
+  "time_rows": 4,
+  "always_nan_features": 5,
+  "any_future_timestamp_row_in_sample": false,
+  "leakage_risk_block_in_sample": false,
+  "all_real_features_value_match_ge_0.999": true,
+  "all_real_features_origin_le_decision": true,
+  "full_matrix_provenance": "asserted by construction in f1_build_matrix (as-of searchsorted + 29s lag); no full-matrix row-by-row timestamp scan was run",
+  "artifacts": [
+   "SAMPLED_LEAKAGE_CHECK.csv",
+   "SAMPLED_LEAKAGE_CHECK_SUMMARY.json"
+  ]
+ },
+ "f3_correlations": {
+  "source": "f3_correlations.py (common-mask Pearson/Spearman on pair's shared observed rows)",
+  "pairs": 15405,
+  "near_dup_any_fold_pairs": 20,
+  "near_dup_stable_ge4_fold_pairs": 19,
+  "near_dup_members": 21,
+  "near_dup_members_blocked": 13,
+  "nonblocked_redundant": 8,
+  "thresholds": {
+   "abs_spearman_ge": 0.98,
+   "jaccard_missing_ge": 0.99,
+   "folds_ge": 4
+  },
+  "artifacts": [
+   "FEATURE_CORRELATIONS_FOLD.parquet",
+   "FEATURE_CORRELATIONS.parquet",
+   "FEATURE_CORRELATIONS_AGGREGATE.csv"
+  ]
+ },
+ "f4_importance": {
+  "source": "f4_importance.py",
+  "eval_lgbm_model_ids": [
+   804,
+   805,
+   812,
+   815,
+   816,
+   817,
+   1019,
+   1024
+  ],
+  "fold_units": 22,
+  "rows_evaluated": 34142,
+  "shap_top": "range_1",
+  "shap_top_abs": 0.02475,
+  "permutation_ci_nonzero_features": [
+   "cvd_6",
+   "vol_6"
+  ],
+  "artifacts": [
+   "MODEL_IMPORTANCE.csv",
+   "SHAP_STABILITY.csv",
+   "PERMUTATION_IMPORTANCE.csv"
+  ]
+ },
+ "f5_univariate": {
+  "source": "f5_univariate.py",
+  "cohort": "F5",
+  "top_auc": 0.8107,
+  "top_feature": "mid_price",
+  "holm_resolution": "INCONCLUSIVE: min p_holm = 0.1741 at 200 permutations; no feature survives Holm (0 of 79)"
+ },
+ "f6_ablation": {
+  "source": "f6_ablation.py",
+  "variants": 20,
+  "eval_folds": [
+   "F3",
+   "F4",
+   "F5",
+   "F6"
+  ],
+  "minimal_control": [
+   "ret_1",
+   "mid_price",
+   "spread",
+   "time_left_min"
+  ],
+  "economics": "canonical single-side $1 budget; exec_cost(ask)=ask+0.07*ask*(1-ask)+0.005*ask; win=q-1 loss=-1 skip=0",
+  "dayblock_top_group": "regime",
+  "dayblock_helping_groups_robust": [
+   "cross_asset_breadth",
+   "volume_taker_flow"
+  ],
+  "artifacts": [
+   "GROUP_ABLATION.csv",
+   "GROUP_DAYBLOCK_LL.csv",
+   "GROUP_DAYBLOCK_CI.csv",
+   "_abl_preds/"
+  ]
+ },
+ "f7_policy_impact": {
+  "source": "f6_ablation.py (F7 chain)",
+  "groups": 9,
+  "canonical_pnl": "canonical_side_net per $1 budget; delta_pnl = net_variant.mean() - net_ALL.mean()",
+  "all_group_drop_delta_pnl_negative": true,
+  "drop_hurts_economics_robust": [
+   "sequence",
+   "time",
+   "polymarket_state"
+  ],
+  "artifact": "FEATURE_POLICY_IMPACT.csv"
+ },
+ "f8_verdicts": {
+  "source": "f8_verdicts.py",
+  "verdict_counts": {
+   "SUPPORTED": 0,
+   "DATA_QUALITY_BLOCKED": 31,
+   "REDUNDANT": 8,
+   "UNSTABLE": 5,
+   "NO_POLICY_IMPACT": 20,
+   "UNSUPPORTED": 15
+  },
+  "unstable_features": [
+   "cvd_6",
+   "dist_to_high_24",
+   "dist_to_high_96",
+   "dist_to_low_24",
+   "dist_to_low_96"
+  ],
+  "redundant_features": [
+   "cvd_1",
+   "day_of_week",
+   "dow",
+   "hour_of_day",
+   "hour_utc",
+   "ret_1",
+   "signed_body_pct",
+   "taker_buy_ratio"
+  ],
+  "missingness_proxy": "real matrix computation: 395 feature-fold rows (79 features x folds F2..F6) vs contract_target; 0 features with max|r| > 0.2; artifact MISSINGNESS_PROXY.csv",
+  "proxy_threshold_note": "late operationalization: |r|>0.2 NOT numerically fixed in frozen spec; max observed |r| ~0.058; STOP holds without this condition",
+  "no_leakage_no_missingness_proxy": "all-Y (sampled leakage clean; real-matrix proxy 0 flagged)",
+  "artifacts": [
+   "FEATURE_VERDICTS.json",
+   "FEATURE_VERDICTS_EVIDENCE.csv",
+   "GATE_FEATURE.json",
+   "GROUP_DAYBLOCK_CI.csv",
+   "GROUP_TRADING_DAYBLOCK_CI.csv",
+   "F5_VERDICT.json",
+   "MISSINGNESS_PROXY.csv"
+  ]
+ },
+ "verify": {
+  "source": "verify_final.py",
+  "result": "PASS",
+  "n_checks": 71
+ },
+ "gates": {
+  "gate_21_feature_audit": {
+   "verdict": "STOP_NO_SUPPORTED_FEATURES",
+   "status": "COMPLETED",
+   "file": "out/feature/GATE_FEATURE.json"
+  },
+  "gate_22_closeout": {
+   "verdict": "STOP_NO_SUPPORTED_FEATURES",
+   "note": "0/79 supported after independent rerun; 31 data-quality blocked (incl 26 snapshot coverage), 8 redundant via stable near-dup (common-mask correlations), 5 unstable, 20 no policy impact, 15 unsupported. Missingness-proxy computed on the real FEATURE_MATRIX (395 fold-feature rows, 0 flagged >0.2); leakage check honestly SAMPLED (60k rows, 1,497,818 total) and labelled sampled. Day-block LL robustly helps cross_asset_breadth + volume_taker_flow; trading net robustly helped by sequence/time/polymarket_state removals (north of zero CI). No feature promoted; audit closed without policy action."
+  }
+ }
+}

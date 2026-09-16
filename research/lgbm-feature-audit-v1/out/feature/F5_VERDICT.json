@@ -1,0 +1,16 @@
+{
+  "gate_name": "feature_audit_v1",
+  "feature_spec_version": "1.0.0",
+  "artifact": "F5_VERDICT.json",
+  "feature_spec_sha256": "ca4dd2fdb7ea6b65e084cb4c59941bcb65741519b385b1fc36e4c5a971147295",
+  "method": "L2 logistic regression (C=1) on standardized single features, per fold; Holm-Bonferroni over 79 features within each of 10 eval folds of UNIVARIATE_OOF.csv",
+  "permutation_cap": 200,
+  "holm_p": {
+    "min": 0.1741293532338308,
+    "all": "min(p_holm) > 0.05 across all 790 feature-fold rows",
+    "count_below_0_05": 0
+  },
+  "verdict": "INCONCLUSIVE",
+  "detail": "Individual univariate significance is not asserted at the 10-fold Holm level: no p_holm < 0.05 was found (min 0.1741). Resolution is limited by the 200-permutation cap; the audit therefore refrains from claiming any single feature strong signal and does not rely on univariate significance for promotion.",
+  "references_gate": "f5 INCONCLUSIVE is embedded in GATE_FEATURE.json; verdicts do not promote on univariate significance."
+}
