@@ -1,0 +1,1610 @@
+{
+ "L0": [
+  {
+   "feature": "outsider_mid",
+   "mean_gain": 9439.118374947962,
+   "mean_dll": 0.13585664703551212,
+   "folds_pos": 6,
+   "p_holm": 0.140625,
+   "holm_sig": false
+  },
+  {
+   "feature": "ret_300s",
+   "mean_gain": 2559.377529496948,
+   "mean_dll": 0.001720702790080501,
+   "folds_pos": 6,
+   "p_holm": 0.171875,
+   "holm_sig": false
+  },
+  {
+   "feature": "l0_time_left_min",
+   "mean_gain": 1522.0630082873006,
+   "mean_dll": 0.0015474242245332324,
+   "folds_pos": 6,
+   "p_holm": 0.15625,
+   "holm_sig": false
+  },
+  {
+   "feature": "l0_spread",
+   "mean_gain": 428.9809530552787,
+   "mean_dll": 0.0007052068898355308,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "l0_price_velocity",
+   "mean_gain": 870.7927127859244,
+   "mean_dll": 0.0003375588668497434,
+   "folds_pos": 5,
+   "p_holm": 0.875,
+   "holm_sig": false
+  },
+  {
+   "feature": "vol_5m",
+   "mean_gain": 1368.5643391062815,
+   "mean_dll": 0.0003089015574543454,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "asset",
+   "mean_gain": 197.49792205293974,
+   "mean_dll": 0.00012320269129107502,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "l0_volume_5min",
+   "mean_gain": 0.0,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "ret_60s",
+   "mean_gain": 977.1358766655127,
+   "mean_dll": -2.384130771763507e-05,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "favorite_side",
+   "mean_gain": 65.48793985446294,
+   "mean_dll": -5.441766781088481e-05,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "ret_180s",
+   "mean_gain": 979.3613161059717,
+   "mean_dll": -0.0003631548238844559,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  }
+ ],
+ "L1": [
+  {
+   "feature": "dev_sq_x_phase",
+   "mean_gain": 8367.273186862469,
+   "mean_dll": 0.07570891752809565,
+   "folds_pos": 6,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "high_price_final",
+   "mean_gain": 2044.649828672409,
+   "mean_dll": 0.01129439200162329,
+   "folds_pos": 6,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "price_deviation",
+   "mean_gain": 89.59752988815308,
+   "mean_dll": 0.0005540234625359285,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "price_deviation_sq",
+   "mean_gain": 180.4551993906498,
+   "mean_dll": 0.00045622398962732086,
+   "folds_pos": 5,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "rsi_14",
+   "mean_gain": 185.69370613371333,
+   "mean_dll": 0.00045022035426666346,
+   "folds_pos": 5,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "pm_momentum_5m",
+   "mean_gain": 277.20519490043324,
+   "mean_dll": 0.00037126513741799085,
+   "folds_pos": 5,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "ret_6",
+   "mean_gain": 247.9970921278,
+   "mean_dll": 0.00030424495968679586,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "pm_best_bid",
+   "mean_gain": 137.2430410782496,
+   "mean_dll": 0.00023849231410956925,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "ret_3",
+   "mean_gain": 293.8946829040845,
+   "mean_dll": 0.0001643383380279898,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "mid_price",
+   "mean_gain": 174.00883963207403,
+   "mean_dll": 0.00014210605928107988,
+   "folds_pos": 5,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "dist_to_high_96",
+   "mean_gain": 276.56838802496594,
+   "mean_dll": 0.00013154383940083836,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "pm_best_ask",
+   "mean_gain": 108.37142133712769,
+   "mean_dll": 0.0001266106758249693,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "vol_z_6",
+   "mean_gain": 350.70972591638565,
+   "mean_dll": 0.00011798121004798368,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "dow_sin",
+   "mean_gain": 107.28207814693451,
+   "mean_dll": 0.00011718047789784237,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "ret_48",
+   "mean_gain": 325.2225767970085,
+   "mean_dll": 9.763968714367344e-05,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "body_to_range",
+   "mean_gain": 360.2114332684626,
+   "mean_dll": 8.773429040785805e-05,
+   "folds_pos": 1,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "bb_width",
+   "mean_gain": 333.00152814388275,
+   "mean_dll": 7.384412457285395e-05,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "hour_cos",
+   "mean_gain": 158.32613190015158,
+   "mean_dll": 7.167971685320686e-05,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "consecutive_up",
+   "mean_gain": 7.004296700159709,
+   "mean_dll": 4.286094081319846e-05,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "up_ratio_4",
+   "mean_gain": 29.56132984161377,
+   "mean_dll": 3.499578086624575e-05,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "spread_pct",
+   "mean_gain": 31.433393319447834,
+   "mean_dll": 3.148109464971386e-05,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "velocity_x_phase",
+   "mean_gain": 20.029011646906536,
+   "mean_dll": 2.9268020431316095e-05,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "dist_to_high_24",
+   "mean_gain": 314.2389536773165,
+   "mean_dll": 2.51878148860512e-05,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "dow_cos",
+   "mean_gain": 42.9275141954422,
+   "mean_dll": 2.2239877360321254e-05,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "consec_down",
+   "mean_gain": 6.906073331832886,
+   "mean_dll": 1.7879874888268277e-05,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "cvd_trend",
+   "mean_gain": 304.8509746367733,
+   "mean_dll": 1.475468080136852e-05,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "consecutive_down",
+   "mean_gain": 10.321769913037619,
+   "mean_dll": 1.4233204668025653e-05,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "dist_to_low_96",
+   "mean_gain": 278.07270886500675,
+   "mean_dll": 1.3081210999382753e-05,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "taker_buy_ratio",
+   "mean_gain": 157.65318433443704,
+   "mean_dll": 2.921146692711864e-06,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "deviation_x_time",
+   "mean_gain": 0.0,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "direction_lag_1",
+   "mean_gain": 0.9223883152008057,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "funding_extreme",
+   "mean_gain": 0.0,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "funding_rate",
+   "mean_gain": 0.0,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "funding_rate_ma3",
+   "mean_gain": 0.0,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "is_final_phase",
+   "mean_gain": 0.0,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "log_moneyness",
+   "mean_gain": 0.0,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "log_time_left",
+   "mean_gain": 0.0,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "pm_volume_5m",
+   "mean_gain": 0.0,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "strike_gap_pct",
+   "mean_gain": 0.0,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "time_left_min",
+   "mean_gain": 0.0,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "time_phase",
+   "mean_gain": 0.0,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "volume_5min",
+   "mean_gain": 0.0,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "volume_trend",
+   "mean_gain": 0.0,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "price_velocity",
+   "mean_gain": 76.46459127465884,
+   "mean_dll": -3.5322335953380524e-07,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "pm_quote_pressure",
+   "mean_gain": 39.97947510083517,
+   "mean_dll": -1.6680487773689108e-06,
+   "folds_pos": 1,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "spread",
+   "mean_gain": 26.141820053259533,
+   "mean_dll": -3.939905720824598e-06,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "dow",
+   "mean_gain": 13.869056781133017,
+   "mean_dll": -1.1545907907359013e-05,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "consec_up",
+   "mean_gain": 8.777174949645996,
+   "mean_dll": -1.1782700732632718e-05,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "consec_balance",
+   "mean_gain": 61.06497812271118,
+   "mean_dll": -1.2617235539364507e-05,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "direction_lag_2",
+   "mean_gain": 36.44789973894755,
+   "mean_dll": -2.4288003275529935e-05,
+   "folds_pos": 1,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "direction_lag_3",
+   "mean_gain": 66.35066155592601,
+   "mean_dll": -2.613357596186688e-05,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "spread_trend",
+   "mean_gain": 155.9463728989164,
+   "mean_dll": -2.7305866648924524e-05,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "signed_trend_efficiency_6",
+   "mean_gain": 200.8396495928367,
+   "mean_dll": -4.918678590559106e-05,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "alternation_rate_6",
+   "mean_gain": 84.79103517532349,
+   "mean_dll": -6.279319206273843e-05,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "hour_utc",
+   "mean_gain": 50.677186806996666,
+   "mean_dll": -6.281517988794715e-05,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "bb_position",
+   "mean_gain": 187.27126337091127,
+   "mean_dll": -7.858173317022863e-05,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "price_distance_from_max",
+   "mean_gain": 227.95710901916027,
+   "mean_dll": -8.91980982847725e-05,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "ret_1",
+   "mean_gain": 142.12456394731998,
+   "mean_dll": -9.338411636957023e-05,
+   "folds_pos": 1,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "cvd_1",
+   "mean_gain": 246.87772633632025,
+   "mean_dll": -9.446976240062545e-05,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "pm_spread_pct",
+   "mean_gain": 150.97965679566065,
+   "mean_dll": -9.531135576666527e-05,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "vol_ratio",
+   "mean_gain": 213.78055261572203,
+   "mean_dll": -0.00011891398881768032,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "cvd_6",
+   "mean_gain": 217.00931149721146,
+   "mean_dll": -0.0001610117851997365,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "vol_z_1",
+   "mean_gain": 270.5952580338538,
+   "mean_dll": -0.00016834174834868943,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "price_momentum",
+   "mean_gain": 303.55635524789494,
+   "mean_dll": -0.00018132718102473197,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "signed_body_pct",
+   "mean_gain": 251.18376675248146,
+   "mean_dll": -0.00018400487306508625,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "price_velocity_lag1",
+   "mean_gain": 171.42775318026543,
+   "mean_dll": -0.00018715286551530355,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "vol_24",
+   "mean_gain": 156.05326495567957,
+   "mean_dll": -0.00019543264229637507,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "vol_trend",
+   "mean_gain": 273.7290114611387,
+   "mean_dll": -0.0002091324640153239,
+   "folds_pos": 1,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "day_of_week",
+   "mean_gain": 71.89591179291408,
+   "mean_dll": -0.000213678496199049,
+   "folds_pos": 1,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "hour_of_day",
+   "mean_gain": 247.7440223644177,
+   "mean_dll": -0.00021732987662486901,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "range_1",
+   "mean_gain": 429.14132638772327,
+   "mean_dll": -0.00023550581641264742,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "vol_6",
+   "mean_gain": 183.6074431031011,
+   "mean_dll": -0.0002554430410311263,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "range_avg_24",
+   "mean_gain": 218.89367732405663,
+   "mean_dll": -0.00028618953953869915,
+   "folds_pos": 1,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "ema_ratio_9_21",
+   "mean_gain": 187.0407836896678,
+   "mean_dll": -0.0003365556017744119,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "vol_48",
+   "mean_gain": 385.6980858167323,
+   "mean_dll": -0.00035258488033344955,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "dist_to_low_24",
+   "mean_gain": 159.116997356837,
+   "mean_dll": -0.00040871104425574704,
+   "folds_pos": 1,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "hour_sin",
+   "mean_gain": 159.4680695955952,
+   "mean_dll": -0.0004621899121479917,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "ret_24",
+   "mean_gain": 233.07129407177368,
+   "mean_dll": -0.0005056186402571074,
+   "folds_pos": 1,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "ret_12",
+   "mean_gain": 254.12533916036287,
+   "mean_dll": -0.0005408941643264986,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  }
+ ],
+ "L2": [
+  {
+   "feature": "dev_sq_x_phase",
+   "mean_gain": 7738.53278195858,
+   "mean_dll": 0.039076189406087515,
+   "folds_pos": 6,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "fav_max",
+   "mean_gain": 1147.8928100913763,
+   "mean_dll": 0.018284215971065203,
+   "folds_pos": 6,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "high_price_final",
+   "mean_gain": 2001.0472049117088,
+   "mean_dll": 0.009553523210228242,
+   "folds_pos": 6,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "drop_from_max",
+   "mean_gain": 648.340262969335,
+   "mean_dll": 0.003635779533837005,
+   "folds_pos": 6,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "fav_vel_180s",
+   "mean_gain": 385.3771283229192,
+   "mean_dll": 0.0005700810889995794,
+   "folds_pos": 5,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "tenure_s",
+   "mean_gain": 169.98831697553396,
+   "mean_dll": 0.0005368259344470538,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "price_deviation",
+   "mean_gain": 156.73107449213663,
+   "mean_dll": 0.0004762613562676104,
+   "folds_pos": 5,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "time_since_cross_05",
+   "mean_gain": 415.49973066647846,
+   "mean_dll": 0.0004387517823932269,
+   "folds_pos": 5,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "pm_momentum_5m",
+   "mean_gain": 255.84976196289062,
+   "mean_dll": 0.0003768044651553762,
+   "folds_pos": 5,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "vol_48",
+   "mean_gain": 418.8242483834426,
+   "mean_dll": 0.0003353716361587254,
+   "folds_pos": 5,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "recovery_180s",
+   "mean_gain": 363.35526672999066,
+   "mean_dll": 0.00031746912483231654,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "mid_price",
+   "mean_gain": 177.93329421679178,
+   "mean_dll": 0.00028474896508512117,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "price_momentum",
+   "mean_gain": 287.6017663677533,
+   "mean_dll": 0.00027732418289996223,
+   "folds_pos": 5,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "rsi_14",
+   "mean_gain": 280.7289821393788,
+   "mean_dll": 0.0002461820484446086,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "taker_buy_ratio",
+   "mean_gain": 179.73550979296365,
+   "mean_dll": 0.0002188689672725693,
+   "folds_pos": 5,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "n_flips",
+   "mean_gain": 184.44325467944145,
+   "mean_dll": 0.00020647778403538102,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "quote_age_s",
+   "mean_gain": 389.37621253728867,
+   "mean_dll": 0.00019949158074966355,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "bb_width",
+   "mean_gain": 395.24855303329724,
+   "mean_dll": 0.00018688820656693564,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "dist_to_high_96",
+   "mean_gain": 309.7646998728936,
+   "mean_dll": 0.00018587188375869383,
+   "folds_pos": 5,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "pm_best_ask",
+   "mean_gain": 105.2037044763565,
+   "mean_dll": 0.00016550724347779648,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "price_deviation_sq",
+   "mean_gain": 179.16877432664236,
+   "mean_dll": 0.00015908776746829175,
+   "folds_pos": 5,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "dist_to_high_24",
+   "mean_gain": 262.7195031444232,
+   "mean_dll": 0.00012344480378794704,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "vol_z_6",
+   "mean_gain": 403.8835654258728,
+   "mean_dll": 0.00012112527219254599,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "ret_6",
+   "mean_gain": 260.5048576792081,
+   "mean_dll": 0.00011009448269303255,
+   "folds_pos": 5,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "cvd_trend",
+   "mean_gain": 398.0081320255995,
+   "mean_dll": 0.00010254098945116888,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "price_velocity",
+   "mean_gain": 82.97357702255249,
+   "mean_dll": 0.00010087645375086995,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "pm_quote_pressure",
+   "mean_gain": 37.76815164089203,
+   "mean_dll": 8.489986884795287e-05,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "vol_6",
+   "mean_gain": 190.58370514710745,
+   "mean_dll": 7.954355855772456e-05,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "pm_best_bid",
+   "mean_gain": 156.98926854133606,
+   "mean_dll": 7.379651926319975e-05,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "consecutive_up",
+   "mean_gain": 11.054816722869873,
+   "mean_dll": 6.281626865271377e-05,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "dow_cos",
+   "mean_gain": 57.99916817744573,
+   "mean_dll": 5.741271131611764e-05,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "up_ratio_4",
+   "mean_gain": 33.69982508818308,
+   "mean_dll": 4.043602203862572e-05,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "velocity_x_phase",
+   "mean_gain": 17.880860090255737,
+   "mean_dll": 3.559685984671737e-05,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "price_distance_from_max",
+   "mean_gain": 203.71018232901892,
+   "mean_dll": 1.4054913054947465e-05,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "direction_lag_1",
+   "mean_gain": 0.4211016496022542,
+   "mean_dll": 8.382476746606379e-06,
+   "folds_pos": 1,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "dow",
+   "mean_gain": 17.431666533152264,
+   "mean_dll": 6.693743648703318e-06,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "consecutive_down",
+   "mean_gain": 6.872256755828857,
+   "mean_dll": 5.918587146951247e-06,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "direction_lag_3",
+   "mean_gain": 84.90548968315125,
+   "mean_dll": 2.7689587741297483e-06,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "hour_cos",
+   "mean_gain": 189.99448955059052,
+   "mean_dll": 1.288295356119721e-06,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "direction_lag_2",
+   "mean_gain": 51.126889864603676,
+   "mean_dll": 6.15568886857487e-07,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "deviation_x_time",
+   "mean_gain": 0.0,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "funding_extreme",
+   "mean_gain": 0.0,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "funding_rate",
+   "mean_gain": 0.0,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "funding_rate_ma3",
+   "mean_gain": 0.0,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "is_final_phase",
+   "mean_gain": 0.0,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "log_moneyness",
+   "mean_gain": 0.0,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "log_time_left",
+   "mean_gain": 0.0,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "pm_volume_5m",
+   "mean_gain": 0.0,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "strike_gap_pct",
+   "mean_gain": 0.0,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "time_left_min",
+   "mean_gain": 0.0,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "time_phase",
+   "mean_gain": 0.0,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "volume_5min",
+   "mean_gain": 0.0,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "volume_trend",
+   "mean_gain": 0.0,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "alternation_rate_6",
+   "mean_gain": 111.53957029183705,
+   "mean_dll": -1.1168893070031178e-06,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "consec_up",
+   "mean_gain": 4.112358291943868,
+   "mean_dll": -3.9287670651971205e-06,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "spread_pct",
+   "mean_gain": 36.69807859261831,
+   "mean_dll": -5.3360778087263574e-06,
+   "folds_pos": 1,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "signed_trend_efficiency_6",
+   "mean_gain": 224.62436286608377,
+   "mean_dll": -7.434230996457144e-06,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "consec_down",
+   "mean_gain": 21.959063291549683,
+   "mean_dll": -7.674389036359406e-06,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "spread_change_180s",
+   "mean_gain": 96.22506508231163,
+   "mean_dll": -9.990443510869848e-06,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "hour_utc",
+   "mean_gain": 96.33145970106125,
+   "mean_dll": -2.7547199167248732e-05,
+   "folds_pos": 1,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "fav_vel_60s",
+   "mean_gain": 500.4130452275276,
+   "mean_dll": -4.18844816576626e-05,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "pm_spread_pct",
+   "mean_gain": 212.92539388438067,
+   "mean_dll": -4.8849256744744774e-05,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "spread",
+   "mean_gain": 41.07755304376284,
+   "mean_dll": -5.529073903659223e-05,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "dow_sin",
+   "mean_gain": 114.62318321069081,
+   "mean_dll": -6.414302129885881e-05,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "dist_to_low_96",
+   "mean_gain": 311.51612040400505,
+   "mean_dll": -0.00010774854695782482,
+   "folds_pos": 1,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "ret_12",
+   "mean_gain": 246.60747227196893,
+   "mean_dll": -0.00011063574709975641,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "cvd_6",
+   "mean_gain": 257.399825523297,
+   "mean_dll": -0.00011929050359152679,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "price_velocity_lag1",
+   "mean_gain": 204.27370340377092,
+   "mean_dll": -0.00011997292528853006,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "ret_3",
+   "mean_gain": 360.516299645106,
+   "mean_dll": -0.00012153586631045831,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "day_of_week",
+   "mean_gain": 110.6042549610138,
+   "mean_dll": -0.00012669597212563075,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "cvd_1",
+   "mean_gain": 300.0984579722087,
+   "mean_dll": -0.0001273311981939973,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "consec_balance",
+   "mean_gain": 61.88952966531118,
+   "mean_dll": -0.00013297572746396683,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "spread_trend",
+   "mean_gain": 152.75941949586073,
+   "mean_dll": -0.00014098434582513844,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "vol_z_1",
+   "mean_gain": 341.87982976436615,
+   "mean_dll": -0.00014787641327512445,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "range_avg_24",
+   "mean_gain": 275.3155996600787,
+   "mean_dll": -0.00020188438726005523,
+   "folds_pos": 1,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "vol_ratio",
+   "mean_gain": 290.7145250439644,
+   "mean_dll": -0.0002121603621037804,
+   "folds_pos": 1,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "signed_body_pct",
+   "mean_gain": 274.9353757798672,
+   "mean_dll": -0.0002483053829891477,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "range_1",
+   "mean_gain": 413.9488523205121,
+   "mean_dll": -0.00026516653199911946,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "ret_48",
+   "mean_gain": 352.9606446822484,
+   "mean_dll": -0.0002804933255121964,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "hour_of_day",
+   "mean_gain": 272.77213247617084,
+   "mean_dll": -0.00030398670269589216,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "body_to_range",
+   "mean_gain": 392.33412432670593,
+   "mean_dll": -0.0003053784403902378,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "hour_sin",
+   "mean_gain": 196.7863038778305,
+   "mean_dll": -0.0003087210024153606,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "bb_position",
+   "mean_gain": 235.5042589108149,
+   "mean_dll": -0.00032799212551415076,
+   "folds_pos": 1,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "dist_to_low_24",
+   "mean_gain": 238.88792383422455,
+   "mean_dll": -0.00034402491832703314,
+   "folds_pos": 1,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "vol_trend",
+   "mean_gain": 283.06120413541794,
+   "mean_dll": -0.00036735914806033785,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "vol_24",
+   "mean_gain": 218.64736169576645,
+   "mean_dll": -0.00038914836202990575,
+   "folds_pos": 1,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "ret_1",
+   "mean_gain": 240.12333329518637,
+   "mean_dll": -0.00039673089321690726,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "ret_24",
+   "mean_gain": 341.7631567281981,
+   "mean_dll": -0.0005114251258668668,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "ema_ratio_9_21",
+   "mean_gain": 267.3623174528281,
+   "mean_dll": -0.00080397555960073,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  }
+ ],
+ "L3": [
+  {
+   "feature": "recovery_180s",
+   "mean_gain": 84.90036674340566,
+   "mean_dll": 0.00033234184141745876,
+   "folds_pos": 6,
+   "p_holm": 0.328125,
+   "holm_sig": false
+  },
+  {
+   "feature": "n_flips",
+   "mean_gain": 46.68026320139567,
+   "mean_dll": 9.199093201695295e-05,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "spread_change_180s",
+   "mean_gain": 29.384416858355205,
+   "mean_dll": 8.624395822899742e-05,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "quote_age_s",
+   "mean_gain": 148.89752527077994,
+   "mean_dll": 8.127020670970857e-05,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "fav_max",
+   "mean_gain": 38.879818399747215,
+   "mean_dll": 6.753306126278421e-05,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "ret_60s",
+   "mean_gain": 79.43472496668498,
+   "mean_dll": 5.173612402293674e-05,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "l0_time_left_min",
+   "mean_gain": 79.95402320226033,
+   "mean_dll": 5.100877376369562e-05,
+   "folds_pos": 3,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "asset",
+   "mean_gain": 20.77621845404307,
+   "mean_dll": 3.3544635957604025e-05,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "ret_300s",
+   "mean_gain": 109.05261307954788,
+   "mean_dll": 2.8926609319230976e-05,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "favorite_side",
+   "mean_gain": 0.7837183475494385,
+   "mean_dll": 2.268128725351389e-05,
+   "folds_pos": 1,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "l0_volume_5min",
+   "mean_gain": 0.0,
+   "mean_dll": 0.0,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "fav_vel_180s",
+   "mean_gain": 72.73370594779651,
+   "mean_dll": -5.739848048891891e-06,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "drop_from_max",
+   "mean_gain": 45.19711494445801,
+   "mean_dll": -1.78659258644588e-05,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "ret_180s",
+   "mean_gain": 81.69959684213002,
+   "mean_dll": -3.894240333568752e-05,
+   "folds_pos": 1,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "outsider_mid",
+   "mean_gain": 59.23573009173075,
+   "mean_dll": -5.090892930460932e-05,
+   "folds_pos": 4,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "tenure_s",
+   "mean_gain": 52.73181184132894,
+   "mean_dll": -6.448250065035293e-05,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "l0_spread",
+   "mean_gain": 22.581089973449707,
+   "mean_dll": -7.190068894530949e-05,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "l0_price_velocity",
+   "mean_gain": 58.88672320048014,
+   "mean_dll": -9.929222708446317e-05,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "vol_5m",
+   "mean_gain": 91.31374011437099,
+   "mean_dll": -0.0001188883213675428,
+   "folds_pos": 2,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "fav_vel_60s",
+   "mean_gain": 53.173206766446434,
+   "mean_dll": -0.00012974969108620985,
+   "folds_pos": 1,
+   "p_holm": 1.0,
+   "holm_sig": false
+  },
+  {
+   "feature": "time_since_cross_05",
+   "mean_gain": 85.3638245711724,
+   "mean_dll": -0.00016617389909697993,
+   "folds_pos": 0,
+   "p_holm": 1.0,
+   "holm_sig": false
+  }
+ ]
+}

@@ -1,0 +1,34 @@
+# reason_codes.yaml v1.0.0 (FROZEN) — lgbm-favorite-flip-v1
+# Каждый рынок/возможность, не дошедшая до сравнения, имеет reason code.
+# Рынок не исчезает без кода. missing не превращается в SKIP до отчёта.
+version: 1.1.0
+# v1.1.0: OUT_OF_BAND, LOGREG_UNAVAILABLE, ASK_UNAVAILABLE_ECON_ONLY,
+# FLIPNATIVE_MISMATCH — флаги/диагностика (строка остаётся во вселенной OK);
+# жёсткие исключения — только причинность/таргет/квоты ниже.
+flags:
+  out_of_band: outsider_mid вне [0.05, 0.50] (ценовой разрез отдельно)
+  logreg_available: причинный funnel p_flip есть (иначе только market/LGBM-сравнения)
+  econ_available: candidate_ask есть (иначе вне экономики)
+  flipnative_agree: favorite_flip == anchor.flip_native (расхождение = переворот лидерства в зазоре, не блок)
+codes:
+  OUTCOME_PENDING_EXCLUDED: рынок без resolved contract_target (не резолвнут на момент экспорта)
+  OUTCOME_CONFLICT: больше одного distinct contract_target на рынок (блок, data error)
+  OUTCOME_MISMATCH: contract_target не совпадает с series final_outcome (блок)
+  NO_MARKET_END: нет market_end (нельзя построить окна)
+  FINAL_PERIOD_LOCKED: market_end >= 2026-08-31 (final-период, не открывать в dev)
+  NO_SERIES: нет snapshot-серии рынка (ни snapsdec, ни flipslice)
+  NO_CAUSAL_SNAPSHOT: нет snapshot с recorded_at <= decision_at в окне
+  NO_ANCHOR_EVENT: нет decision event с decision_at <= decision_at в окне
+  NO_FRESH_ANCHOR: ближайший причинный anchor старше 120с
+  ANCHOR_NO_QUOTE: anchor без p_market_yes (нет причинной котировки)
+  AMBIGUOUS_FAVORITE: yes_mid == 0.5 ровно (фаворит не определён)
+  BAD_YES_MID: yes_mid вне (0,1)
+  BAD_OUTCOME: final_outcome не YES/NO
+  FLIPNATIVE_MISMATCH: DIAGNOSTIC ONLY (v1.1.0) — фиксируется флагом flipnative_agree=false, рынок НЕ блокируется
+  FLIPNATIVE_UNAVAILABLE: anchor.flip_native пуст (невозможно сверить, блок)
+  LOGREG_UNAVAILABLE: FLAG (v1.1.0) — нет причинного funnel p_flip; строка остаётся (парные сравнения на общей подвыборке)
+  LOGREG_NONLOGREG_ENTRY: entry (key, version) не LogReg по inventory (C1 недоступен, флаг)
+  ASK_UNAVAILABLE_ECON_ONLY: FLAG (v1.1.0) — возможность в прогнозном сравнении, но без candidate_ask (вне экономики)
+  SYNTHETIC_ECON_EXCLUDED: ekonomik-анализ OBSERVED/SYNTHETIC разделены (sensitivity)
+  OUT_OF_BAND: FLAG (v1.1.0) — outsider_mid вне [0.05, 0.50] (вне ценовых диапазонов, анализ отдельно; строка остаётся)
+  FOLD_GAP: рынок в gap-периоде вне dev folds и вне final (не используется)

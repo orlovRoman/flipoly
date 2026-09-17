@@ -1,0 +1,71 @@
+{
+ "spec_version": "1.1.0",
+ "conditions": {
+  "L0": {
+   "logloss_better_than_market": false,
+   "logloss_better_than_logreg": false,
+   "folds_won_vs_market": 0,
+   "folds_won_vs_logreg": 0,
+   "wins_at_least_4_of_6_folds": false,
+   "ci_logloss_improvement_above_zero": false,
+   "brier_not_worse": false,
+   "calibration_acceptable": true,
+   "canonical_net_above_both": false,
+   "ci_economic_increment_above_zero": false,
+   "not_concentrated": false,
+   "max_drawdown_within_limit": false,
+   "coverage_sufficient": true,
+   "pass_all": false
+  },
+  "L1": {
+   "logloss_better_than_market": false,
+   "logloss_better_than_logreg": false,
+   "folds_won_vs_market": 0,
+   "folds_won_vs_logreg": 0,
+   "wins_at_least_4_of_6_folds": false,
+   "ci_logloss_improvement_above_zero": false,
+   "brier_not_worse": false,
+   "calibration_acceptable": true,
+   "canonical_net_above_both": false,
+   "ci_economic_increment_above_zero": false,
+   "not_concentrated": false,
+   "max_drawdown_within_limit": false,
+   "coverage_sufficient": true,
+   "pass_all": false
+  },
+  "L2": {
+   "logloss_better_than_market": false,
+   "logloss_better_than_logreg": false,
+   "folds_won_vs_market": 0,
+   "folds_won_vs_logreg": 0,
+   "wins_at_least_4_of_6_folds": false,
+   "ci_logloss_improvement_above_zero": false,
+   "brier_not_worse": false,
+   "calibration_acceptable": true,
+   "canonical_net_above_both": false,
+   "ci_economic_increment_above_zero": false,
+   "not_concentrated": false,
+   "max_drawdown_within_limit": false,
+   "coverage_sufficient": true,
+   "pass_all": false
+  },
+  "L3": {
+   "logloss_better_than_market": false,
+   "logloss_better_than_logreg": false,
+   "folds_won_vs_market": 0,
+   "folds_won_vs_logreg": 3,
+   "wins_at_least_4_of_6_folds": false,
+   "ci_logloss_improvement_above_zero": false,
+   "brier_not_worse": false,
+   "calibration_acceptable": true,
+   "canonical_net_above_both": false,
+   "ci_economic_increment_above_zero": false,
+   "not_concentrated": false,
+   "max_drawdown_within_limit": false,
+   "coverage_sufficient": true,
+   "pass_all": false
+  }
+ },
+ "candidate": null,
+ "verdict": "STOP_NOT_BETTER_THAN_MARKET"
+}

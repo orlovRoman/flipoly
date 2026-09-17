@@ -1,0 +1,17 @@
+{
+ "OK": 22707,
+ "NO_FRESH_ANCHOR": 11934,
+ "NO_ANCHOR_EVENT": 394,
+ "AMBIGUOUS_FAVORITE": 327,
+ "NO_CAUSAL_SNAPSHOT": 5,
+ "_markets": {
+  "markets_total": 21757,
+  "markets_resolved": 16730,
+  "markets_unresolved": 5027,
+  "markets_conflict": 0,
+  "markets_no_end": 0,
+  "markets_final_locked": 4941,
+  "markets_fold_gap": 0,
+  "markets_dev": 11789
+ }
+}

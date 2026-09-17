@@ -1,0 +1,255 @@
+# spec.yaml v1.0.0 (FROZEN) — lgbm-favorite-flip-v1
+# Вопрос: может ли специально обученный LightGBM предсказывать поражение
+# текущего фаворита лучше рынка (outsider_mid) и существующей LogReg (p_flip)?
+# Заморозка: до обучения L0-L3. Правки только новой версией spec с датой/причиной.
+spec_version: 1.1.0
+spec_status: frozen
+frozen_at: '2026-09-17'
+branch: research/lgbm-favorite-flip-v1
+base_commit: bc49cb93824555f46f48711a63ebc38f674f06de  # origin/main
+changelog:
+  - version: 1.1.0
+    reason: >-
+      Поправка ДО обучения (результатов моделей нет): (1) FLIPNATIVE_MISMATCH
+      переведён из блокировки рынка в диагностический флаг flipnative_agree.
+      Доказательство: flip_native == realized label глобально (agreement 1.0,
+      745k строк); все триггерные расхождения — перевороты лидерства в зазоре
+      anchor(<=120с)->snapshot (напр. 0.655->0.480), исходы совпадают везде
+      (0 конфликтов contract_target). Блокировка выкидывала бы 556 рынков
+      (4.7%) — волатильные рынки, т.е. целевой феномен исследования
+      (selection bias). Намерение проверки (корректность вычисления лейбла)
+      сохранено: unit-тесты truth table + согласие источников исходов
+      (OUTCOME_MISMATCH блокирует). (2) OUT_OF_BAND, LOGREG_UNAVAILABLE,
+      ASK_UNAVAILABLE_ECON_ONLY — флаги подмножеств, не исключения:
+      парные сравнения идут на общих подвыборках, coverage отдельно.
+      (3) Проверка entry-модели по паре (key, version), а не только key.
+
+question:
+  main: >-
+    Улучшает ли новый LightGBM прогноз favorite loses относительно текущей
+    цены аутсайдера (market) и существующей LogReg?
+  extra:
+    - на каких активах работает улучшение
+    - работает ли оно для обоих типов фаворита (YES/NO)
+    - какие группы признаков обеспечивают улучшение
+    - превращается ли прогнозное улучшение в положительный canonical net
+    - не вызван ли результат несколькими редкими выигрышами
+
+non_goals:
+  - новая LogReg (существующая — замороженный контроль, не переобучается)
+  - технический разворот базового актива (direction UP/DOWN)
+  - обычный directional UP/DOWN
+  - подбор настроек дашборда
+  - CT (confirm/fast models)
+  - maker-исполнение
+  - LIVE-торговля
+
+data_sources:  # все входы — локальные read-only экспорты, сервера нет
+  shared_ds: D:\lgbm-audit-v1\out\shared_ds\shared_dataset.parquet  # decision events, quotes, flip_native, contract_target
+  feature_matrix: D:\lgbm-audit-v1\out\feature\FEATURE_MATRIX.parquet  # 79 фич на decision_event_id
+  funnel_dir: D:\lgbm-audit-v1\data\exp\funnel  # production-лог, причинный p_flip entry-LogReg
+  snapsdec_dir: D:\lgbm-audit-v1\data\exp\snapsdec  # перимаркетные YES-серии (mid/bid/ask), final_outcome
+  flipslice: D:\lgbm-audit-v1\data\exp\flipslice\flipslice.csv.gz  # YES-серии 07-05..09-11
+  inventory: D:\lgbm-audit-v1\out\MODEL_INVENTORY.csv  # версии entry-LogReg
+
+unit_of_observation:
+  opportunity_id: '{market_id}@{window}'  # window в {T-10, T-5, T-2}
+  windows_min_before_end: [10, 5, 2]
+  rule_one_row_per_market_per_window: true
+  rule_market_wholly_in_one_fold: true  # fold по market_end
+  decision_at: market_end - window
+  window_snapshot: latest series row with recorded_at <= decision_at (causal)
+  anchor_event: latest decision event with decision_at <= decision_at AND age <= 120s AND p_market_yes notna
+  anchor_max_age_s: 120
+  funnel_match: latest funnel row same market with created_at <= decision_at AND age <= 300s
+  funnel_max_age_s: 300
+
+target:
+  name: favorite_flip
+  favorite_rule: 'yes_mid > 0.5 -> YES; yes_mid < 0.5 -> NO; yes_mid == 0.5 -> AMBIGUOUS (exclude)'
+  yes_mid_source: window snapshot mid_price (YES-side; audit quotes.py: p_market_yes=poly_up_mid fallback mid_price)
+  outcome_source: window snapshot final_outcome (must be YES/NO; PENDING/UNRESOLVED never -> 0)
+  truth_table:
+    - [yes_mid>0.5, YES, YES, 0]
+    - [yes_mid>0.5, YES, NO, 1]
+    - [yes_mid<0.5, NO, NO, 0]
+    - [yes_mid<0.5, NO, YES, 1]
+  crosscheck_flip_native: opportunity.favorite_flip vs anchor.flip_native recorded as flipnative_agree flag (diagnostic, NOT blocking; v1.1.0)
+  crosscheck_outcome: contract_target vs final_outcome mapping; mismatch -> OUTCOME_MISMATCH (market block)
+  note: side inputs snapshot/event независимы; outcome-источники независимы
+
+sides:
+  p_flip_definition: P(current favorite loses) == P(current outsider wins)
+  candidate_side: NO if favorite YES else YES
+  inversion_rule: single inversion only; p_flip never interpreted as P(YES)
+  logreg_control_uses_funnel_p_flip_directly: true  # funnel.p_flip уже P(fav loses), см. combined_voting.py:1765-1769
+
+opportunity_schema:
+  - opportunity_id
+  - market_id
+  - asset
+  - decision_window
+  - decision_at
+  - market_end_at
+  - favorite_side
+  - candidate_side
+  - favorite_flip
+  - yes_mid
+  - outsider_mid
+  - outsider_mid_provenance  # MID_OBSERVED (fav NO) | MID_SYNTHETIC=1-yes_mid (fav YES)
+  - candidate_ask
+  - candidate_ask_provenance  # ASK_OBSERVED | ASK_SYNTHETIC (anchor.synthetic_no при candidate NO)
+  - quote_provenance: anchor quote fields (yes_ask, no_ask, synthetic_no, quote_ok)
+  - snapshot_age_seconds
+  - anchor_age_seconds
+  - anchor_event_id
+  - fold
+  - p_market_flip
+  - p_logreg_flip
+  - logreg_model_key
+  - logreg_model_version
+  - logreg_entry_ece
+  - feature columns (L0/L1/L2 sets)
+
+folds:  # по market_end; walk-forward train_past -> validation_future
+  seed_train_only: ['2026-08-03', '2026-08-07']  # [lo, hi)
+  F1: ['2026-08-07', '2026-08-11']
+  F2: ['2026-08-11', '2026-08-15']
+  F3: ['2026-08-15', '2026-08-19']
+  F4: ['2026-08-19', '2026-08-23']
+  F5: ['2026-08-23', '2026-08-27']
+  F6: ['2026-08-27', '2026-08-31']
+  final_locked_from: '2026-08-31'  # не открывать в dev
+  validate_folds: [F1, F2, F3, F4, F5, F6]
+  train_for_fold_k: all resolved opportunities with market_end < Fk.lo (incl. seed)
+
+controls:
+  C0_market:
+    p_market_flip: outsider_mid (fav NO -> yes_mid OBSERVED; fav YES -> 1-yes_mid SYNTHETIC)
+    economics_uses_candidate_ask_not_mid: true
+  C1_logreg:
+    p_logreg_flip: funnel.p_flip (effective, ECE-corrected production forecast; raw in p_flip_raw)
+    no_retrain_or_reselect: true
+    unavailable_flag: logreg_available=false (row stays in universe; paired comparison on common subset)
+    paired_only: true  # LGBM vs LogReg только на общей парной выборке
+    entry_check: by (entry_model_key, entry_model_version) against inventory model_type
+
+models:  # список заморожен; никаких вариантов после просмотра результатов
+  L0_base:
+    features: [outsider_mid, time_left_min, spread, asset, favorite_side,
+      ret_60s, ret_180s, ret_300s, vol_5m, price_velocity, volume_5min]
+    note: нелинейный baseline против простого контроля
+  L1_full79:
+    features: all 79 FEATURE_MATRIX columns (join decision_event_id, causal artifact)
+    note: полный существующий набор
+  L2_fav_history:
+    features: L1 + [fav_max, drop_from_max, time_since_cross_05, tenure_s,
+      n_flips, recovery_180s, fav_vel_60s, fav_vel_180s, spread_change_180s, quote_age_s]
+    note: отличается от L1 только группой истории фаворита
+  L3_market_relative:
+    formula: logit(p_flip) = logit(p_market_flip) + residual_lgbm(features)
+    features: L0 set + L2 fav-history group
+    zero_residual_reproduces_market: true  # unit-tested
+
+lgbm_params:  # фиксированы, без grid
+  objective: binary
+  metric: binary_logloss
+  learning_rate: 0.05
+  num_leaves: 31
+  min_data_in_leaf: 100
+  feature_fraction: 0.8
+  bagging_fraction: 0.8
+  bagging_freq: 1
+  lambda_l2: 1.0
+  lambda_l1: 0.0
+  num_boost_round: 2000
+  early_stopping_on: inner train-tail 20% by time
+  seed: 20260913
+  num_threads: 1
+  deterministic: true
+  categorical: [asset, favorite_side]
+
+imbalance:
+  main_class_weight: null  # естественное распределение; accuracy не главная
+  sensitivity_scale_pos_weight: diagnostic_only
+
+calibration:
+  methods: [raw, platt]  # isotonic только если n_cal>=2000 и n_pos>=100
+  isotonic_min_n: 2000
+  isotonic_min_pos: 100
+  fit_on: inner past period of train (never outer validation)
+  same_method_all_folds: true
+  save_raw_and_calibrated_separately: true
+
+metrics:
+  main: [logloss, brier, calibration_slope_intercept, ece, coverage]
+  extra: [auc, pr_auc, precision_recall_flip]
+  paired_comparisons:
+    - [L0, market]
+    - [L1, market]
+    - [L2, market]
+    - [L3, market]
+    - [L0, logreg]
+    - [L1, logreg]
+    - [L2, logreg]
+    - [L3, logreg]
+    - [L3, L1]
+    - [L2, L1]
+  paired_on_same_opportunity_ids: true
+  auc_without_logloss_gain_is_not_success: true
+  price_bands_outsider_mid: [[0.05, 0.10], [0.10, 0.20], [0.20, 0.30], [0.30, 0.50]]
+  small_group_rule: INCONCLUSIVE (n<200 opps или <20 flips)
+
+execution_canonical:  # бюджет $1, симметрично YES/NO
+  fee_per_share: 0.07 * ask * (1 - ask)
+  slippage_per_share: 0.005 * ask
+  all_in_cost: ask + fee_per_share + slippage_per_share
+  shares: 1 / all_in_cost
+  win_net: shares - 1
+  loss_net: -1
+  skip_net: 0
+  one_opportunity_max_one_trade: true
+
+trading_rule:
+  estimated_edge: p_flip - all_in_cost
+  rule: BUY if estimated_edge > min_edge else SKIP  # DEVELOPMENT: фиксированный порог
+  min_edge: 0.03
+  min_edge_status: development_fixed  # доверительная граница не готова
+  same_execution_all_policies: true
+  skip_stays_in_denominator: true
+
+policies: [P0_market, P1_logreg, P2_L0, P3_L1, P4_L2, P5_L3]
+policy_metrics: [opportunities, trades, coverage, turnover, canonical_net, roi,
+  max_drawdown, net_by_day, top1_top5_concentration, yes_no_asset_breakdown]
+
+bootstrap:
+  units: [day, market]  # рынок целиком со всеми окнами
+  deltas: [LL_market-LL_model, LL_logreg-LL_model, net_model-net_market, net_model-net_logreg]
+  reps: 2000
+  seed: 20260913
+
+gate:  # все пороги до итогового расчёта; провал обязательного -> STOP
+  conditions:
+    - logloss_better_than_market
+    - logloss_better_than_logreg
+    - wins_at_least_4_of_6_folds
+    - ci_logloss_improvement_above_zero
+    - brier_not_worse
+    - calibration_acceptable  # slope in [0.7,1.3], |intercept|<=0.3, ece<=0.05
+    - canonical_net_above_both_controls
+    - ci_economic_increment_above_zero
+    - not_concentrated  # top1_day<=0.5, top1_market<=0.25
+    - max_drawdown_within_limit  # <=5.0 budget units
+    - coverage_sufficient  # paired n>=1000 opps, >=500 markets, >=50 flips per comparison
+  verdict_computed_by_code: true
+  priority: [L0, L1, L2, L3]  # сложная только при доказанном инкременте
+  max_one_candidate: true
+
+final:
+  freeze: [model_blob, feature_schema, calibration, thresholds, final_start]
+  no_production_activation: true
+  stop_rule: [min_14_days, min_200_independent_markets]  # оба условия
+
+verdicts: [PASS_PAPER_SHADOW, STOP_NOT_BETTER_THAN_MARKET,
+  STOP_NOT_BETTER_THAN_LOGREG, STOP_NO_ECONOMIC_INCREMENT,
+  INCONCLUSIVE_LOW_POWER, DATA_BLOCKED, INVALIDATED_IMPLEMENTATION_CHANGE]
