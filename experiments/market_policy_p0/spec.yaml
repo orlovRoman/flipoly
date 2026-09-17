@@ -1,0 +1,56 @@
+# spec.yaml v1.0.0 (FROZEN) — market-policy-p0
+# Вопрос: воспроизводится ли находка P0 (net +330.8, 548 сделок) и проходит
+# ли она OOS-проверку на locked-final периоде как торговая политика?
+# Источник находки: lgbm-favorite-flip-v1 @ 5555fe12 (STOP_NOT_BETTER_THAN_MARKET).
+spec_version: 1.0.0
+spec_status: frozen
+frozen_at: '2026-09-17'
+branch: research/market-policy-p0
+base_commit: bc49cb93824555f46f48711a63ebc38f674f06de  # origin/main
+origin_study: research/lgbm-favorite-flip-v1 @ 5555fe12
+canonical_git_blob: c4c61f3c0054f800ddaafee8c7e44b967af8b707
+canonical_source: byte-identical copy via git show 5555fe12 (blob hash match)
+
+policy_P0:
+  p_flip: outsider_mid  # рыночная цена стороны аутсайдера, НЕ прогноз модели
+  edge: p_flip - exec_cost(candidate_ask)
+  rule: BUY if edge > min_edge else SKIP
+  min_edge: 0.03
+  min_edge_status: development_fixed  # зафиксирован до обучения LGBM и до вскрытия final
+  exec_cost: ask + 0.07*ask*(1-ask) + 0.005*ask
+  settle: win -> 1/exec_cost - 1; loss -> -1; skip -> 0
+  budget: $1
+  fitted_parameters: none  # чистый бенчмарк, обучения нет
+
+data_note: источники заканчиваются 2026-09-13; «17 Sep» из плана недоступен.
+  Final-период исследования: 2026-08-31..2026-09-13 (locked в origin study,
+  вскрывается ВПЕРВЫЕ здесь, pre-registered до вскрытия).
+
+stages:
+  T00: isolate (branch/dirs/canonical/spec) — done at freeze
+  T01: reproduce P0 on OOF_FULL (expect net +330.8 ±0.1, trades 548, dd 21.1)
+  T02: decompose by asset/side/window/ask-provenance/band/fold/day + equity curve
+  T03: OOS classification memo (frozen threshold -> OOS-clean verdict)
+  T04: build final 08-31..09-13 with SAME builder logic, apply frozen P0
+  T05: min_edge sweep [0.00,0.01,0.02,0.03,0.04,0.05,0.07,0.10,0.15,0.20]
+  T06: bootstrap CI (day/market, 2000 reps, seed 20260913) + Sharpe daily*365
+  T07: OBSERVED vs SYNTHETIC split; drop SYNTHETIC if loss-making/unexecutable
+  T08: trade_history overlap (trades.csv.gz local export; server read-only if needed)
+  T09: ask-gap check vs snapshots (poly asks NaN in exports -> provenance-level check only; honest limitation)
+  T10: trading rule spec (only if G1-G9 pass)
+  T11: shadow run — OUT OF SCOPE this session (needs live bot) -> G10 pending
+  T12: gate
+
+gate:
+  G1_oos_net_final_gt_0: net_final > 0
+  G2_bootstrap_market_ci: lo > 0
+  G3_sharpe_daily_gt_0.5: sharpe > 0.5
+  G4_top1day_le_0.30: top1day <= 0.30
+  G5_top1mkt_le_0.15: top1mkt <= 0.15
+  G6_drawdown_le_50: dd <= 50
+  G7_observed_only_net_gt_0: net_obs > 0
+  G8_threshold_plateau_width_ge_0.03: plateau(net>0) width >= 0.03
+  G9_median_ask_gap_le_0.005: median gap <= 0.005 (provenance-level; see T09 note)
+  G10_shadow_net_gt_0: PENDING (T11 out of scope)
+verdicts: [APPROVE_PAPER_LIVE, APPROVE_SHADOW, STOP_P0_NOT_VIABLE]
+# max достижимый сейчас: APPROVE_SHADOW (G10 pending)

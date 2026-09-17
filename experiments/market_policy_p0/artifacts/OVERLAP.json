@@ -1,0 +1,23 @@
+{
+ "bot_markets": 8933,
+ "bot_pnl_total": -201.70723970680456,
+ "p0_buy_markets": 761,
+ "A": {
+  "markets": 382,
+  "bot_pnl": 26.480757528356836,
+  "p0_net": 250.18578168721385,
+  "side_agree_frac": 0.45287958115183247
+ },
+ "B": {
+  "markets": 8551,
+  "bot_pnl": -228.1879972351614
+ },
+ "C": {
+  "markets": 379,
+  "p0_net": 197.0357232616792
+ },
+ "D": {
+  "markets": 7293
+ },
+ "opp_markets_with_bot": 5242
+}

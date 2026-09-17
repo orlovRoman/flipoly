@@ -1,0 +1,17 @@
+{
+ "anchor_ask_buys_dev_oof": 548,
+ "anchor_net_dev_oof": 330.775,
+ "anchor_ask_buys_dev_incl_seed": 645,
+ "frac_buys_gap_lt_-0.01": 1.0,
+ "frac_buys_fresh_consistent": 0.0,
+ "fresh_ask_trades_dev": 0,
+ "fresh_ask_trades_final": 0,
+ "fresh_sweep_trades": {
+  "0.00": 0,
+  "0.03": 0,
+  "0.10": 0
+ },
+ "anchor_time_variant_trades": 0,
+ "anchor_time_variant_net": 0.0,
+ "conclusion": "P0 profit is 100% stale-price artifact; contemporaneous pricing never fires at any threshold"
+}
