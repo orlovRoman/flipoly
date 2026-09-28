@@ -81,6 +81,15 @@ def retention_cutoff_day(today: date, retention_days: int) -> date:
     return today - timedelta(days=int(retention_days))
 
 
+def retention_cutoff_at(now: datetime, retention_days: int) -> datetime:
+    """Return the UTC timestamp before which observations may be purged."""
+    if retention_days < 1:
+        raise ValueError("retention_days must be >= 1")
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    return now.astimezone(timezone.utc) - timedelta(days=int(retention_days))
+
+
 def archive_file_path(archive_dir: str, day: date, part: int = 0) -> str:
     return os.path.join(
         archive_dir, f"rtds_raw_journal_{day.isoformat()}_p{int(part)}.parquet"
@@ -191,6 +200,12 @@ class RTDSService:
         self.idle_timeout_sec = _env_float("RTDS_IDLE_TIMEOUT_SEC", 120.0)
         self.connect_timeout_sec = _env_float("RTDS_CONNECT_TIMEOUT_SEC", 10.0)
         self.retention_days = _env_int("RTDS_JOURNAL_RETENTION_DAYS", 30)
+        # Keeper observations are derived data and are retained independently
+        # from the raw journal. The journal is archived before this purge;
+        # observations are intentionally bounded so they cannot fill the DB.
+        self.observations_retention_days = _env_int(
+            "RTDS_OBSERVATIONS_RETENTION_DAYS", 7
+        )
         self.archive_dir = os.environ.get("RTDS_ARCHIVE_DIR", "./backups/rtds")
         self._volume: dict[tuple[date, str], list[int]] = {}
         self._last_retention_ms = 0
@@ -436,11 +451,23 @@ class RTDSService:
         import pyarrow.parquet as pq
         from sqlalchemy import func as _func
 
-        from polyflip.db.models import RTDSJournalArchive, RTDSRawJournal
+        from polyflip.db.models import (
+            RTDSJournalArchive,
+            RTDSObservation,
+            RTDSRawJournal,
+        )
 
         today = datetime.now(timezone.utc).date()
         cutoff = retention_cutoff_day(today, self.retention_days)
-        result: dict[str, Any] = {"cutoff": cutoff.isoformat(), "archived": []}
+        observations_cutoff = retention_cutoff_at(
+            datetime.now(timezone.utc), self.observations_retention_days
+        )
+        result: dict[str, Any] = {
+            "cutoff": cutoff.isoformat(),
+            "observations_cutoff": observations_cutoff.isoformat(),
+            "observations_deleted": 0,
+            "archived": [],
+        }
         os.makedirs(self.archive_dir, exist_ok=True)
         async with self.session_factory() as session:
             journal_max = {
@@ -578,6 +605,40 @@ class RTDSService:
                 logger.info(
                     "rtds_journal_archived", day=day.isoformat(), part=part, rows=rows
                 )
+
+            # Keep the high-volume keeper table bounded. Delete in small
+            # committed batches so the collector does not hold a long-running
+            # transaction or lock the table for the full retention sweep.
+            observation_batch_size = 50_000
+            # Use the primary-key maximum as the range boundary. Filtering
+            # this lookup by observed_at would force a full-table scan before
+            # the indexed range deletes can start.
+            observation_watermark = (
+                await session.execute(select(sa_func.max(RTDSObservation.id)))
+            ).scalar_one_or_none()
+            if observation_watermark is not None:
+                observation_start = 0
+                while observation_start < int(observation_watermark):
+                    observation_end = min(
+                        observation_start + observation_batch_size,
+                        int(observation_watermark),
+                    )
+                    deleted = await session.execute(
+                        RTDSObservation.__table__.delete().where(
+                            RTDSObservation.id > observation_start,
+                            RTDSObservation.id <= observation_end,
+                            RTDSObservation.observed_at < observations_cutoff,
+                        )
+                    )
+                    result["observations_deleted"] += int(deleted.rowcount or 0)
+                    await session.commit()
+                    observation_start = observation_end
+            if result["observations_deleted"]:
+                logger.info(
+                    "rtds_observations_purged",
+                    cutoff=observations_cutoff.isoformat(),
+                    rows=result["observations_deleted"],
+                )
         return result
 
     async def _flush_loop(self) -> None:
@@ -639,6 +700,7 @@ class RTDSService:
         self._client.on_gap = gap_and_dirty
         client_task = asyncio.create_task(self._client.run())
         flush_task = asyncio.create_task(self._flush_loop())
+        retention_task: asyncio.Task | None = None
         iteration = 0
         try:
             while self._running:
@@ -652,23 +714,31 @@ class RTDSService:
                 except OSError:
                     pass
                 iteration += 1
-                if iteration % 4 == 0:
-                    logger.info("rtds_collector_telemetry", health=self.health())
-                now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-                if now_ms - self._last_retention_ms > 3_600_000:
-                    self._last_retention_ms = now_ms
+                if retention_task is not None and retention_task.done():
                     try:
-                        rotated = await self.archive_and_purge()
-                        if rotated["archived"]:
+                        rotated = retention_task.result()
+                        if rotated["archived"] or rotated["observations_deleted"]:
                             logger.info("rtds_retention_rotated", result=rotated)
                     except Exception as exc:
                         logger.error("rtds_retention_error", error=str(exc))
+                    retention_task = None
+                if iteration % 4 == 0:
+                    logger.info("rtds_collector_telemetry", health=self.health())
+                now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+                if (
+                    retention_task is None
+                    and now_ms - self._last_retention_ms > 3_600_000
+                ):
+                    self._last_retention_ms = now_ms
+                    retention_task = asyncio.create_task(self.archive_and_purge())
         finally:
             self._running = False
             self._ended_ms = int(time.time() * 1000)
             self._client.stop()
             client_task.cancel()
             flush_task.cancel()
+            if retention_task is not None:
+                retention_task.cancel()
             try:
                 await client_task
             except asyncio.CancelledError:
@@ -677,6 +747,11 @@ class RTDSService:
                 await flush_task
             except asyncio.CancelledError:
                 pass
+            if retention_task is not None:
+                try:
+                    await retention_task
+                except asyncio.CancelledError:
+                    pass
             self._session_dirty = True
             await self._flush()
             logger.info(

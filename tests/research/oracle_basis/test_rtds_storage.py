@@ -11,6 +11,7 @@ from polyflip.collector.rtds_service import (
     ArchiveError,
     archive_file_path,
     days_to_archive,
+    retention_cutoff_at,
     retention_cutoff_day,
     utc_day_of_ms,
     verify_archive,
@@ -166,6 +167,12 @@ def test_retention_helpers_are_explicit():
     ) == [(date(2026, 8, 1), 1)]
     with pytest.raises(ValueError):
         retention_cutoff_day(today, 0)
+    now = datetime(2026, 9, 11, 12, 0, tzinfo=timezone.utc)
+    assert retention_cutoff_at(now, 7) == datetime(
+        2026, 9, 4, 12, 0, tzinfo=timezone.utc
+    )
+    with pytest.raises(ValueError):
+        retention_cutoff_at(now, 0)
 
 
 def test_verify_archive_counts_rows(tmp_path):
